@@ -42,12 +42,13 @@ const largeOn = () => {
   const o = (S.config?.settings?.sqft_options || []).find(x => x.label === S.addr.sqftLabel);
   return S.adu || (o ? (o.max === null || o.max >= S.config.settings.large_sqft) : false);
 };
-const largeVisible = () => largeEnabled() && (!!S.pkg || [...S.items].some(id => /photograph/i.test(svc(id)?.name || '')));
+const largeVisible = () => largeEnabled() && inCart().size > 0;
+const sizeAdj = () => largeOn() ? +S.config.settings.large_fee : 0; // shown inside package prices
 function lines() {
   const out = [];
-  if (S.pkg) { const p = svc(S.pkg); out.push({ name: p.name + ' Package', price: +p.price, subs: p.includes }); }
+  if (S.pkg) { const p = svc(S.pkg); out.push({ name: p.name + ' Package', price: +p.price + sizeAdj(), subs: p.includes }); }
   for (const id of S.items) { const s = svc(id); if (s) out.push({ name: s.name, price: +s.price }); }
-  if (largeOn() && largeVisible()) out.push({ name: S.config.settings.large_label, price: +S.config.settings.large_fee });
+  if (!S.pkg && largeOn() && largeVisible()) out.push({ name: S.config.settings.large_label, price: +S.config.settings.large_fee });
   return out;
 }
 const total = () => lines().reduce((a, l) => a + l.price, 0);
@@ -60,7 +61,6 @@ function resetSchedule() { S.slots = null; S.start = null; S.startLabel = ''; S.
 function cleanup() {
   const cov = covered();
   for (const id of [...S.items]) if (cov.has(id)) S.items.delete(id);
-  if (!largeVisible()) S.adu = false;
   resetSchedule();
 }
 
@@ -205,7 +205,7 @@ function vServices() {
     <button class="card round pkg ${S.pkg === p.id ? 'sel' : S.pkg ? 'dim' : ''}" onclick="kv.pickPkg('${p.id}')" aria-pressed="${S.pkg === p.id}" ${S.pkg && S.pkg !== p.id ? 'aria-disabled="true"' : ''}>
       <span class="tick">${CHECK}</span>
       <div class="pkg-h"><div class="pkg-nm"><h3>${esc(p.name)}</h3>${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}</div>
-        <span class="pkg-p">${money(p.price)}<small>starting</small></span></div>
+        <span class="pkg-p">${money(+p.price + sizeAdj())}<small>${sizeAdj() ? 'for ' + esc(S.addr.sqftLabel || 'large property') : 'starting'}</small></span></div>
       <ul class="chk two">${(p.includes || []).map(i => `<li>${CHECK}<span>${esc(i)}</span></li>`).join('')}</ul>
     </button>`).join('');
   const ups = upsells().map(u => `<div class="up"><div style="flex:1"><h3>${esc(u.title)}</h3><p>${esc(u.description)}</p></div>
@@ -226,7 +226,7 @@ function vServices() {
       ${s.description ? `<div class="meta">${esc(s.description)}</div>` : ''}</button>`;
   };
   const st = S.config.settings;
-  const large = largeVisible() ? `<section class="sec"><div class="sec-h"><i style="background:#8ca6cc"></i><h2>Property Add-Ons</h2></div>
+  const large = false ? `<section class="sec"><div class="sec-h"><i style="background:#8ca6cc"></i><h2>Property Add-Ons</h2></div>
       <p class="d">For larger homes and properties with extra structures.</p><div class="grid">
       <button class="card sq small-card ${S.adu ? 'sel' : ''}" onclick="kv.toggleAdu()" aria-pressed="${S.adu}"><span class="tick">${CHECK}</span>
       <h3>${esc(st.large_label)}</h3><div class="price">${money(st.large_fee)}</div><div class="meta">Over ${Number(st.large_sqft).toLocaleString()} sq ft, or an ADU / guest house / extra structure</div></button></div></section>` : '';
@@ -265,8 +265,8 @@ function vProperty() {
       ${field('occupancy', 'Occupancy', 'addr', { req: false, options: ['Vacant', 'Owner occupied', 'Tenant occupied'], ph: 'Select (optional)' })}
       ${field('access', 'Access notes', 'addr', { full: true, req: false, area: true, ph: 'Lockbox code, gate code, pets, who will be there…' })}
     </div>
-    ${big ? `<div class="callout"><span>Homes over ${Number(st.large_sqft).toLocaleString()} sq ft include the ${esc(st.large_label)} add-on (+${money(st.large_fee)}): more photos and more time on site.</span></div>` : ''}
-    ${largeVisible() && !big ? `<label class="check"><input type="checkbox" ${S.adu ? 'checked' : ''} onchange="kv.toggleAdu()"> This property has an ADU, guest house or extra structure (+${money(st.large_fee)})</label>` : ''}
+    ${largeOn() ? `<div class="callout"><span>Package prices on the next step include +${money(st.large_fee)} for ${big ? `homes ${Number(st.large_sqft).toLocaleString()}+ sq ft` : 'properties with an ADU or extra structure'}: more photos and more time on site.</span></div>` : ''}
+    ${largeEnabled() && !big ? `<label class="check"><input type="checkbox" ${S.adu ? 'checked' : ''} onchange="kv.toggleAdu()"> This property has an ADU, guest house or extra structure (+${money(st.large_fee)})</label>` : ''}
     </div></section>
     <div class="nav"><span></span><button class="btn" onclick="kv.go(1)">Continue to services</button></div>`;
 }
