@@ -72,7 +72,7 @@ window.kv = {
   go, pickSlot(start, label) { S.start = start; S.startLabel = label; S.checkout = null; render(); },
   moreSlots() { loadSlots(S.slots.days[S.slots.days.length - 1].date, true); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
-  startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, closeModal() { $('modal').innerHTML = ''; },
+  startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, closeModal() { $('modal').innerHTML = ''; },
 };
 
 function go(n) {
@@ -501,43 +501,47 @@ function vLandingSignin() {
     </div>
     <p class="ld-alt">New to Knox View? <a href="javascript:kv.setMode('signup')">Create an account</a></p>`;
 }
+function lpAddr(el) { const v = (el?.value || '').trim(); if (v !== (S.addr.street || '')) S.addr.street = v; if (v.length >= 5 || !v) render(); }
 function vLandingPrice() {
   const a = S.addr, opts = S.config.settings.sqft_options || [];
-  const done = a.street && a.city && a.zip;
+  const done = a.street && a.city && a.zip, hasAddr = (a.street || '').trim().length >= 5;
   const line = [a.street + (a.unit ? ` #${a.unit}` : ''), a.city, [a.state, a.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   return `<div class="lp-q"><span class="lp-n">1</span> Listing address</div>
-    <label class="lp-addr ${done ? 'ok' : ''}">${svg(IC_PIN, 22)}<input id="lpStreet" data-o="addr" data-k="street" placeholder="Listing address" value="${esc(a.street || '')}" autocomplete="off" aria-label="Listing address"></label>
-    ${done ? `<p class="lp-picked">${svg(IC_OK, 17)} ${esc(line)}</p>` : `<p class="lp-hint">Start typing, then pick the address from the list.</p>`}
-    <div class="lp-q"><span class="lp-n">2</span> Home size</div>
-    <div class="lp-sizes">${opts.map(o => `<button type="button" class="${a.sqftLabel === o.label ? 'on' : ''}" onclick="kv.lsize(${esc(JSON.stringify(o.label))})">${esc(o.label)}</button>`).join('')}</div>
-    <p class="lp-hint">Heated square feet. A guess is fine.</p>
+    <label class="lp-addr ${done ? 'ok' : ''}">${svg(IC_PIN, 22)}<input id="lpStreet" data-o="addr" data-k="street" placeholder="Start typing the address" value="${esc(a.street || '')}" autocomplete="off" aria-label="Listing address" onchange="kv.lpAddr(this)"></label>
+    ${done ? `<p class="lp-picked">${svg(IC_OK, 17)} ${esc(line)}</p>` : `<p class="lp-hint">Pick the address from the list and we'll fill in the rest.</p>`}
+    ${hasAddr ? `<div class="lp-q"><span class="lp-n">2</span> Home size</div>
+    <div class="lp-sel"><select id="lpSize" onchange="kv.lsize(this.value)" aria-label="Home size">
+      <option value="">Select home size</option>${opts.map(o => `<option ${a.sqftLabel === o.label ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>
+    <p class="lp-hint">Heated square feet. A close guess is fine.</p>
     ${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}
-    <button class="lp-go" onclick="kv.ldPricing()" ${a.sqftLabel ? '' : 'disabled'}>View pricing ${svg(IC_ARROW)}</button>`;
+    <button class="lp-go" onclick="kv.ldPricing()" ${a.sqftLabel ? '' : 'disabled'}>View pricing ${svg(IC_ARROW, 18)}</button>` : ''}`;
 }
 function vLanding() {
   const tab = S.ltab || 'price';
   return `<div class="lp">
     <div class="lp-main">
-      <header class="lp-top">
+      <header class="lp-top"><div class="lp-in lp-bar">
         <a class="lp-logo" href="javascript:kv.ltab('price')" aria-label="Knox View Real Estate Media"></a>
         <div class="lp-actions">
-          <button type="button" class="lp-signin" onclick="kv.ltab('signin')">${svg(IC_IN)} Sign in</button>
-          <a class="lp-text" href="${SMS_LINK}">${svg(IC_CHAT)} Text us</a>
+          <button type="button" class="lp-signin" onclick="kv.ltab('signin')">Sign in</button>
+          <a class="lp-text" href="${SMS_LINK}">${svg(IC_CHAT, 16)} Text us</a>
         </div>
-      </header>
-      <ol class="lp-steps" aria-label="Booking steps">${STEPS.map((s, i) => `<li class="${i === 0 && tab === 'price' ? 'on' : ''}">${s === 'Review & Pay' ? 'Checkout' : s}</li>`).join('')}</ol>
-      <section class="lp-hero">
-        <h1>${tab === 'price' ? 'Let’s make your listing <em>shine.</em>' : 'Welcome <em>back.</em>'}</h1>
-        <p>${tab === 'price' ? 'Enter the address and home size to see <b>your exact price</b>.' : 'Sign in to book, pay and download your media.'}</p>
-      </section>
-      <div class="lp-card">
-        <div class="seg lp-seg" role="tablist">
-          <button type="button" role="tab" aria-selected="${tab === 'price'}" class="${tab === 'price' ? 'on' : ''}" onclick="kv.ltab('price')">See pricing</button>
-          <button type="button" role="tab" aria-selected="${tab === 'signin'}" class="${tab === 'signin' ? 'on' : ''}" onclick="kv.ltab('signin')">Client sign in</button>
+      </div></header>
+      <div class="lp-in">
+        <ol class="lp-steps" aria-label="Booking steps">${STEPS.map((s, i) => `<li class="${i === 0 && tab === 'price' ? 'on' : ''}">${s === 'Review & Pay' ? 'Checkout' : s}</li>`).join('')}</ol>
+        <section class="lp-hero">
+          <h1>${tab === 'price' ? 'Let’s make your listing <em>shine.</em>' : 'Welcome <em>back.</em>'}</h1>
+          <p>${tab === 'price' ? 'Enter the address and home size to see <b>your exact price</b>.' : 'Sign in to book, pay and download your media.'}</p>
+        </section>
+        <div class="lp-card">
+          <div class="lp-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected="${tab === 'price'}" class="${tab === 'price' ? 'on' : ''}" onclick="kv.ltab('price')">See pricing</button>
+            <button type="button" role="tab" aria-selected="${tab === 'signin'}" class="${tab === 'signin' ? 'on' : ''}" onclick="kv.ltab('signin')">Client sign in</button>
+          </div>
+          <div class="lp-body">${tab === 'price' ? vLandingPrice() : vLandingSignin()}</div>
         </div>
-        ${tab === 'price' ? vLandingPrice() : vLandingSignin()}
+        <p class="lp-foot">Questions? Call or text <a href="tel:+18658555669">865-855-5669</a></p>
       </div>
-      <p class="lp-foot">Questions? Call or text <a href="tel:+18658555669">865-855-5669</a></p>
     </div>
     <aside class="lp-photo"><div class="lp-cap"><b>Knox View Real Estate Media</b><span>Photo · Video · Drone · 3D tours<br>Knoxville &amp; the Smokies</span></div></aside>
   </div>`;
