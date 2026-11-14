@@ -302,7 +302,7 @@ function field(key, label, obj, opt = {}) {
     ? `<select ${a}><option value="">${opt.ph || 'Select…'}</option>${opt.options.map(o => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`
     : opt.area ? `<textarea rows="3" ${a} placeholder="${esc(opt.ph || '')}">${esc(v)}</textarea>`
     : `<input ${a} value="${esc(v)}" placeholder="${esc(opt.ph || '')}" ${opt.type ? `type="${opt.type}"` : ''} ${opt.ac ? `autocomplete="${opt.ac}"` : ''} ${opt.im ? `inputmode="${opt.im}"` : ''}>`;
-  return `<div class="${opt.full ? 'full' : ''} ${err}"><label>${label}${req ? ' <em>*</em>' : ''}</label>${inp}</div>`;
+  return `<div class="${opt.full ? 'full' : ''} ${opt.pair ? 'pair' : ''} ${err}"><label>${label}${req ? ' <em>*</em>' : ''}</label>${inp}</div>`;
 }
 function vProperty() {
   const st = S.config.settings;
@@ -310,12 +310,12 @@ function vProperty() {
   const big = largeEnabled() && bySize && (bySize.max === null || bySize.max >= st.large_sqft);
   return `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Property</h2></div>
     <p class="d">Where are we shooting?</p>
-    <div class="panel"><div class="fg">
+    <div class="panel"><div class="fg pairs">
       ${field('street', 'Street address', 'addr', { full: true, ph: '123 Mountain View Dr', ac: 'address-line1' })}
       ${field('unit', 'Unit / Lot', 'addr', { req: false, ph: 'Optional', ac: 'address-line2' })}
       ${field('city', 'City', 'addr', { ph: 'Knoxville', ac: 'address-level2' })}
-      ${field('state', 'State', 'addr', { options: ['TN', 'NC', 'GA', 'KY', 'VA'] })}
-      ${field('zip', 'ZIP', 'addr', { ph: '37902', im: 'numeric', ac: 'postal-code' })}
+      ${field('state', 'State', 'addr', { pair: true, options: ['TN', 'NC', 'GA', 'KY', 'VA'] })}
+      ${field('zip', 'ZIP', 'addr', { pair: true, ph: '37902', im: 'numeric', ac: 'postal-code' })}
       ${field('sqftLabel', 'Select your square footage', 'addr', { full: true, options: (st.sqft_options || []).map(o => o.label) })}
       ${field('occupancy', 'Occupancy', 'addr', { req: false, options: ['Vacant', 'Owner occupied', 'Tenant occupied'], ph: 'Select (optional)' })}
       ${field('access', 'Access notes', 'addr', { full: true, req: false, area: true, ph: 'Lockbox code, gate code, pets, who will be there…' })}
@@ -498,15 +498,13 @@ const linkOf = (l, kind) => l.media.find(m => kind === 'photo' ? m.dropbox : m.v
 
 function acts(l) {
   const ph = linkOf(l, 'photo'), vd = linkOf(l, 'video');
-  const a = (href, icon, title) => href ? `<a class="act" href="${esc(href)}" target="_blank" rel="noopener" title="${title}" aria-label="${title}">${ic(icon)}</a>`
-    : `<span class="act off" title="${title} · not ready yet">${ic(icon)}</span>`;
-  const b = (fn, icon, title) => `<button class="act" onclick="${fn}" title="${title}" aria-label="${title}">${ic(icon)}</button>`;
+  const b = (fn, icon, title, lbl) => `<button class="act" onclick="${fn}" title="${title}" aria-label="${title}">${ic(icon)}<span class="al">${lbl}</span></button>`;
   const dl = `#delivery/${l.key}`, has = l.media.some(m => m.delivered) || l.b?.hasDelivery;
-  const go = (tab, icon, title, on) => on ? `<a class="act" href="${dl}/${tab}" title="${title}" aria-label="${title}">${ic(icon)}</a>` : `<span class="act off" title="${title} · not ready yet">${ic(icon)}</span>`;
+  const go = (tab, icon, title, on) => on ? `<a class="act" href="${dl}/${tab}" title="${title}" aria-label="${title}">${ic(icon)}<span class="al">${title}</span></a>` : `<span class="act off" title="${title} · not ready yet">${ic(icon)}<span class="al">${title}</span></span>`;
   return [go('photos', I.dl, 'Photos', !!ph || (has && l.media.some(m => m.media === 'photo'))), go('video', I.vid, 'Video', !!vd || (has && l.media.some(m => m.media === 'video'))),
-    `<a class="act" href="${dl}" title="Media & delivery" aria-label="Media & delivery">${ic(I.eye)}</a>`,
-    l.b ? b(`kv.invoiceFor(${l.b.number})`, I.inv, 'Invoice') : '',
-    b(`kv.orderAgain('${l.key}')`, I.again, 'Book this address again')].join('');
+    `<a class="act" href="${dl}" title="Media & delivery" aria-label="Media & delivery">${ic(I.eye)}<span class="al">All media</span></a>`,
+    l.b ? b(`kv.invoiceFor(${l.b.number})`, I.inv, 'Invoice', 'Invoice') : '',
+    b(`kv.orderAgain('${l.key}')`, I.again, 'Book this address again', 'Rebook')].join('');
 }
 function cover(l) {
   return l.cover ? `<img src="${esc(l.cover)}" alt="" loading="lazy">`
@@ -548,7 +546,7 @@ function vInvoices() {
   const onFile = pend.filter(b => b.payment_status === 'card_saved').length;
   const payPill = b => b.paid ? '<span class="pill g">Paid</span>' : b.payment_status === 'card_saved' ? '<span class="pill">Card on file</span>' : b.payment_status === 'processing' ? '<span class="pill">Processing</span>' : `<span class="pill w">${b.payment_status === 'failed' ? 'Payment failed' : 'Unpaid'}</span>`;
   const head = `<div class="ptools">
-    <div class="tabs"><button class="${UI.itab === 'pending' ? 'on' : ''}" onclick="kv.ui('itab','pending')">${ic(I.inv)}Pending invoices${pend.length ? ` <i>${pend.length}</i>` : ''}</button><button class="${UI.itab === 'paid' ? 'on' : ''}" onclick="kv.ui('itab','paid')">${ic(I.table)}Paid invoices</button></div>
+    <div class="tabs"><button class="${UI.itab === 'pending' ? 'on' : ''}" onclick="kv.ui('itab','pending')">${ic(I.inv)}Pending<span class="t-long">&nbsp;invoices</span>${pend.length ? ` <i>${pend.length}</i>` : ''}</button><button class="${UI.itab === 'paid' ? 'on' : ''}" onclick="kv.ui('itab','paid')">${ic(I.table)}Paid<span class="t-long">&nbsp;invoices</span></button></div>
     <div class="bal"><div><small>Balance due</small><b>${money(due)}</b></div><div><small>Card on file</small><b>${onFile}</b></div><div><small>Paid to date</small><b>${money(paidSum)}</b></div></div>
     <div class="srch">${ic(I.search, 16)}<input id="iq" type="search" placeholder="Search" value="${esc(UI.iq)}" oninput="kv.search('iq',this.value,'iq')"></div></div>
     ${onFile && UI.itab === 'pending' ? '<p class="hint" style="margin:-6px 0 14px">Orders with a card on file are charged automatically when your media is delivered. You can also pay any of them now.</p>' : ''}`;
@@ -567,7 +565,7 @@ function vSettings() {
     <p class="hint" style="margin:0 0 18px">Your contact details. We use these to fill in your bookings and reach you about shoots.</p>
     <form onsubmit="kv.saveProfile(event)" class="fg">
       <div class="full">${f('full_name', 'Full name', a.full_name, 'autocomplete="name"').slice(5, -6)}</div>
-      ${f('phone', 'Mobile number', a.phone, 'type="tel" inputmode="tel" autocomplete="tel-national" oninput="this.value=kv.fmtPhone(this.value)"')}
+      ${f('phone', 'Mobile number', a.phone ? kv.fmtPhone(a.phone) : '', 'type="tel" inputmode="tel" autocomplete="tel-national" oninput="this.value=kv.fmtPhone(this.value)"')}
       <div><label>Email</label><input value="${esc(a.email || S.session?.user?.email || '')}" disabled><p class="hint" style="margin:5px 0 0">This is how you sign in. To change it, call ${esc(CFG.phone)}.</p></div>
       ${f('brokerage', 'Brokerage', a.brokerage, 'autocomplete="organization"')}
       ${f('team_name', 'Team', a.team_name)}
@@ -660,7 +658,7 @@ function vDelivery() {
   if (cards) out += `<section class="dl-cards">${cards}</section>`;
   if (!tabs.length && !d.marketing) return out + `<div class="empty-st">${ic(I.photo, 56)}<p>Your media isn't delivered yet. We'll text and email you as soon as it is.</p></div>`;
   out += `<section class="dl-media"><nav class="dl-tabs">${tabs.map(([k, i, l]) => `<button class="${k === tab ? 'on' : ''}" onclick="kv.dTab('${k}')">${ic(i, 20)}<span>${l}</span></button>`).join('')}
-    ${d.marketing ? (d.marketing.url ? `<a class="dl-tabx" href="${esc(d.marketing.url)}" target="_blank" rel="noopener">${ic(I.ext, 20)}<span>Marketing content</span></a>` : `<span class="dl-tabx off">${ic(I.lock, 18)}<span>Marketing content</span></span>`) : ''}</nav>`;
+    ${d.marketing ? (d.marketing.url ? `<a class="dl-tabx" href="${esc(d.marketing.url)}" target="_blank" rel="noopener">${ic(I.ext, 20)}<span>Marketing<span class="t-mid"> content</span></span></a>` : `<span class="dl-tabx off">${ic(I.lock, 18)}<span>Marketing<span class="t-mid"> content</span></span></span>`) : ''}</nav>`;
   out += tab === 'photos' ? dPhotos(d) : tab === 'video' ? dVideos(d) : tab === 'floorplan' ? dPlans(d) : tab === 'tour' ? dTour(d) : '';
   return out + '</section>';
 }
@@ -857,7 +855,7 @@ function fillContact() {
 
 function vSummary(btn) {
   const ls = lines();
-  return `<h2>Your order</h2>
+  return `${btn ? '' : `<button class="sheet-x" onclick="document.getElementById('sheet').classList.remove('on')" aria-label="Close">Done</button>`}<h2>Your order</h2>
     ${ls.length ? ls.map(l => `<div class="line"><span>${esc(l.name)}</span><span>${money(l.price)}</span></div>${(l.subs || []).map(s => `<div class="line sub"><span>${esc(s)}</span><span>incl.</span></div>`).join('')}`).join('') : '<div class="empty">Choose a package or service to get started.</div>'}
     <div class="tot"><span>Total</span><span>${money(total())}</span></div>
     ${S.startLabel && S.step >= 2 ? `<div class="note">${new Date(S.start).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · ${esc(S.startLabel)}</div>` : ''}

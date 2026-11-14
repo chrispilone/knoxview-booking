@@ -277,19 +277,22 @@ ul.chk.two li{padding:1px 0;gap:6px}
 .empty-st p{font-size:16px;margin:14px 0 18px}
 .btn .ic{vertical-align:-3px}
 @media(max-width:880px){
+  .me-t{display:none}
+  .pnav a{padding:8px 12px}
+  .bal{order:5;max-width:none}
+  .srch{flex:1}
+}
+@media(max-width:767px){
   .brand{flex-wrap:wrap;row-gap:10px}
   .pnav{order:3;flex-basis:100%;justify-content:flex-start;overflow-x:auto}
   .pnav a{padding:7px 12px;font-size:14px}
-  .me-t{display:none}
-  .bal{order:5;max-width:none}
-  .srch{flex:1}
 }
 
 /* ---- app-like mobile + installed (home screen) ---- */
 header.top{padding-top:env(safe-area-inset-top)}
 .testacct{border:1.5px dashed var(--accent);margin:0 0 16px}
-@media(max-width:880px){
-  /* portal pages: bottom tab bar like a phone app */
+@media(max-width:767px){
+  /* portal pages on phones: bottom tab bar like a phone app (iPads keep the top nav) */
   .in-portal .pnav{position:fixed;left:0;right:0;bottom:0;z-index:35;background:#fff;border-top:1px solid var(--line);box-shadow:0 -4px 16px rgba(29,50,80,.08);
     display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:6px 6px calc(6px + env(safe-area-inset-bottom));overflow:visible;order:0;flex-basis:auto}
   .in-portal .pnav a{flex-direction:column;gap:3px;padding:6px 4px;border-radius:10px;font-size:11.5px;justify-content:center}
@@ -303,7 +306,6 @@ header.top{padding-top:env(safe-area-inset-top)}
   .sel-l{flex:1}.sel-l select{flex:1}
   .srch{min-width:0;flex-basis:100%}
   .bal{min-width:0;flex-basis:100%}
-  .lgrid{grid-template-columns:1fr;gap:14px}
   .menu{position:fixed;right:10px;left:10px;top:calc(64px + env(safe-area-inset-top));width:auto}
 }
 @media(max-width:640px){
@@ -433,3 +435,74 @@ header.top{padding-top:env(safe-area-inset-top)}
 .dl-card.soon{background:#fafbfc;border-style:dashed}
 .dl-card.soon h3{color:var(--slate)}
 @media(max-width:640px){.dl-grid.floorplans{grid-template-columns:1fr}}
+
+/* ================= responsive polish: phones, iPads, desktop ================= */
+.wrap>*{min-width:0} /* long rows (calendar days, tables) scroll inside their box instead of widening the page */
+.in-portal .top-in{max-width:1240px}
+.lcov,.lcov:hover{text-decoration:none}
+.me-t small,.menu small{text-transform:none;letter-spacing:0;font-size:12px}
+.menu-h small{word-break:break-word}
+html{-webkit-text-size-adjust:100%}
+button,a,.card,.row,.act{-webkit-tap-highlight-color:transparent}
+img{max-width:100%}
+/* listing card actions: icon + label so they read on touch screens (tables stay icon-only) */
+.lcard .acts{gap:2px}
+.lcard .act{flex:1;width:auto;height:auto;min-height:48px;padding:6px 2px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;text-decoration:none}
+.act .al{font-size:10.5px;font-weight:600;letter-spacing:.02em;line-height:1;white-space:nowrap}
+.tbl .act .al{display:none}
+.lgrid{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+@media(max-width:599px){
+  .lgrid{grid-template-columns:1fr;gap:14px}
+  .lcov{aspect-ratio:16/9}
+  .laddr{min-height:0}
+  .lmeta{flex-direction:row;flex-wrap:wrap;gap:8px 18px}
+  .t-long{display:none}
+}
+/* delivery: media tabs in one row; icon over label on phones */
+.dl-tabs{display:flex;gap:8px}
+.dl-tabs button,.dl-tabx{flex:1 1 0;min-width:0;font-size:15px;letter-spacing:.02em;white-space:nowrap}
+.dl-tabs span{overflow:hidden;text-overflow:ellipsis}
+@media(max-width:767px){
+  .dl-tabs{gap:6px;flex-wrap:wrap}
+  .dl-tabs button,.dl-tabx{flex-direction:column;gap:4px;padding:10px 4px;font-size:12px;border-radius:10px}
+  .dl-tabs button .ic,.dl-tabx .ic{width:22px;height:22px}
+  .dl-tabx{flex-basis:100%;flex-direction:row;padding:9px;font-size:13px}
+}
+@media(max-width:640px){
+  .dl-head h1{font-size:24px}
+  .dl-head p{font-size:14.5px}
+  .dl-cards{gap:10px}
+  .dl-card{padding:14px}
+  .dl-card h3{font-size:16.5px;margin-bottom:8px}
+  .dl-card .dl-url{display:none}
+  .dl-btns{grid-template-columns:repeat(3,1fr);gap:8px;margin-top:0}
+  .dl-btns .wide{grid-column:auto}
+  .dl-btns .btn{padding:10px 6px;font-size:14px}
+  .dl-lock{padding:12px 14px}
+  .dl-lock .btn{width:100%}
+  .dl-q button{padding:9px 6px}
+  .lb-top{padding:10px 12px}
+}
+/* iPad and other touch screens */
+@media(pointer:coarse){
+  input,select,textarea{font-size:16px} /* stops iPhone/iPad from zooming in on every field */
+  .act{width:42px;height:42px}
+  .lb-x{width:44px;height:44px}
+  .dl-img>button.dl-chk{width:38px;height:38px}
+  .slot{padding:12px 10px}
+  .day{width:76px}
+}
+@media(hover:none){
+  .card:hover{border-color:var(--line);box-shadow:none}
+  .card.sel:hover{border-color:var(--primary);box-shadow:0 0 0 1.5px var(--primary),0 6px 20px rgba(29,50,80,.12)}
+  .lcard:hover{box-shadow:none}
+  .btn.o:hover{background:transparent;color:var(--primary)}
+  .lb-bar .btn.o:hover{background:transparent;color:#fff}
+  .row:hover{background:none}.row.sel:hover{background:var(--pale)}
+  .act:hover,.dl-q button:hover{background:inherit}
+}
+/* booking form on phones: State + ZIP side by side */
+@media(max-width:560px){ .fg .pair{grid-column:auto} .fg.pairs{grid-template-columns:1fr 1fr} .fg.pairs>div:not(.pair){grid-column:1/-1} }
+@media(min-width:768px) and (max-width:900px){.t-mid{display:none}}
+@media(max-width:640px){.dl-bar .btn{flex:1 1 calc(50% - 5px);min-width:0}.dl-bar .btn:nth-child(3){flex-basis:100%}.dl-bar.locked .btn{flex:0 0 auto}}
+.sheet-x{float:right;border:0;background:var(--pale);color:var(--primary);font:600 13px var(--bf);padding:8px 14px;border-radius:999px;cursor:pointer}
