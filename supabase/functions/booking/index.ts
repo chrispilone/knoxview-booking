@@ -385,7 +385,7 @@ async function handle(req: Request) {
     if (action === 'portal') {
       const { data: agent } = await admin.from('agents').select('id, full_name, email, phone, brokerage').eq('auth_user_id', user.id).maybeSingle();
       if (!agent) return json(req, { agent: null, bookings: [], listings: [] });
-      const { data: bks } = await admin.from('bookings').select('id, number, status, address, unit, city, state, zip, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, videos, tour_url, floorplan_url, website_url, media_files, require_payment')
+      const { data: bks } = await admin.from('bookings').select('id, number, status, address, unit, city, state, zip, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, photo_files, videos, tour_url, floorplan_url, website_url, media_files, require_payment')
         .eq('agent_id', agent.id).neq('status', 'cancelled').order('shoot_start', { ascending: false }).limit(200);
       // deliveries made outside the portal (HQ / Spiro era) for this client, not tied to a portal booking
       const { data: own } = await admin.from('projects').select('id, name, address, city, media, status, dropbox_url, vimeo_url, delivered_at, created_at, parent_project_id')
@@ -402,10 +402,10 @@ async function handle(req: Request) {
         });
         // delivery links set on the booking in HQ count as delivered media too
         // (only true/false flags reach the client here; real file links come from the delivery page's signed links)
-        if (b.photos_url || ((b.media_files as any[]) ?? []).some(f => (f?.kind || 'photo') === 'photo')) media.push({ name: 'Photos', media: 'photo', delivered: true, deliveredAt: null, dropbox: b.paid || b.require_payment === false ? 'delivery' : null, vimeo: null });
+        if (b.photos_url || ((b.photo_files as any[]) ?? []).length || ((b.media_files as any[]) ?? []).some(f => (f?.kind || 'photo') === 'photo')) media.push({ name: 'Photos', media: 'photo', delivered: true, deliveredAt: null, dropbox: b.paid || b.require_payment === false ? 'delivery' : null, vimeo: null });
         for (const v of ((b.videos as any[]) ?? []).filter(v => v?.url)) media.push({ name: v.label || 'Video', media: 'video', delivered: true, deliveredAt: null, dropbox: null, vimeo: b.paid || b.require_payment === false ? 'delivery' : null });
         const extras = !!(b.tour_url || b.floorplan_url || b.website_url);
-        const out = { ...b, project_ids: undefined, photos_url: undefined, videos: undefined, tour_url: undefined, floorplan_url: undefined, website_url: undefined, media_files: undefined, media, hasDelivery: media.some((m: any) => m.delivered) || extras };
+        const out = { ...b, project_ids: undefined, photos_url: undefined, photo_files: undefined, videos: undefined, tour_url: undefined, floorplan_url: undefined, website_url: undefined, media_files: undefined, media, hasDelivery: media.some((m: any) => m.delivered) || extras };
         return { ...out, require_payment: undefined, locked: out.hasDelivery && !b.paid && b.require_payment !== false };
       });
       // group outside deliveries by address into one listing each
@@ -456,13 +456,24 @@ async function handle(req: Request) {
       }
       const locked = !!b && !b.paid && b.require_payment !== false; // pay before download (switch per order in HQ; HQ deliveries outside the portal are paid elsewhere)
       const done = projects.filter(p => p.status === 'delivered');
-      const photoLinks = [b?.photos_url, ...done.filter(p => p.media === 'photo').map(p => p.dropbox_url)].filter(Boolean).map(cleanDropboxLink);
+      const synced: { name: string; path: string }[] = ((b?.photo_files as any[]) ?? []).filter(f => f?.path); // synced from the order's Dropbox final photos folder, in Chris's order
+      const photoLinks = [synced.length ? null : b?.photos_url, ...done.filter(p => p.media === 'photo').map(p => p.dropbox_url)].filter(Boolean).map(cleanDropboxLink);
       const videoLinks: { url: string; label?: string }[] = [...((b?.videos as any[]) ?? []).filter(v => v?.url), ...done.filter(p => p.media === 'video').flatMap(p => [p.vimeo_url && { url: p.vimeo_url, label: p.name }, p.dropbox_url && { url: p.dropbox_url, label: p.name }]).filter(Boolean)];
       // Clients never see Dropbox links: everything goes through our signed `media` links. Before payment they get previews only.
       const pretty = (n: string) => n.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
       const direct = ((b?.media_files as any[]) ?? []).filter(f => f?.url && /^https:\/\//.test(f.url));
       // photos: Dropbox folders (needs the Dropbox connection) + directly hosted files
       const photos: any[] = [], folders: any[] = [];
+      if (synced.length) {
+        const wm = locked ? { wm: 1 as const } : {};
+        const dir = synced[0].path.replace(/\/[^/]+$/, '');
+        folders.push({ zip: locked ? null : await sign({ src: 'dbxp', path: dir, v: 'zip', name: `${head.address} photos.zip`, dl: 1 }) });
+        for (const f of synced) photos.push({ name: f.name,
+          thumb: await sign({ src: 'dbxp', path: f.path, v: 'thumb', name: f.name, ...wm }),
+          view: await sign({ src: 'dbxp', path: f.path, v: locked ? 'preview' : 'web', name: f.name, ...wm }),
+          web: locked ? null : await sign({ src: 'dbxp', path: f.path, v: 'web', name: f.name, dl: 1 }),
+          high: locked ? null : await sign({ src: 'dbxp', path: f.path, v: 'high', name: f.name, dl: 1 }) });
+      }
       for (const link of [...new Set(photoLinks)]) {
         if (dropboxConfigured()) folders.push({ zip: locked ? null : await sign({ src: 'dbx', link, path: '', v: 'high', name: `${head.address} photos.zip`, dl: 1 }) });
         const files = await dropboxFiles(link).catch(e => { console.error('dropbox', String(e)); return null; });

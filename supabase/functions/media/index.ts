@@ -3,9 +3,10 @@
 //   GET ?d=<payload>&s=<signature>
 //     src dbx:   v=thumb (640px JPEG), web (2048px JPEG), high (original file)
 //     src vimeo: phone-friendly MP4 (H.264, up to 1080p) — saves to the iPhone camera roll / Android gallery
+//     src dbxp:  a file by its path in the connected Dropbox (thumb/preview/web/high), or a folder as a zip (v=zip)
 //     src url:   any direct file link
 // The browser can fetch these (CORS open) to hand files to the share sheet ("Save Video" / "Save Images").
-import { verify, dropboxStream, vimeoInfo, pickPhoneMp4, safeName } from './lib.ts';
+import { verify, dropboxStream, dropboxPathStream, vimeoInfo, pickPhoneMp4, safeName } from './lib.ts';
 import { Image } from 'https://deno.land/x/imagescript@1.3.0/mod.ts';
 
 // Before payment, photos are served with the PREVIEW watermark burned in (can't be removed by saving the image).
@@ -37,6 +38,10 @@ Deno.serve(async (req) => {
     if (ref.src === 'dbx') {
       up = await dropboxStream(ref.link!, ref.path || '', ref.v || 'high');
       if (ref.v === 'thumb' || ref.v === 'preview' || ref.v === 'web') { type = 'image/jpeg'; name = name.replace(/\.[^.]+$/, '') + (ref.v === 'web' ? '-web' : '') + '.jpg'; }
+    } else if (ref.src === 'dbxp' && ref.path) { // file (or folder zip) by path in the connected Dropbox
+      up = await dropboxPathStream(ref.path, ref.v || 'high');
+      if (ref.v === 'thumb' || ref.v === 'preview' || ref.v === 'web') { type = 'image/jpeg'; name = name.replace(/\.[^.]+$/, '') + (ref.v === 'web' ? '-web' : '') + '.jpg'; }
+      if (ref.v === 'zip') { type = 'application/zip'; if (!/\.zip$/i.test(name)) name += '.zip'; }
     } else if (ref.src === 'vimeo') {
       const info = await vimeoInfo(ref.vid!);
       const f = pickPhoneMp4(info?.download);

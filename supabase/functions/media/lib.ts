@@ -1,7 +1,8 @@
 // Shared by the `booking` (delivery page) and `media` (file proxy) functions. Keep the two copies identical:
 //   supabase/functions/media/lib.ts  ==  supabase/functions/booking/lib.ts
 //
-// Dropbox: needs DROPBOX_REFRESH_TOKEN + DROPBOX_APP_KEY + DROPBOX_APP_SECRET (or a DROPBOX_ACCESS_TOKEN) secret.
+// Dropbox: needs DROPBOX_APP_KEY + DROPBOX_APP_SECRET secrets. The refresh token comes from "Connect Dropbox" in HQ
+// (stored in app_secrets) or a DROPBOX_REFRESH_TOKEN secret. Works with team spaces (uses the account's root namespace).
 // Vimeo:   needs VIMEO_ACCESS_TOKEN (scopes: public, private, video_files) to get MP4 download files.
 // Without them the delivery page still works with what it can: folder "download all" links and Vimeo embeds.
 
@@ -17,7 +18,8 @@ async function hmac(data: string) {
   return b64u(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data)))).slice(0, 32);
 }
 // v: thumb (640px), preview (1024px, for the photo viewer), web (2048px), high (original). wm: burn in the PREVIEW watermark.
-export type MediaRef = { src: 'dbx' | 'vimeo' | 'url'; link?: string; path?: string; vid?: string; url?: string; v?: 'thumb' | 'preview' | 'web' | 'high'; name?: string; dl?: 1; wm?: 1 };
+// src dbxp = a file (or, with v=zip, a folder) by its path in the connected Dropbox account.
+export type MediaRef = { src: 'dbx' | 'dbxp' | 'vimeo' | 'url'; link?: string; path?: string; vid?: string; url?: string; v?: 'thumb' | 'preview' | 'web' | 'high' | 'zip'; name?: string; dl?: 1; wm?: 1 };
 export async function sign(ref: MediaRef, hours = 12) {
   const d = b64u(new TextEncoder().encode(JSON.stringify({ ...ref, exp: Math.floor(Date.now() / 1000) + hours * 3600 })));
   return `${MEDIA_BASE}?d=${d}&s=${await hmac(d)}`;
@@ -29,16 +31,61 @@ export async function verify(d: string, s: string): Promise<(MediaRef & { exp: n
 
 /* ---------- Dropbox ---------- */
 let dbxTok: { t: string; exp: number } | null = null;
-export const dropboxConfigured = () => !!(env('DROPBOX_ACCESS_TOKEN') || (env('DROPBOX_REFRESH_TOKEN') && env('DROPBOX_APP_KEY') && env('DROPBOX_APP_SECRET')));
+export const dropboxConfigured = () => !!(env('DROPBOX_ACCESS_TOKEN') || (env('DROPBOX_APP_KEY') && env('DROPBOX_APP_SECRET')));
+async function storedRefreshToken() {
+  if (env('DROPBOX_REFRESH_TOKEN')) return env('DROPBOX_REFRESH_TOKEN');
+  const r = await fetch(`${env('SUPABASE_URL')}/rest/v1/app_secrets?key=eq.dropbox_refresh_token&select=value`, {
+    headers: { apikey: env('SUPABASE_SERVICE_ROLE_KEY'), Authorization: `Bearer ${env('SUPABASE_SERVICE_ROLE_KEY')}` } });
+  return r.ok ? ((await r.json())[0]?.value ?? null) : null;
+}
+export function forgetDropboxToken() { dbxTok = null; dbxRoot = undefined; }
 export async function dropboxToken() {
-  if (env('DROPBOX_REFRESH_TOKEN')) {
-    if (dbxTok && dbxTok.exp > Date.now() + 60_000) return dbxTok.t;
+  if (dbxTok && dbxTok.exp > Date.now() + 60_000) return dbxTok.t;
+  const refresh = await storedRefreshToken();
+  if (refresh && env('DROPBOX_APP_KEY') && env('DROPBOX_APP_SECRET')) {
     const r = await fetch('https://api.dropboxapi.com/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: env('DROPBOX_REFRESH_TOKEN'), client_id: env('DROPBOX_APP_KEY'), client_secret: env('DROPBOX_APP_SECRET') }) });
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refresh, client_id: env('DROPBOX_APP_KEY'), client_secret: env('DROPBOX_APP_SECRET') }) });
     const j = await r.json(); if (!r.ok) throw new Error('Dropbox sign-in failed: ' + (j.error_description || r.status));
     dbxTok = { t: j.access_token, exp: Date.now() + (j.expires_in ?? 14400) * 1000 }; return dbxTok.t;
   }
   return env('DROPBOX_ACCESS_TOKEN') || null;
+}
+// Team accounts keep shared folders in the team space: path calls need the account's root namespace.
+let dbxRoot: string | null | undefined;
+async function pathRoot(tok: string): Promise<Record<string, string>> {
+  if (dbxRoot === undefined) {
+    const r = await fetch('https://api.dropboxapi.com/2/users/get_current_account', { method: 'POST', headers: { Authorization: `Bearer ${tok}` } });
+    const j = r.ok ? await r.json() : null;
+    dbxRoot = j?.root_info && j.root_info.root_namespace_id !== j.root_info.home_namespace_id ? j.root_info.root_namespace_id : null;
+  }
+  return dbxRoot ? { 'Dropbox-API-Path-Root': JSON.stringify({ '.tag': 'root', root: dbxRoot }) } : {};
+}
+export async function dbxApi(endpoint: string, body: unknown) {
+  const tok = await dropboxToken(); if (!tok) throw new Error('Dropbox is not connected');
+  return fetch('https://api.dropboxapi.com/2/' + endpoint, { method: 'POST', headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', ...(await pathRoot(tok)) }, body: JSON.stringify(body) });
+}
+// Images in one folder of the connected account (by path), sorted by name.
+export async function dropboxFolderImages(path: string): Promise<{ name: string; path: string; size: number }[] | null> {
+  let r = await dbxApi('files/list_folder', { path, limit: 2000 });
+  if (r.status === 409) return null; // folder doesn't exist (yet)
+  const out: { name: string; path: string; size: number }[] = [];
+  for (let guard = 0; guard < 10; guard++) {
+    if (!r.ok) throw new Error('Dropbox list failed: ' + r.status + ' ' + (await r.text()).slice(0, 200));
+    const j = await r.json();
+    for (const e of j.entries) if (e['.tag'] === 'file' && /\.(jpe?g|png|heic|webp|tiff?)$/i.test(e.name)) out.push({ name: e.name, path: e.path_display, size: e.size });
+    if (!j.has_more) break;
+    r = await dbxApi('files/list_folder/continue', { cursor: j.cursor });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
+}
+// Stream a file by path: original, a JPEG rendition, or a whole folder as a zip.
+export async function dropboxPathStream(path: string, v: 'thumb' | 'preview' | 'web' | 'high' | 'zip') {
+  const tok = await dropboxToken(); if (!tok) throw new Error('Dropbox is not connected');
+  const root = await pathRoot(tok), H = { Authorization: `Bearer ${tok}`, ...root };
+  if (v === 'high') return fetch('https://content.dropboxapi.com/2/files/download', { method: 'POST', headers: { ...H, 'Dropbox-API-Arg': JSON.stringify({ path }) } });
+  if (v === 'zip') return fetch('https://content.dropboxapi.com/2/files/download_zip', { method: 'POST', headers: { ...H, 'Dropbox-API-Arg': JSON.stringify({ path }) } });
+  return fetch('https://content.dropboxapi.com/2/files/get_thumbnail_v2', { method: 'POST', headers: { ...H,
+    'Dropbox-API-Arg': JSON.stringify({ resource: { '.tag': 'path', path }, format: 'jpeg', size: v === 'thumb' ? 'w640h480' : v === 'preview' ? 'w1024h768' : 'w2048h1536', mode: 'bestfit' }) } });
 }
 export const cleanDropboxLink = (u: string) => u.replace(/([?&])dl=[01]&?/, '$1').replace(/[?&]$/, '');
 export const dropboxZip = (u: string) => { const c = cleanDropboxLink(u); return c + (c.includes('?') ? '&' : '?') + 'dl=1'; };
