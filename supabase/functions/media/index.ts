@@ -11,6 +11,7 @@ import { Image } from 'https://deno.land/x/imagescript@1.3.0/mod.ts';
 // Before payment, photos are served with the PREVIEW watermark burned in (can't be removed by saving the image).
 const WM_URL = (Deno.env.get('WATERMARK_URL') ?? '').trim() || 'https://knoxview-booking.netlify.app/watermark.png';
 let WM: any = null;
+const SB_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, ''), SB_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 async function watermark(bytes: Uint8Array) {
   let img: any = await Image.decode(bytes);
   if (img.width > 1400) img = img.resize(1400, Image.RESIZE_AUTO); // previews never need more
@@ -42,7 +43,9 @@ Deno.serve(async (req) => {
       if (!f) return err('This video is not available to download yet. Please call 865-855-5669.', 404);
       up = await fetch(f.link); type = 'video/mp4'; name = name.replace(/\.[^.]+$/, '') + '.mp4';
     } else if (ref.src === 'url' && /^https:\/\//.test(ref.url || '')) {
-      up = await fetch(ref.url!, { redirect: 'follow' });
+      // files uploaded in HQ live in the private "delivery" storage bucket: only this function can read them
+      const own = ref.url!.startsWith(`${SB_URL}/storage/v1/object/`);
+      up = await fetch(ref.url!, { redirect: 'follow', headers: own ? { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY } : {} });
     } else return err('Bad link');
     if (!up.ok || !up.body) { console.error('media upstream', ref.src, up.status, (await up.text().catch(() => '')).slice(0, 300)); return err('We could not get that file right now. Please try again.', 502); }
     if (ref.wm) { // watermarked preview (never the clean file)

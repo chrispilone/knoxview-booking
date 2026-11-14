@@ -664,11 +664,12 @@ function vDelivery() {
 }
 const SET_LABEL = { photos: ['photo', 'photos'], floorplans: ['floor plan', 'floor plans'] };
 const curSet = () => D.data[D.cur] || [];
+const isDoc = p => /\.pdf$/i.test(p?.name || ''); // PDF floor plans: file tile, tap to download
 function dGrid(d, key) {
   D.cur = key;
   const list = d[key], n = D.sel.size, all = list.length, [one, many] = SET_LABEL[key];
   const zip = key === 'photos' ? d.folders.find(f => f.zip)?.zip : null;
-  const tile = (p, i, inner) => p.thumb ? `<img src="${esc(p.thumb)}" alt="" loading="lazy" draggable="false" ${d.locked ? 'oncontextmenu="return false"' : ''}>` : `<span class="dl-file">${ic(I.plan, 34)}<small>${esc((p.name.split('.').pop() || '').toUpperCase())}</small></span>`;
+  const tile = (p, i, inner) => p.thumb && !isDoc(p) ? `<img src="${esc(p.thumb)}" alt="" loading="lazy" draggable="false" ${d.locked ? 'oncontextmenu="return false"' : ''}>` : `<span class="dl-file">${ic(I.plan, 34)}<small>${esc((p.name.split('.').pop() || '').toUpperCase())}</small></span>`;
   if (!all) return `<p class="hint" style="margin:14px 2px">${d.locked ? `Your ${many} unlock after payment.` : `Your ${many} are being prepared. Check back shortly.`}</p>
     ${zip ? `<a class="btn" href="${esc(zip)}">${ic(I.dl, 16)} Download all ${many} (zip)</a>` : ''}`;
   if (d.locked) return `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> ${all === 1 ? `Your ${one} downloads` : `All ${all} ${many} download`} in full resolution, without the watermark, after payment.</span>
@@ -779,7 +780,7 @@ async function saveFiles(list, what) {
   kv.closeModal();
 }
 Object.assign(window.kv, {
-  dView(i) { if (!curSet()[i]?.thumb && !curSet()[i]?.view) { const f = curSet()[i]; if (f?.high) kv.dSave([i], 'high'); return; } D.lb = i; document.body.style.overflow = 'hidden'; lbPaint(); },
+  dView(i) { if (isDoc(curSet()[i]) || (!curSet()[i]?.thumb && !curSet()[i]?.view)) { const f = curSet()[i]; if (f?.high) kv.dSave([i], 'high'); return; } D.lb = i; document.body.style.overflow = 'hidden'; lbPaint(); },
   dLbGo(step) { const n = curSet().length; D.lb = (D.lb + step + n) % n; lbPaint(); },
   dLbSel() { const i = D.lb; D.sel.has(i) ? D.sel.delete(i) : D.sel.add(i); lbPaint(); render(); },
   dLbClose() { D.lb = null; document.body.style.overflow = ''; const el = document.getElementById('lb'); if (el) { el.className = 'lb'; el.innerHTML = ''; } },
