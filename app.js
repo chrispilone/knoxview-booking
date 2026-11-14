@@ -932,11 +932,15 @@ window.addEventListener('hashchange', route);
 /* ================= boot ================= */
 (async function boot() {
   try {
-    const hand = location.hash.match(/^#ts=([\w-]+)$/); // HQ → "Open as test client" hands a session over in the URL fragment (never sent to a server)
+    // HQ → "Open as test client" / "Client's download page" / "View invoice" hands a session over in the URL fragment
+    // (never sent to a server). Optional &go= says where to land: delivery/<order id> or invoice/<order number>.
+    const hand = location.hash.match(/^#ts=([\w-]+)(?:&go=([\w\/-]+))?$/);
     if (hand) {
       try { const t = JSON.parse(atob(hand[1].replace(/-/g, '+').replace(/_/g, '/'))); await sb.auth.setSession({ access_token: t.a, refresh_token: t.r }); }
-      catch (e) { console.warn('test session handoff failed', e); }
-      history.replaceState(null, '', location.pathname + '#listings');
+      catch (e) { console.warn('session handoff failed', e); }
+      const go = hand[2] || '', inv = go.match(/^invoice\/(\d+)(\/paid)?$/);
+      if (inv) { UI.iq = '#' + inv[1]; UI.itab = inv[2] ? 'paid' : 'pending'; }
+      history.replaceState(null, '', location.pathname + (/^delivery\/[\w-]+$/.test(go) ? '#' + go : inv ? '#invoices' : '#listings'));
     }
     const [svcs, ups, cfg, sess] = await Promise.all([
       sb.from('booking_services').select('id, kind, name, description, includes, price, duration_min, covers, badge, sort_order').order('sort_order'),
