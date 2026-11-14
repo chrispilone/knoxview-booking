@@ -28,7 +28,7 @@ const S = {
   contact: { first: '', last: '', email: '', phone: '', brokerage: '', notes: '' },
   payOpt: 'save_card', errors: {}, busy: false,
   checkout: null, // { booking, clientSecret, intentType, elements }
-  done: null, portal: null,
+  done: null, login: null, pdata: null, after: '',
 };
 const svc = id => S.services.find(s => s.id === id);
 const packages = () => S.services.filter(s => s.kind === 'package').sort((a, b) => a.sort_order - b.sort_order);
@@ -157,7 +157,7 @@ async function finishBooking(id, token) {
 
 /* ---------- auth + portal ---------- */
 // Sign in with a one-time code: by email, or by text to a mobile number that matches a client record.
-const LP = () => (S.portal && S.portal.method ? S.portal : (S.portal = { stage: 'enter', mode: 'signin', method: 'email', email: '', phone: '', su: { name: '', phone: '', email: '', company: '' } }));
+const LP = () => (S.login || (S.login = { stage: 'enter', mode: 'signin', method: 'email', email: '', phone: '', su: { name: '', phone: '', email: '', company: '' } }));
 function keepInput() { const p = LP(), v = $('loginId')?.value; if (v != null) p[p.method === 'sms' ? 'phone' : 'email'] = v.trim(); }
 function setMethod(m) {
   keepInput(); const p = LP();
@@ -214,15 +214,16 @@ async function verifyCode(ev) {
     const r = await api('verify', { ref: LP().ref, code }, 'auth-code');
     const { error } = await sb.auth.setSession(r.session);
     if (error) throw error;
-    S.portal = null; // the auth listener links the client record and loads their orders
+    S.login = null; S.pdata = null; // the auth listener links the client record; then we go to their listings
+    location.hash = S.after || '#listings';
   } catch (e) { S.error = e.message; }
   S.busy = false; render();
 }
 function loginBack() { LP().stage = 'enter'; S.error = ''; render(); }
-async function signOut() { await sb.auth.signOut(); S.session = null; S.agent = null; S.portal = null; location.hash = ''; render(); }
+async function signOut() { await sb.auth.signOut(); S.session = null; S.agent = null; S.pdata = null; S.login = null; UI.menu = false; location.hash = '#account'; render(); }
 async function loadPortal() {
-  S.portal = { loading: true }; render();
-  try { S.portal = await api('portal'); } catch (e) { S.portal = { error: e.message }; }
+  S.pdata = { loading: true }; render();
+  try { S.pdata = await api('portal'); if (S.pdata.agent) { S.agent = { ...S.agent, ...S.pdata.agent }; fillContact(); } } catch (e) { S.pdata = { error: e.message }; }
   render();
 }
 async function payBooking(id) {
@@ -237,7 +238,7 @@ async function payBooking(id) {
     elements.create('payment').mount('#pay-el2');
     $('payGo').onclick = async () => {
       $('payGo').disabled = true;
-      const { error } = await stripe.confirmPayment({ elements, confirmParams: { return_url: `${location.origin}/#account` }, redirect: 'if_required' });
+      const { error } = await stripe.confirmPayment({ elements, confirmParams: { return_url: `${location.origin}/#invoices` }, redirect: 'if_required' });
       if (error) { $('payErr').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; $('payGo').disabled = false; return; }
       await api('confirm', { bookingId: r.booking.id, token: r.booking.token }).catch(() => {});
       kv.closeModal(); loadPortal();
@@ -387,7 +388,7 @@ function vDone() {
     <p>${ok ? `Order #${esc(d.number)} · ${esc(when)}` : 'We received your order but the payment is still processing. We\'ll confirm by email.'}</p>
     <p class="hint">${d.paymentStatus === 'paid' ? 'Paid in full. ' : d.paymentStatus === 'card_saved' ? 'Your card is saved and will be charged when your media is delivered. ' : ''}A confirmation is on its way.</p>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px">
-      <a class="btn" href="#account" style="text-decoration:none">View my orders</a>
+      <a class="btn" href="#listings" style="text-decoration:none">View my listings</a>
       <button class="btn o" onclick="location.href='/'">Book another</button></div></div>`;
 }
 function vLogin() {
@@ -436,34 +437,204 @@ function vLogin() {
         <button type="button" class="btn o" style="width:100%" onclick="kv.setMode('signup')">Create an account</button></div>`;
 }
 function vAccount() {
-  if (!S.session) {
-    const p = S.portal || {};
-    return `<div class="panel" style="max-width:460px;margin:0 auto"><h2 style="font-size:26px">${LP().mode === 'signup' ? 'Create account' : 'Client sign in'}</h2>
+  return `<div class="panel" style="max-width:460px;margin:0 auto"><h2 style="font-size:26px">${LP().mode === 'signup' ? 'Create account' : 'Client sign in'}</h2>
       ${vLogin()}
-      <p class="hint" style="margin-top:16px"><a href="/">← Book a shoot</a></p></div>`;
-  }
-  const p = S.portal;
-  if (!p || p.loading) return '<div class="panel loading"><span class="spin"></span> Loading your orders…</div>';
-  if (p.error) return `<div class="msg err">${esc(p.error)}</div>`;
-  const head = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-    <div><h2 style="font-size:26px">My orders</h2><div class="hint">${esc(p.agent?.full_name || S.session.user.email)}</div></div>
-    <div style="display:flex;gap:8px"><a class="btn" href="/" style="text-decoration:none">Book a shoot</a><button class="btn o" onclick="kv.signOut()">Sign out</button></div></div>`;
-  if (!p.agent) return head + `<div class="panel"><p>We don't have any orders under <b>${esc(S.session.user.email)}</b> yet. Book your first shoot and it will show up here.</p></div>`;
-  if (!p.bookings.length) return head + '<div class="panel"><p>No orders yet.</p></div>';
-  const statusPill = b => b.status === 'completed' ? '<span class="pill g">Shot</span>' : b.status === 'scheduled' ? '<span class="pill">Scheduled</span>' : `<span class="pill w">${esc(b.status)}</span>`;
-  const payPill = b => b.paid ? '<span class="pill g">Paid</span>' : b.payment_status === 'card_saved' ? '<span class="pill">Card on file</span>' : `<span class="pill w">${b.payment_status === 'failed' ? 'Payment failed' : 'Unpaid'}</span>`;
-  return head + p.bookings.map(b => {
-    const when = b.shoot_start ? new Date(b.shoot_start).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
-    const media = (b.media || []).map(m => m.delivered
-      ? (m.dropbox || m.vimeo ? [m.dropbox && `<a class="btn" href="${esc(m.dropbox)}" target="_blank" rel="noopener">${m.media === 'video' ? 'Download video' : 'Download photos'}</a>`, m.vimeo && `<a class="btn o" href="${esc(m.vimeo)}" target="_blank" rel="noopener">Watch video</a>`].filter(Boolean).join('') : `<span class="pill w">${esc(m.name)} ready · pay to unlock</span>`)
-      : `<span class="pill">${esc(m.media === 'video' ? 'Video' : 'Photos')} in progress</span>`).join('');
-    return `<div class="order"><div class="order-h"><div><h3>${esc(b.address)}${b.unit ? ', ' + esc(b.unit) : ''}</h3>
-      <div class="hint">#${esc(b.number)} · ${esc(when)} · ${esc(b.city || '')}</div></div><b style="color:var(--primary);font-size:18px">${money(b.total)}</b></div>
-      <div>${statusPill(b)}${payPill(b)}</div>
-      <div class="hint" style="margin-top:8px">${(b.items || []).map(i => esc(i.name)).join(' · ')}</div>
-      <div class="media">${media}${!b.paid ? `<button class="btn ${b.locked ? '' : 'o'}" onclick="kv.payBooking('${b.id}')">Pay ${money(b.total)}</button>` : ''}</div></div>`;
-  }).join('');
+      <p class="hint" style="margin-top:16px"><a href="#order">← Book a shoot</a></p></div>`;
 }
+/* ================= client portal (signed in) ================= */
+const ic = (p, s = 18) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+const I = {
+  cart: '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.5L21.5 7H6"/>',
+  home: '<path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5.5v-6h-5v6H4a1 1 0 0 1-1-1z"/>',
+  inv: '<path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>',
+  dl: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+  vid: '<rect x="2" y="5" width="14" height="14" rx="2"/><path d="M16 10l6-3.5v11L16 14z"/>',
+  eye: '<path d="M1.5 12S5.5 5 12 5s10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  cal: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10h18"/>',
+  tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.5"/>',
+  cards: '<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>',
+  table: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>',
+  again: '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  out: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
+  down: '<path d="M6 9l6 6 6-6"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  none: '<path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M3 3l18 18"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+};
+const UI = (S.ui = { lview: 'cards', sort: 'new', q: '', itab: 'pending', iq: '', menu: false });
+const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit', year: 'numeric' }) : '';
+const fmtShort = d => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+const initials = n => (n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
+const PORTAL_VIEWS = ['listings', 'invoices', 'settings'];
+
+function listingsAll() {
+  const d = S.pdata; if (!d || !d.agent) return [];
+  const st = (media, b) => {
+    const any = media.some(m => m.delivered), all = media.length && media.every(m => m.delivered);
+    if (b?.locked) return ['Ready · pay to unlock', 'w'];
+    if (all) return ['Delivered', 'g'];
+    if (any) return ['Partly delivered', 'g'];
+    if (!b) return ['In progress', ''];
+    if (b.status === 'completed') return ['Editing', ''];
+    if (b.status === 'scheduled') return [new Date(b.shoot_start) > new Date() ? 'Scheduled' : 'Editing', ''];
+    return ['Pending', 'w'];
+  };
+  const out = (d.bookings || []).map(b => ({
+    key: b.id, line1: b.address + (b.unit ? ', ' + b.unit : ''),
+    line2: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+    date: b.shoot_start, status: st(b.media || [], b), cover: b.cover_url, media: b.media || [], b,
+  }));
+  for (const l of d.listings || []) out.push({ key: l.id, line1: l.address || 'Listing', line2: l.city || '', date: l.date, status: st(l.media, null), cover: null, media: l.media });
+  const q = UI.q.trim().toLowerCase();
+  const list = q ? out.filter(x => `${x.line1} ${x.line2} ${x.b ? '#' + x.b.number : ''}`.toLowerCase().includes(q)) : out;
+  const t = x => Date.parse(x.date || 0) || 0;
+  return list.sort(UI.sort === 'old' ? (a, b) => t(a) - t(b) : UI.sort === 'addr' ? (a, b) => a.line1.localeCompare(b.line1, 'en', { numeric: true }) : (a, b) => t(b) - t(a));
+}
+const findListing = key => listingsAll().find(x => x.key === key) || (UI.q = '', listingsAll().find(x => x.key === key));
+const linkOf = (l, kind) => l.media.find(m => kind === 'photo' ? m.dropbox : m.vimeo);
+
+function acts(l) {
+  const ph = linkOf(l, 'photo'), vd = linkOf(l, 'video');
+  const a = (href, icon, title) => href ? `<a class="act" href="${esc(href)}" target="_blank" rel="noopener" title="${title}" aria-label="${title}">${ic(icon)}</a>`
+    : `<span class="act off" title="${title} · not ready yet">${ic(icon)}</span>`;
+  const b = (fn, icon, title) => `<button class="act" onclick="${fn}" title="${title}" aria-label="${title}">${ic(icon)}</button>`;
+  return [a(ph?.dropbox, I.dl, 'Download photos'), a(vd?.vimeo, I.vid, 'Watch video'),
+    b(`kv.details('${l.key}')`, I.eye, 'Order details'),
+    l.b ? b(`kv.invoiceFor(${l.b.number})`, I.inv, 'Invoice') : '',
+    b(`kv.orderAgain('${l.key}')`, I.again, 'Book this address again')].join('');
+}
+function cover(l) {
+  return l.cover ? `<img src="${esc(l.cover)}" alt="" loading="lazy">`
+    : `<div class="ph">${ic(I.home, 34)}<b>Knox View</b><small>Real Estate Media</small></div>`;
+}
+function vListings() {
+  const all = listingsAll();
+  const tools = `<div class="ptools">
+    <div class="tabs"><button class="${UI.lview === 'cards' ? 'on' : ''}" onclick="kv.ui('lview','cards')">${ic(I.cards)}Card view</button><button class="${UI.lview === 'table' ? 'on' : ''}" onclick="kv.ui('lview','table')">${ic(I.table)}Table view</button></div>
+    <span class="grow"></span>
+    <label class="sel-l"><span>Sort by</span><select onchange="kv.ui('sort',this.value)">
+      <option value="new" ${UI.sort === 'new' ? 'selected' : ''}>Newest first</option><option value="old" ${UI.sort === 'old' ? 'selected' : ''}>Oldest first</option><option value="addr" ${UI.sort === 'addr' ? 'selected' : ''}>Address</option></select></label>
+    <div class="srch">${ic(I.search, 16)}<input id="lq" type="search" placeholder="Search" value="${esc(UI.q)}" oninput="kv.search('q',this.value,'lq')"></div></div>`;
+  if (!all.length) return tools + empty(UI.q ? 'No listings match your search.' : 'No listings yet. Book your first shoot and it will show up here.', !UI.q);
+  if (UI.lview === 'table') return tools + `<div class="tbl-w"><table class="tbl"><thead><tr><th>Address</th><th>Shoot date</th><th>Status</th><th class="r">Media</th></tr></thead><tbody>
+    ${all.map(l => `<tr><td><b>${esc(l.line1)}</b><div class="hint">${esc(l.line2)}</div></td><td>${esc(fmtShort(l.date))}</td>
+      <td><span class="pill ${l.status[1]}">${esc(l.status[0])}</span></td><td class="r"><div class="acts">${acts(l)}</div></td></tr>`).join('')}</tbody></table></div>`;
+  return tools + `<div class="lgrid">${all.map(l => `<article class="lcard">
+    <button class="lcov" onclick="kv.details('${l.key}')" aria-label="Details for ${esc(l.line1)}">${cover(l)}</button>
+    <div class="lbody"><div class="laddr">${esc(l.line1)}<br><span>${esc(l.line2)}</span></div>
+      <div class="lmeta"><div>${ic(I.tag)}<span class="pill ${l.status[1]}">${esc(l.status[0])}</span></div><div>${ic(I.cal)}${esc(fmtDate(l.date))}</div></div>
+      ${l.b?.locked ? `<button class="btn" style="width:100%;margin-top:10px" onclick="kv.payBooking('${l.b.id}')">${ic(I.lock, 15)} Pay ${money(l.b.total)} to unlock</button>` : ''}
+      <div class="acts">${acts(l)}</div></div></article>`).join('')}</div>`;
+}
+function empty(text, cta) {
+  return `<div class="empty-st">${ic(I.none, 64)}<p>${esc(text)}</p>${cta ? '<a class="btn" href="#order" style="text-decoration:none">Order now</a>' : ''}</div>`;
+}
+
+function invoicesAll() {
+  const bk = (S.pdata?.bookings || []);
+  const pend = bk.filter(b => !b.paid), paid = bk.filter(b => b.paid);
+  const q = UI.iq.trim().toLowerCase().replace(/^#/, '');
+  const f = list => q ? list.filter(b => `${b.number} ${b.address} ${b.city || ''} ${(b.items || []).map(i => i.name).join(' ')}`.toLowerCase().includes(q)) : list;
+  return { pend, paid, rows: f(UI.itab === 'paid' ? paid : pend) };
+}
+function vInvoices() {
+  const { pend, paid, rows } = invoicesAll();
+  const due = pend.reduce((a, b) => a + +b.total, 0), paidSum = paid.reduce((a, b) => a + +b.total, 0);
+  const onFile = pend.filter(b => b.payment_status === 'card_saved').length;
+  const payPill = b => b.paid ? '<span class="pill g">Paid</span>' : b.payment_status === 'card_saved' ? '<span class="pill">Card on file</span>' : b.payment_status === 'processing' ? '<span class="pill">Processing</span>' : `<span class="pill w">${b.payment_status === 'failed' ? 'Payment failed' : 'Unpaid'}</span>`;
+  const head = `<div class="ptools">
+    <div class="tabs"><button class="${UI.itab === 'pending' ? 'on' : ''}" onclick="kv.ui('itab','pending')">${ic(I.inv)}Pending invoices${pend.length ? ` <i>${pend.length}</i>` : ''}</button><button class="${UI.itab === 'paid' ? 'on' : ''}" onclick="kv.ui('itab','paid')">${ic(I.table)}Paid invoices</button></div>
+    <div class="bal"><div><small>Balance due</small><b>${money(due)}</b></div><div><small>Card on file</small><b>${onFile}</b></div><div><small>Paid to date</small><b>${money(paidSum)}</b></div></div>
+    <div class="srch">${ic(I.search, 16)}<input id="iq" type="search" placeholder="Search" value="${esc(UI.iq)}" oninput="kv.search('iq',this.value,'iq')"></div></div>
+    ${onFile && UI.itab === 'pending' ? '<p class="hint" style="margin:-6px 0 14px">Orders with a card on file are charged automatically when your media is delivered. You can also pay any of them now.</p>' : ''}`;
+  if (!rows.length) return head + empty(UI.iq ? 'No invoices match your search.' : UI.itab === 'paid' ? 'No paid invoices yet.' : "You're all paid up. No pending invoices.", false);
+  return head + `<div class="tbl-w"><table class="tbl"><thead><tr><th>Invoice</th><th>Property</th><th>Shoot date</th><th>Services</th><th class="r">Amount</th><th>Status</th><th></th></tr></thead><tbody>
+    ${rows.map(b => `<tr><td><b>#${esc(b.number)}</b></td><td>${esc(b.address)}${b.unit ? ', ' + esc(b.unit) : ''}<div class="hint">${esc(b.city || '')}</div></td>
+      <td>${esc(fmtShort(b.shoot_start))}</td><td class="svc">${(b.items || []).map(i => esc(i.name)).join(', ')}</td>
+      <td class="r"><b>${money(b.total)}</b></td><td>${payPill(b)}${b.paid && b.paid_at ? `<div class="hint">${esc(fmtShort(b.paid_at))}</div>` : ''}</td>
+      <td class="r">${b.paid ? '' : `<button class="btn sm" onclick="kv.payBooking('${b.id}')">Pay</button>`}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function vSettings() {
+  const a = S.pdata?.agent || S.agent || {};
+  const f = (k, label, v, attrs = '') => `<div><label for="st_${k}">${label}</label><input id="st_${k}" value="${esc(v || '')}" ${attrs}></div>`;
+  return `<div class="panel" style="max-width:640px"><h2 style="font-size:26px;margin-bottom:4px">Settings</h2>
+    <p class="hint" style="margin:0 0 18px">Your contact details. We use these to fill in your bookings and reach you about shoots.</p>
+    <form onsubmit="kv.saveProfile(event)" class="fg">
+      <div class="full">${f('full_name', 'Full name', a.full_name, 'autocomplete="name"').slice(5, -6)}</div>
+      ${f('phone', 'Mobile number', a.phone, 'type="tel" inputmode="tel" autocomplete="tel-national" oninput="this.value=kv.fmtPhone(this.value)"')}
+      <div><label>Email</label><input value="${esc(a.email || S.session?.user?.email || '')}" disabled><p class="hint" style="margin:5px 0 0">This is how you sign in. To change it, call ${esc(CFG.phone)}.</p></div>
+      ${f('brokerage', 'Brokerage', a.brokerage, 'autocomplete="organization"')}
+      ${f('team_name', 'Team', a.team_name)}
+      <div class="full">${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}${UI.saved ? '<div class="msg info">Saved.</div>' : ''}
+        <button class="btn" ${S.busy ? 'disabled' : ''}>${S.busy ? '<span class="spin"></span>' : 'Save changes'}</button></div>
+    </form></div>`;
+}
+
+function vPortal() {
+  const p = S.pdata;
+  if (!p || p.loading) return '<div class="panel loading"><span class="spin"></span> Loading…</div>';
+  if (p.error) return `<div class="msg err">${esc(p.error)} <a href="javascript:kv.reloadPortal()">Try again</a></div>`;
+  return S.view === 'invoices' ? vInvoices() : S.view === 'settings' ? vSettings() : vListings();
+}
+
+function vHeader() {
+  const v = S.view, signedIn = !!S.session;
+  const nav = signedIn ? [['#order', I.cart, 'Order now', v === 'book' || v === 'done'], ['#listings', I.home, 'Listings', v === 'listings'], ['#invoices', I.inv, 'Invoices', v === 'invoices']]
+    .map(([h, i, t, on]) => `<a href="${h}" class="${on ? 'on' : ''}">${ic(i)}<span>${t}</span></a>`).join('') : '';
+  $('pnav').innerHTML = nav;
+  const a = S.pdata?.agent || S.agent, name = a?.full_name || S.session?.user?.email || '';
+  $('acct').innerHTML = !signedIn ? `<a class="signin" href="#account">${v === 'account' ? 'Book a shoot' : 'Sign in'}</a>`.replace('href="#account">Book', 'href="#order">Book')
+    : `<button class="me" onclick="kv.menu(event)" aria-expanded="${UI.menu}"><span class="av">${esc(initials(a?.full_name || name))}</span>
+        <span class="me-t"><b>${esc(name)}</b>${a?.brokerage ? `<small>${esc(a.brokerage)}</small>` : ''}</span>${ic(I.down, 16)}</button>
+      ${UI.menu ? `<div class="menu" onclick="event.stopPropagation()"><div class="menu-h"><span class="av">${esc(initials(a?.full_name || name))}</span><div><b>${esc(name)}</b><small>${esc(a?.email || S.session.user.email || '')}</small></div></div>
+        <a href="#settings" onclick="kv.menu()">${ic(I.gear)}Settings</a><a href="#invoices" onclick="kv.menu()">${ic(I.inv)}Invoices</a><button onclick="kv.signOut()">${ic(I.out)}Log out</button></div>` : ''}`;
+}
+
+Object.assign(window.kv, {
+  ui(k, v) { UI[k] = v; render(); },
+  search(k, v, id) { UI[k] = v; render(); const el = $(id); if (el) { el.focus(); el.setSelectionRange(v.length, v.length); } },
+  menu(ev) { ev?.stopPropagation(); UI.menu = !UI.menu; render(); },
+  reloadPortal() { S.pdata = null; loadPortal(); },
+  invoiceFor(n) { UI.iq = '#' + n; UI.itab = S.pdata.bookings.find(b => b.number === n)?.paid ? 'paid' : 'pending'; location.hash = '#invoices'; },
+  orderAgain(key) {
+    const l = findListing(key); if (!l) return;
+    if (l.b) Object.assign(S.addr, { street: l.b.address || '', unit: l.b.unit || '', city: l.b.city || '', state: l.b.state || 'TN', zip: l.b.zip || '' });
+    else Object.assign(S.addr, { street: l.line1, city: l.line2 });
+    S.step = 0; S.view = 'book'; resetSchedule(); location.hash = '#order'; render(); window.scrollTo({ top: 0 });
+  },
+  details(key) {
+    const l = findListing(key); if (!l) return; const b = l.b;
+    const media = l.media.length ? l.media.map(m => `<div class="line"><span>${esc(m.name || (m.media === 'video' ? 'Video' : 'Photos'))}</span><span>${m.dropbox || m.vimeo
+      ? [m.dropbox && `<a href="${esc(m.dropbox)}" target="_blank" rel="noopener">Download</a>`, m.vimeo && `<a href="${esc(m.vimeo)}" target="_blank" rel="noopener">Watch</a>`].filter(Boolean).join(' · ')
+      : m.delivered ? 'Pay to unlock' : 'In progress'}</span></div>`).join('') : '<p class="hint">Media will appear here once it is delivered.</p>';
+    $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel" style="max-width:540px">
+      <h2 style="font-size:24px">${esc(l.line1)}</h2><div class="hint" style="margin:2px 0 12px">${esc(l.line2)}${b ? ` · Order #${esc(b.number)}` : ''}</div>
+      <span class="pill ${l.status[1]}">${esc(l.status[0])}</span>
+      <dl class="review">${l.date ? `<dt>${b ? 'Shoot' : 'Date'}</dt><dd>${esc(new Date(l.date).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', ...(b ? { hour: 'numeric', minute: '2-digit' } : {}) }))}</dd>` : ''}
+        ${b ? `<dt>Services</dt><dd>${(b.items || []).map(i => `<div class="line"><span>${esc(i.name)}</span><span>${money(i.price)}</span></div>`).join('')}<div class="tot"><span>Total</span><span>${money(b.total)}</span></div></dd>` : ''}
+        <dt>Media</dt><dd>${media}</dd></dl>
+      <div class="nav"><button class="btn o" onclick="kv.closeModal()">Close</button>${b && !b.paid ? `<button class="btn" onclick="kv.closeModal();kv.payBooking('${b.id}')">Pay ${money(b.total)}</button>` : ''}</div></div></div>`;
+  },
+  async saveProfile(ev) {
+    ev.preventDefault();
+    const v = k => ($('st_' + k)?.value || '').trim();
+    S.busy = true; S.error = ''; UI.saved = false; render();
+    try {
+      const r = await api('profile', { full_name: v('full_name'), phone: v('phone'), brokerage: v('brokerage'), team_name: v('team_name') });
+      S.agent = r.agent; if (S.pdata) S.pdata.agent = r.agent; fillContact(); UI.saved = true;
+    } catch (e) { S.error = e.message; }
+    S.busy = false; render();
+  },
+});
+document.addEventListener('click', () => { if (UI.menu) { UI.menu = false; render(); } });
+function fillContact() {
+  if (!S.agent) { if (S.session) S.contact.email = S.session.user.email; return; }
+  const [first, ...rest] = (S.agent.full_name || '').split(' ');
+  Object.assign(S.contact, { first: first || '', last: rest.join(' '), email: S.agent.email || S.session?.user?.email || '', phone: S.agent.phone || '', brokerage: S.agent.brokerage || '' });
+}
+
 function vSummary(btn) {
   const ls = lines();
   return `<h2>Your order</h2>
@@ -475,15 +646,16 @@ function vSummary(btn) {
 
 /* ================= render ================= */
 function render() {
-  const acct = S.view === 'account', done = S.view === 'done';
-  $('acctLink').textContent = S.session ? 'My orders' : 'Sign in';
-  $('acctLink').href = acct ? '#' : '#account';
-  if (acct) $('acctLink').textContent = 'Book a shoot';
+  const portal = PORTAL_VIEWS.includes(S.view), acct = S.view === 'account' || portal, done = S.view === 'done';
+  vHeader();
+  document.body.classList.toggle('in-portal', portal);
   $('main').classList.toggle('one', acct || done);
+  $('main').classList.toggle('wide', portal);
   $('side').style.display = acct || done ? 'none' : '';
   $('steps').style.display = acct || done ? 'none' : '';
   $('bar').style.visibility = acct || done || S.loading ? 'hidden' : 'visible';
   if (S.loading) return;
+  if (portal) { $('view').innerHTML = vPortal(); return; }
   if (acct) { $('view').innerHTML = vAccount(); return; }
   if (done) { $('view').innerHTML = vDone(); return; }
   $('steps').innerHTML = STEPS.map((s, i) => `<button class="step ${S.step === i ? 'on' : ''} ${S.step > i ? 'done' : ''}" ${canReach(i) && !S.busy ? '' : 'disabled'} onclick="kv.go(${i})"><b>${S.step > i ? '✓' : i + 1}</b><span class="lbl">${s}</span></button>`).join('');
@@ -515,9 +687,14 @@ $('sheet').onclick = e => { if (e.target.id === 'sheet') e.currentTarget.classLi
 
 function route() {
   S.error = '';
-  S.view = location.hash === '#account' ? 'account' : S.view === 'done' ? 'done' : 'book';
-  if (S.view === 'account' && S.session && (!S.portal || S.portal.stage)) loadPortal();
-  render();
+  const h = location.hash.replace('#', '');
+  UI.menu = false; UI.saved = false;
+  if (h === 'account' && S.session) { location.replace('#listings'); return; }
+  if (PORTAL_VIEWS.includes(h)) {
+    if (!S.session) { S.after = '#' + h; S.view = 'account'; }
+    else { S.view = h; if (!S.pdata) loadPortal(); }
+  } else S.view = h === 'account' ? 'account' : S.view === 'done' && !h ? 'done' : 'book';
+  render(); if (PORTAL_VIEWS.includes(S.view) || S.view === 'account') window.scrollTo({ top: 0 });
 }
 window.addEventListener('hashchange', route);
 
@@ -535,14 +712,11 @@ window.addEventListener('hashchange', route);
     if (cfg.stripe?.mode === 'test') $('testbar').hidden = false;
     if (S.session) {
       const l = await api('link').catch(() => ({}));
-      S.agent = l.agent;
-      if (S.agent) { const [first, ...rest] = (S.agent.full_name || '').split(' ');
-        Object.assign(S.contact, { first: first || '', last: rest.join(' '), email: S.agent.email || S.session.user.email, phone: S.agent.phone || '', brokerage: S.agent.brokerage || '' }); }
-      else S.contact.email = S.session.user.email;
+      S.agent = l.agent; fillContact();
     }
     sb.auth.onAuthStateChange((_e, session) => {
       const was = !!S.session; S.session = session;
-      if (session && !was) { api('link').then(l => { S.agent = l.agent; route(); }).catch(() => route()); }
+      if (session && !was) { api('link').then(l => { S.agent = l.agent; fillContact(); route(); }).catch(() => route()); }
     });
     S.loading = false;
     // Returning from a bank redirect (3-D Secure etc.)

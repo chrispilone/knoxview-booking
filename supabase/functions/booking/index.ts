@@ -1,0 +1,452 @@
+import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+// Knox View client booking portal API (test.knoxview.com → book.knoxview.com).
+// Public actions: config, slots, quote, create, confirm.  Signed-in client actions: link, portal, pay, profile.
+// Stripe webhooks arrive at this same URL. Stripe mode: LIVE only for requests from book.knoxview.com (and only
+// if live keys are set); everything else uses TEST keys.
+// Prices are always computed here from booking_services; the browser's totals are never trusted.
+
+const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
+const env = (k: string) => (Deno.env.get(k) ?? '').trim();
+const KEYS = {
+  test: { sk: env('STRIPE_SECRET_KEY'), pk: env('STRIPE_PUBLISHABLE_KEY'), wh: env('STRIPE_WEBHOOK_SECRET') },
+  live: { sk: env('STRIPE_LIVE_SECRET_KEY'), pk: env('STRIPE_LIVE_PUBLISHABLE_KEY'), wh: env('STRIPE_LIVE_WEBHOOK_SECRET') },
+};
+const LIVE_ORIGINS = ['https://book.knoxview.com'];
+const reqMode = new AsyncLocalStorage<{ live: boolean }>(); // per-request Stripe mode
+const isLive = () => reqMode.getStore()?.live ?? false;
+const G_ID = (Deno.env.get('GOOGLE_CLIENT_ID') ?? '').trim();
+const G_SECRET = (Deno.env.get('GOOGLE_CLIENT_SECRET') ?? '').trim();
+const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
+
+const cors = (req: Request) => {
+  const o = req.headers.get('origin') ?? '';
+  const ok = ORIGINS.includes(o) || /^https:\/\/[a-z0-9-]+--knoxview-booking\.netlify\.app$/.test(o);
+  return { 'Access-Control-Allow-Origin': ok ? o : ORIGINS[0], 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Vary': 'Origin' };
+};
+const json = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors(req), 'Content-Type': 'application/json' } });
+class UserError extends Error { constructor(m: string, public status = 400) { super(m); } }
+
+/* ---------------- Stripe ---------------- */
+function stripeMode(live = isLive()) {
+  const k = live ? KEYS.live.sk : KEYS.test.sk;
+  if (!k) return 'missing';
+  if (!live && /^(sk|rk)_test_/.test(k)) return 'test';
+  if (live && /^(sk|rk)_live_/.test(k)) return 'live';
+  return 'invalid'; // e.g. a live key saved in the test slot
+}
+function form(obj: Record<string, unknown>, prefix = '', out = new URLSearchParams()) {
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    const key = prefix ? `${prefix}[${k}]` : k;
+    if (Array.isArray(v)) v.forEach((x, i) => typeof x === 'object' ? form(x as Record<string, unknown>, `${key}[${i}]`, out) : out.append(`${key}[${i}]`, String(x)));
+    else if (typeof v === 'object') form(v as Record<string, unknown>, key, out);
+    else out.append(key, String(v));
+  }
+  return out;
+}
+async function stripe(path: string, body?: Record<string, unknown>, method = body ? 'POST' : 'GET', idem?: string, live = isLive()) {
+  const mode = stripeMode(live);
+  if (mode === 'missing') throw new UserError('Online payments are not switched on yet. Please call 865-855-5669 to book.', 503);
+  if (mode === 'invalid') throw new UserError(`The ${live ? 'live' : 'test'} Stripe key is the wrong kind of key.`, 503);
+  const r = await fetch('https://api.stripe.com/v1' + path, {
+    method, headers: { Authorization: `Bearer ${live ? KEYS.live.sk : KEYS.test.sk}`, 'Content-Type': 'application/x-www-form-urlencoded', ...(idem ? { 'Idempotency-Key': idem } : {}) },
+    body: body && method !== 'GET' ? form(body) : undefined,
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d?.error?.message || `Stripe error ${r.status}`);
+  return d;
+}
+
+/* ---------------- Time helpers ---------------- */
+function tzOffsetMin(tz: string, at: Date) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(at).map(x => [x.type, x.value]));
+  const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  return (asUtc - at.getTime()) / 60000;
+}
+function zoned(date: string, time: string, tz: string) { // local wall time → UTC Date
+  const [y, m, d] = date.split('-').map(Number); const [hh, mm] = time.split(':').map(Number);
+  const guess = new Date(Date.UTC(y, m - 1, d, hh, mm));
+  return new Date(guess.getTime() - tzOffsetMin(tz, guess) * 60000);
+}
+const localDate = (d: Date, tz: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+const weekday = (date: string) => new Date(date + 'T12:00:00Z').getUTCDay();
+
+/* ---------------- Catalog + pricing ---------------- */
+async function loadCatalog() {
+  const [{ data: services }, { data: settings }] = await Promise.all([
+    admin.from('booking_services').select('*').eq('active', true).eq('public', true),
+    admin.from('booking_settings').select('*').eq('id', 1).single(),
+  ]);
+  return { services: services ?? [], settings: settings! };
+}
+type Sel = { packageId?: string | null; serviceIds?: string[]; sqftLabel?: string; adu?: boolean };
+function price(cat: Awaited<ReturnType<typeof loadCatalog>>, sel: Sel) {
+  const byId = new Map<string, any>(cat.services.map(s => [s.id, s]));
+  const pkg = sel.packageId ? byId.get(sel.packageId) : null;
+  if (sel.packageId && (!pkg || pkg.kind !== 'package')) throw new UserError('That package is no longer available.');
+  const covered = new Set<string>(pkg?.covers ?? []);
+  const items: { id: string; name: string; kind: string; price: number; minutes: number; includes?: string[] }[] = [];
+  if (pkg) items.push({ id: pkg.id, name: pkg.name, kind: 'package', price: +pkg.price, minutes: pkg.duration_min, includes: pkg.includes });
+  for (const id of [...new Set(sel.serviceIds ?? [])]) {
+    const s = byId.get(id);
+    if (!s || s.kind !== 'addon') throw new UserError('One of the selected services is no longer available.');
+    if (covered.has(id)) continue; // already in the package
+    items.push({ id: s.id, name: s.name, kind: 'service', price: +s.price, minutes: s.duration_min });
+  }
+  if (!items.length) throw new UserError('Choose a package or at least one service.');
+  const opt = (cat.settings.sqft_options as { label: string; max: number | null }[]).find(o => o.label === sel.sqftLabel);
+  const large = +cat.settings.large_fee > 0 && (!!sel.adu || (opt ? (opt.max === null || opt.max >= cat.settings.large_sqft) : false));
+  if (large) items.push({ id: 'large', name: cat.settings.large_label, kind: 'fee', price: +cat.settings.large_fee, minutes: cat.settings.large_minutes });
+  const subtotal = items.reduce((a, i) => a + i.price, 0);
+  const minutes = items.reduce((a, i) => a + (i.minutes || 0), 0);
+  const twilight = items.some(i => /twilight photos/i.test(i.name)) || (pkg && (pkg.covers ?? []).some((c: string) => /twilight photos/i.test(byId.get(c)?.name ?? '')));
+  return { items, subtotal, tax: 0, total: subtotal, minutes: Math.max(minutes, 30), large, sqft: opt?.max ?? null, twilight: !!twilight };
+}
+
+/* ---------------- Availability ---------------- */
+async function ownerGoogleToken() {
+  if (!G_ID || !G_SECRET) return null;
+  const { data: owner } = await admin.from('team_members').select('id').eq('role', 'owner').eq('active', true).limit(1).maybeSingle();
+  if (!owner) return null;
+  const { data: acct } = await admin.from('google_accounts').select('*').eq('member_id', owner.id).maybeSingle();
+  if (!acct) return null;
+  if (acct.access_token && acct.access_expires_at && new Date(acct.access_expires_at).getTime() > Date.now() + 60_000) return acct.access_token as string;
+  const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: G_ID, client_secret: G_SECRET, grant_type: 'refresh_token', refresh_token: acct.refresh_token }) });
+  const t = await r.json(); if (!r.ok) return null;
+  await admin.from('google_accounts').update({ access_token: t.access_token, access_expires_at: new Date(Date.now() + (t.expires_in ?? 3600) * 1000).toISOString(), updated_at: new Date().toISOString() }).eq('member_id', owner.id);
+  return t.access_token as string;
+}
+async function busy(from: Date, to: Date) {
+  const out: { s: number; e: number }[] = [];
+  const holdSince = new Date(Date.now() - 30 * 60000).toISOString();
+  const { data: bk } = await admin.from('bookings').select('shoot_start, shoot_end, status, created_at, gcal_event_id')
+    .lt('shoot_start', to.toISOString()).gt('shoot_end', from.toISOString()).in('status', ['requested', 'scheduled']);
+  const ownEvents = new Set<string>();
+  for (const b of bk ?? []) {
+    if (b.status === 'requested' && b.created_at < holdSince) continue; // abandoned checkout
+    out.push({ s: Date.parse(b.shoot_start), e: Date.parse(b.shoot_end) });
+    if (b.gcal_event_id) ownEvents.add(b.gcal_event_id);
+  }
+  let calendar = false;
+  try {
+    const tok = await ownerGoogleToken();
+    if (tok) {
+      const q = new URLSearchParams({ timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: 'true', maxResults: '2500' });
+      const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, { headers: { Authorization: `Bearer ${tok}` } });
+      if (r.ok) {
+        calendar = true;
+        for (const ev of (await r.json()).items ?? []) {
+          if (ev.status === 'cancelled' || ev.transparency === 'transparent' || ownEvents.has(ev.id)) continue;
+          if (!ev.start?.dateTime) continue; // all-day events (reminders, holidays) don't block shoots
+          out.push({ s: Date.parse(ev.start.dateTime), e: Date.parse(ev.end.dateTime) });
+        }
+      }
+    }
+  } catch (_) { /* fall back to bookings only */ }
+  return { intervals: out, calendar };
+}
+async function slots(cat: Awaited<ReturnType<typeof loadCatalog>>, minutes: number, fromDate?: string, days = 14) {
+  const st = cat.settings, tz = st.timezone || 'America/New_York';
+  const earliest = Date.now() + st.min_notice_hours * 3600_000;
+  const start = fromDate && /^\d{4}-\d{2}-\d{2}$/.test(fromDate) ? fromDate : localDate(new Date(), tz);
+  const horizonEnd = Date.now() + st.horizon_days * 86400_000;
+  const dates: string[] = [];
+  for (let i = 0; dates.length < Math.min(days, 31) && i < 62; i++) {
+    const d = new Date(Date.parse(start + 'T12:00:00Z') + i * 86400_000).toISOString().slice(0, 10);
+    if (zoned(d, '00:00', tz).getTime() > horizonEnd) break;
+    dates.push(d);
+  }
+  if (!dates.length) return { tz, calendar: false, days: [] };
+  const { intervals, calendar } = await busy(zoned(dates[0], '00:00', tz), zoned(dates[dates.length - 1], '23:59', tz));
+  const buf = st.buffer_min * 60000, dur = minutes * 60000, step = st.slot_step * 60000;
+  const out = dates.map(date => {
+    const open = (st.work_days as number[]).includes(weekday(date));
+    const times: { start: string; label: string }[] = [];
+    if (open) {
+      const dayEnd = zoned(date, String(st.day_end).slice(0, 5), tz).getTime();
+      for (let t = zoned(date, String(st.day_start).slice(0, 5), tz).getTime(); t + dur <= dayEnd; t += step) {
+        if (t < earliest) continue;
+        if (intervals.some(b => t < b.e + buf && t + dur > b.s - buf)) continue;
+        times.push({ start: new Date(t).toISOString(), label: new Date(t).toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }) });
+      }
+    }
+    return { date, open, times };
+  });
+  return { tz, calendar, days: out };
+}
+
+/* ---------------- Finalize (shared with webhook) ---------------- */
+async function finalize(bookingId: string) {
+  const { data: b } = await admin.from('bookings').select('*').eq('id', bookingId).single();
+  if (!b) throw new UserError('Booking not found', 404);
+  const live = !!b.stripe_livemode;
+  let paymentStatus = b.payment_status, pm = b.stripe_payment_method_id;
+  if (b.stripe_payment_intent_id) {
+    const pi = await stripe(`/payment_intents/${b.stripe_payment_intent_id}`, undefined, 'GET', undefined, live);
+    paymentStatus = pi.status === 'succeeded' ? 'paid' : pi.status === 'processing' ? 'processing' : pi.status === 'requires_payment_method' && pi.last_payment_error ? 'failed' : paymentStatus;
+    pm = pi.payment_method ?? pm;
+  } else if (b.stripe_setup_intent_id) {
+    const si = await stripe(`/setup_intents/${b.stripe_setup_intent_id}`, undefined, 'GET', undefined, live);
+    if (si.status === 'succeeded') paymentStatus = 'card_saved';
+    pm = si.payment_method ?? pm;
+  }
+  const ready = ['paid', 'card_saved', 'processing'].includes(paymentStatus);
+  const patch: Record<string, unknown> = { payment_status: paymentStatus, stripe_payment_method_id: pm, updated_at: new Date().toISOString() };
+  if (paymentStatus === 'paid' && !b.paid) { patch.paid = true; patch.paid_at = new Date().toISOString(); }
+  if (ready && b.status === 'requested') patch.status = 'scheduled';
+  if (pm && b.stripe_customer_id && paymentStatus === 'card_saved') {
+    await stripe(`/customers/${b.stripe_customer_id}`, { invoice_settings: { default_payment_method: pm } }, 'POST', undefined, live).catch(() => {});
+  }
+  const { data: updated } = await admin.from('bookings').update(patch).eq('id', b.id).select('*').single();
+  if (ready && !b.gcal_event_id && updated) await addToCalendar(updated).catch(e => console.error('calendar', String(e)));
+  return updated;
+}
+async function addToCalendar(b: Record<string, any>) {
+  const tok = await ownerGoogleToken(); if (!tok) return;
+  const items = (b.items as { name: string; kind: string }[]).map(i => i.name).join(', ');
+  const ev = {
+    summary: `${b.stripe_livemode ? '' : 'TEST '}📸 #${b.number} ${b.address}`,
+    location: [b.address, b.unit, b.city, b.state, b.zip].filter(Boolean).join(', '),
+    description: `Booked online${b.stripe_livemode ? '' : ' (TEST booking, no real payment)'}\n\nClient: ${b.client_name} · ${b.client_phone} · ${b.client_email}\nServices: ${items}\nSize: ${b.sqft_label ?? ''}${b.large_property ? ' (large property)' : ''}\nOccupancy: ${b.occupancy ?? ''}\nAccess: ${b.access_notes ?? ''}\nNotes: ${b.notes ?? ''}\nTotal: $${b.total} · ${b.payment_status}`,
+    start: { dateTime: b.shoot_start }, end: { dateTime: b.shoot_end },
+    extendedProperties: { private: { kv_booking: b.id } },
+  };
+  const r = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', { method: 'POST', headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' }, body: JSON.stringify(ev) });
+  if (r.ok) { const d = await r.json(); await admin.from('bookings').update({ gcal_event_id: d.id }).eq('id', b.id); }
+}
+
+/* ---------------- Clients ---------------- */
+async function userFrom(req: Request) {
+  const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!jwt || jwt.split('.').length !== 3) return null;
+  const { data } = await admin.auth.getUser(jwt);
+  return data?.user ?? null;
+}
+async function agentFor(email: string, name: string, phone: string, brokerage: string, userId?: string | null) {
+  const em = email.trim().toLowerCase();
+  let { data: agent } = await admin.from('agents').select('*').ilike('email', em).order('created_at').limit(1).maybeSingle();
+  if (!agent) {
+    const { data } = await admin.from('agents').insert({ full_name: name, email: em, phone, brokerage: brokerage || null, preferences: 'Created by online booking' }).select('*').single();
+    agent = data;
+  } else {
+    const fill: Record<string, unknown> = {};
+    if (!agent.phone && phone) fill.phone = phone;
+    if (!agent.brokerage && brokerage) fill.brokerage = brokerage;
+    if (Object.keys(fill).length) await admin.from('agents').update(fill).eq('id', agent.id);
+  }
+  if (userId && !agent.auth_user_id) await admin.from('agents').update({ auth_user_id: userId }).eq('id', agent.id);
+  return agent;
+}
+
+/* ---------------- Stripe webhook (same endpoint, signed) ---------------- */
+async function verifyStripe(raw: string, header: string) {
+  const secrets = [KEYS.test.wh, KEYS.live.wh].filter(Boolean);
+  if (!secrets.length) throw new UserError('Webhook secret not set', 503);
+  const t = header.split(',').find(x => x.startsWith('t='))?.slice(2) ?? '';
+  const sigs = header.split(',').filter(x => x.startsWith('v1=')).map(x => x.slice(3));
+  if (!t || !sigs.length || Math.abs(Date.now() / 1000 - Number(t)) > 300) throw new UserError('Bad signature', 400);
+  for (const secret of secrets) {
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${t}.${raw}`)));
+    const hex = [...mac].map(b => b.toString(16).padStart(2, '0')).join('');
+    if (sigs.some(s => s.length === hex.length && s.split('').every((c, i) => c === hex[i]))) return;
+  }
+  throw new UserError('Bad signature', 400);
+}
+async function webhook(req: Request) {
+  const raw = await req.text();
+  try { await verifyStripe(raw, req.headers.get('stripe-signature') ?? ''); }
+  catch (e) { return new Response(String((e as Error).message), { status: 400 }); }
+  const ev = JSON.parse(raw);
+  const obj = ev.data?.object ?? {};
+  const bookingId = obj.metadata?.booking_id ?? null;
+  const { error: dup } = await admin.from('stripe_events').insert({ id: ev.id, type: ev.type, booking_id: bookingId });
+  if (dup) return new Response('duplicate', { status: 200 });
+  if (bookingId && /^(payment_intent|setup_intent)\./.test(ev.type)) {
+    try { await finalize(bookingId); } catch (e) { console.error('webhook finalize', String(e)); await admin.from('stripe_events').delete().eq('id', ev.id); return new Response('retry', { status: 500 }); }
+  }
+  return new Response('ok', { status: 200 });
+}
+
+/* ---------------- Handler ---------------- */
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors(req) });
+  if (req.headers.get('stripe-signature')) return webhook(req);
+  return reqMode.run({ live: LIVE_ORIGINS.includes(req.headers.get('origin') ?? '') }, () => handle(req));
+});
+
+async function handle(req: Request) {
+  const LIVE = isLive();
+  try {
+    const body = await req.json().catch(() => ({}));
+    const action = String(body.action || '');
+
+    if (action === 'config') {
+      const { data: s } = await admin.from('booking_settings').select('payment_options, sqft_options, large_sqft, large_fee, large_label, timezone').eq('id', 1).single();
+      const mode = stripeMode(), pk = LIVE ? KEYS.live.pk : KEYS.test.pk;
+      const pkOk = LIVE ? pk.startsWith('pk_live_') : pk.startsWith('pk_test_');
+      return json(req, { stripe: { mode, publishableKey: (mode === 'test' || mode === 'live') && pkOk ? pk : null }, settings: s });
+    }
+
+    if (action === 'quote') {
+      const cat = await loadCatalog();
+      return json(req, price(cat, body));
+    }
+
+    if (action === 'slots') {
+      const cat = await loadCatalog();
+      const q = price(cat, body);
+      return json(req, { minutes: q.minutes, ...(await slots(cat, q.minutes, body.from, Number(body.days) || 14)) });
+    }
+
+    if (action === 'create') {
+      if (!['test', 'live'].includes(stripeMode())) throw new UserError('Online payments are not switched on yet. Please call 865-855-5669 to book.', 503);
+      const cat = await loadCatalog();
+      const q = price(cat, body);
+      const a = body.address ?? {}, c = body.contact ?? {};
+      const need = (v: unknown, label: string) => { if (!String(v ?? '').trim()) throw new UserError(`${label} is required.`); return String(v).trim().slice(0, 300); };
+      const street = need(a.street, 'Street address'), city = need(a.city, 'City'), state = need(a.state, 'State'), zip = need(a.zip, 'ZIP');
+      if (!/^\d{5}$/.test(zip)) throw new UserError('ZIP must be 5 digits.');
+      const first = need(c.first, 'First name'), last = need(c.last, 'Last name'), email = need(c.email, 'Email'), phone = need(c.phone, 'Phone');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new UserError('Enter a valid email.');
+      if (phone.replace(/\D/g, '').length < 10) throw new UserError('Enter a 10-digit phone number.');
+      const payOpt = String(body.paymentOption || 'save_card');
+      if (!(cat.settings.payment_options as string[]).includes(payOpt)) throw new UserError('That payment option is not available.');
+      const start = new Date(String(body.start || ''));
+      if (isNaN(+start)) throw new UserError('Pick an appointment time.');
+      // re-check the slot is still open
+      const avail = await slots(cat, q.minutes, localDate(start, cat.settings.timezone), 1);
+      if (!avail.days[0]?.times.some(t => t.start === start.toISOString())) throw new UserError('That time was just taken. Please pick another.', 409);
+
+      const user = await userFrom(req);
+      const verifiedUser = user && user.email && user.email.toLowerCase() === email.toLowerCase() ? user.id : null;
+      const agent = await agentFor(email, `${first} ${last}`, phone, String(c.brokerage || ''), verifiedUser);
+
+      const custCol = LIVE ? 'stripe_customer_id' : 'stripe_test_customer_id';
+      let customer = agent[custCol] as string | null;
+      if (!customer) {
+        const cu = await stripe('/customers', { email: email.toLowerCase(), name: `${first} ${last}`, phone, metadata: { agent_id: agent.id } }, 'POST', `cust-${LIVE ? 'live' : 'test'}-${agent.id}`);
+        customer = cu.id;
+        await admin.from('agents').update({ [custCol]: customer }).eq('id', agent.id);
+      }
+
+      const { data: b, error } = await admin.from('bookings').insert({
+        status: 'requested', source: 'public', agent_id: agent.id,
+        client_name: `${first} ${last}`, client_email: email.toLowerCase(), client_phone: phone,
+        address: street, unit: a.unit ? String(a.unit).slice(0, 60) : null, city, state, zip,
+        sqft: q.sqft, sqft_label: a.sqftLabel ?? null, large_property: q.large,
+        occupancy: a.occupancy || null, access_notes: a.access ? String(a.access).slice(0, 2000) : null, notes: c.notes ? String(c.notes).slice(0, 2000) : null,
+        items: q.items, subtotal: q.subtotal, tax: q.tax, total: q.total,
+        shoot_start: start.toISOString(), shoot_end: new Date(+start + q.minutes * 60000).toISOString(), duration_min: q.minutes,
+        payment_option: payOpt, stripe_customer_id: customer, stripe_livemode: LIVE,
+      }).select('*').single();
+      if (error) throw error;
+
+      const meta = { booking_id: b.id, booking_number: String(b.number) };
+      let clientSecret: string, intentType: 'payment' | 'setup';
+      if (payOpt === 'pay_now') {
+        const pi = await stripe('/payment_intents', { amount: Math.round(q.total * 100), currency: 'usd', customer, setup_future_usage: 'off_session',
+          automatic_payment_methods: { enabled: true }, description: `Knox View #${b.number} · ${street}`, receipt_email: email.toLowerCase(), metadata: meta }, 'POST', `pi-${b.id}`);
+        await admin.from('bookings').update({ stripe_payment_intent_id: pi.id }).eq('id', b.id);
+        clientSecret = pi.client_secret; intentType = 'payment';
+      } else {
+        const si = await stripe('/setup_intents', { customer, usage: 'off_session', automatic_payment_methods: { enabled: true }, description: `Knox View #${b.number} · ${street}`, metadata: meta }, 'POST', `si-${b.id}`);
+        await admin.from('bookings').update({ stripe_setup_intent_id: si.id }).eq('id', b.id);
+        clientSecret = si.client_secret; intentType = 'setup';
+      }
+      return json(req, { booking: { id: b.id, number: b.number, token: b.public_token, total: q.total, start: b.shoot_start }, clientSecret, intentType });
+    }
+
+    if (action === 'confirm') { // called by the browser after Stripe confirms; webhook does the same
+      const { data: b } = await admin.from('bookings').select('id').eq('id', String(body.bookingId || '')).eq('public_token', String(body.token || '')).maybeSingle();
+      if (!b) throw new UserError('Booking not found', 404);
+      const f = await finalize(b.id);
+      return json(req, { number: f.number, status: f.status, paymentStatus: f.payment_status, start: f.shoot_start, total: f.total });
+    }
+
+    /* ----- signed-in client ----- */
+    const user = await userFrom(req);
+    if (!user) return json(req, { error: 'Please sign in.' }, 401);
+
+    if (action === 'link') { // first sign-in: attach this login to the matching client record by verified email
+      const em = (user.email || '').toLowerCase();
+      let { data: agent } = await admin.from('agents').select('id, full_name, email, phone, brokerage, auth_user_id').eq('auth_user_id', user.id).maybeSingle();
+      if (!agent && em) {
+        const { data: match } = await admin.from('agents').select('id, full_name, email, phone, brokerage, auth_user_id').ilike('email', em).is('auth_user_id', null).order('created_at').limit(1).maybeSingle();
+        if (match) { await admin.from('agents').update({ auth_user_id: user.id }).eq('id', match.id); agent = { ...match, auth_user_id: user.id }; }
+      }
+      return json(req, { agent });
+    }
+
+    if (action === 'portal') {
+      const { data: agent } = await admin.from('agents').select('id, full_name, email, phone, brokerage').eq('auth_user_id', user.id).maybeSingle();
+      if (!agent) return json(req, { agent: null, bookings: [], listings: [] });
+      const { data: bks } = await admin.from('bookings').select('id, number, status, address, unit, city, state, zip, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at')
+        .eq('agent_id', agent.id).neq('status', 'cancelled').order('shoot_start', { ascending: false }).limit(200);
+      // deliveries made outside the portal (HQ / Spiro era) for this client, not tied to a portal booking
+      const { data: own } = await admin.from('projects').select('id, name, address, city, media, status, dropbox_url, vimeo_url, delivered_at, created_at, parent_project_id')
+        .eq('agent_id', agent.id).neq('status', 'archived').order('created_at', { ascending: false }).limit(300);
+      const pids = [...new Set((bks ?? []).flatMap(b => b.project_ids ?? []))];
+      const { data: linked } = pids.length ? await admin.from('projects').select('id, name, media, status, dropbox_url, vimeo_url, delivered_at').in('id', pids) : { data: [] };
+      const pmap = new Map((linked ?? []).map(p => [p.id, p]));
+      const bookings = (bks ?? []).filter(b => b.status !== 'requested' || b.payment_status !== 'unpaid').map(b => {
+        const media = (b.project_ids ?? []).map((id: string) => pmap.get(id)).filter(Boolean).map((p: any) => {
+          const delivered = p.status === 'delivered';
+          return { name: p.name, media: p.media, delivered, deliveredAt: p.delivered_at,
+            // must-pay: links unlock only once the order is paid
+            dropbox: delivered && b.paid ? p.dropbox_url : null, vimeo: delivered && b.paid ? p.vimeo_url : null };
+        });
+        return { ...b, project_ids: undefined, media, locked: media.some((m: any) => m.delivered) && !b.paid };
+      });
+      // group outside deliveries by address into one listing each
+      const groups = new Map<string, any>();
+      for (const p of (own ?? []).filter(p => !pids.includes(p.id))) {
+        const key = (p.address || p.name || p.id).trim().toLowerCase();
+        const g = groups.get(key) ?? { id: 'p-' + p.id, address: p.address || p.name, city: p.city, date: p.delivered_at || p.created_at, media: [] };
+        const delivered = p.status === 'delivered';
+        g.media.push({ name: p.name, media: p.media, delivered, deliveredAt: p.delivered_at, dropbox: delivered ? p.dropbox_url : null, vimeo: delivered ? p.vimeo_url : null });
+        if ((p.delivered_at || p.created_at) > g.date) g.date = p.delivered_at || p.created_at;
+        groups.set(key, g);
+      }
+      return json(req, { agent, bookings, listings: [...groups.values()] });
+    }
+
+    if (action === 'profile') { // client updates their own contact details (email is their sign-in, so it isn't changed here)
+      const { data: agent } = await admin.from('agents').select('id').eq('auth_user_id', user.id).maybeSingle();
+      const clean = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+      const full_name = clean(body.full_name, 120), phone = clean(body.phone, 30), brokerage = clean(body.brokerage, 160), team_name = clean(body.team_name, 160);
+      if (full_name.split(' ').length < 2) throw new UserError('Enter your first and last name.');
+      if (phone && phone.replace(/\D/g, '').replace(/^1(?=\d{10})/, '').length !== 10) throw new UserError('Enter a 10-digit mobile number.');
+      const patch = { full_name, phone: phone || null, brokerage: brokerage || null, team_name: team_name || null };
+      let saved;
+      if (agent) saved = (await admin.from('agents').update(patch).eq('id', agent.id).select('id, full_name, email, phone, brokerage, team_name').single()).data;
+      else saved = (await admin.from('agents').insert({ ...patch, email: (user.email || '').toLowerCase(), auth_user_id: user.id, preferences: 'Created by portal settings' }).select('id, full_name, email, phone, brokerage, team_name').single()).data;
+      return json(req, { agent: saved });
+    }
+
+    if (action === 'pay') { // pay an unpaid booking from the portal
+      const { data: agent } = await admin.from('agents').select('id').eq('auth_user_id', user.id).maybeSingle();
+      const { data: b } = await admin.from('bookings').select('*').eq('id', String(body.bookingId || '')).maybeSingle();
+      if (!agent || !b || b.agent_id !== agent.id) throw new UserError('Booking not found', 404);
+      if (b.paid) return json(req, { alreadyPaid: true });
+      const bl = !!b.stripe_livemode;
+      const piId = b.stripe_payment_intent_id;
+      let pi = piId ? await stripe(`/payment_intents/${piId}`, undefined, 'GET', undefined, bl) : null;
+      if (!pi || ['canceled', 'succeeded'].includes(pi.status)) {
+        pi = await stripe('/payment_intents', { amount: Math.round(+b.total * 100), currency: 'usd', customer: b.stripe_customer_id,
+          automatic_payment_methods: { enabled: true }, description: `Knox View #${b.number} · ${b.address}`, receipt_email: b.client_email, metadata: { booking_id: b.id, booking_number: String(b.number) } }, 'POST', undefined, bl);
+        await admin.from('bookings').update({ stripe_payment_intent_id: pi.id }).eq('id', b.id);
+      }
+      return json(req, { clientSecret: pi.client_secret, intentType: 'payment', booking: { id: b.id, token: b.public_token, total: +b.total } });
+    }
+
+    return json(req, { error: 'Unknown action' }, 400);
+  } catch (e) {
+    const status = e instanceof UserError ? e.status : 500;
+    if (status >= 500) console.error('booking error:', String((e as Error)?.message || e));
+    return json(req, { error: e instanceof UserError ? e.message : 'Something went wrong. Please try again or call 865-855-5669.' }, status);
+  }
+}
