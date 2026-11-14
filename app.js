@@ -72,7 +72,7 @@ window.kv = {
   go, pickSlot(start, label) { S.start = start; S.startLabel = label; S.checkout = null; render(); },
   moreSlots() { loadSlots(S.slots.days[S.slots.days.length - 1].date, true); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
-  startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, closeModal() { $('modal').innerHTML = ''; },
+  startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, closeModal() { $('modal').innerHTML = ''; },
 };
 
 function go(n) {
@@ -438,14 +438,18 @@ function vLogin() {
         <p class="hint" style="margin:0 0 10px">New to Knox View? Create an account to book and track your orders.</p>
         <button type="button" class="btn o" style="width:100%" onclick="kv.setMode('signup')">Create an account</button></div>`;
 }
-// ---- Sign-in landing: the first page of book.knoxview.com for anyone not signed in ----
-// Desktop: sign-in card on the left, twilight photo with "See Pricing" on the right. Mobile: logo, See Pricing, then the form.
-const PRICING_URL = '#order'; // the booking form, starting at the property address
+// ---- Landing: the first page of book.knoxview.com for anyone not signed in ----
+// A "See pricing" | "Client sign in" toggle. See pricing takes the address (Google) and home size, then jumps to the packages.
+const SMS_LINK = 'sms:+18658555669';
 const IC_PHONE = '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>';
 const IC_MAIL = '<rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="M3 6l9 7 9-7"/>';
-const IC_EXT = '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>';
-const svg = (d, s = 20) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-function ldKind(v) { // what's typed in the one field: 'email', 'sms' (10-digit phone) or null
+const IC_IN = '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/>';
+const IC_CHAT = '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.9-.9L3 20.5l1.5-4.6a8.4 8.4 0 0 1-1-4.4A8.5 8.5 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5z"/>';
+const IC_PIN = '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>';
+const IC_OK = '<circle cx="12" cy="12" r="9.5"/><path d="M8 12.5l2.7 2.7L16.5 9"/>';
+const IC_ARROW = '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>';
+const svg = (d, s = 20) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+function ldKind(v) { // what's typed in the sign-in field: 'email', 'sms' (10-digit phone) or null
   v = String(v || '').trim();
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'email';
   if (!/[a-z@]/i.test(v) && v.replace(/\D/g, '').replace(/^1(?=\d{10})/, '').length === 10) return 'sms';
@@ -467,38 +471,79 @@ function ldSend(prefer) { // "Continue" (no prefer) or "Login via SMS" / "Login 
   p.method = kind; p[kind === 'sms' ? 'phone' : 'email'] = v;
   return signIn();
 }
-function vLandingForm() {
+function ltab(t) { S.ltab = t === 'signin' ? 'signin' : 'price'; S.error = ''; render(); setTimeout(() => $(S.ltab === 'signin' ? 'loginId' : 'lpStreet')?.focus(), 30); }
+function lsize(label) { S.addr.sqftLabel = label; resetSchedule(); S.error = ''; render(); }
+function ldPricing() { // "View pricing": straight to the packages when the address is complete, otherwise to the property step
+  const a = S.addr; a.street = ($('lpStreet')?.value ?? a.street ?? '').trim();
+  if (!a.street) { S.error = 'Enter the listing address.'; render(); setTimeout(() => $('lpStreet')?.focus(), 30); return; }
+  if (!a.sqftLabel) { S.error = 'Pick the home size.'; render(); return; }
+  S.error = ''; S.view = 'book'; history.pushState(null, '', '#order');
+  S.step = isValid(0) ? 1 : 0;
+  render(); window.scrollTo({ top: 0 });
+}
+function vLandingSignin() {
   const p = LP();
   if (p.stage === 'code' || p.mode === 'signup') {
-    const h = p.stage === 'code' ? `Check your ${p.method === 'sms' ? 'phone' : 'email'}` : 'Create Account';
-    return `<h2 class="ld-h">${h}</h2>${vLogin()}${p.stage === 'code' && p.mode !== 'signup' ? '' : ''}`;
+    const h = p.stage === 'code' ? `Check your ${p.method === 'sms' ? 'phone' : 'email'}` : 'Create your account';
+    return `<h2 class="ld-h">${h}</h2>${vLogin()}`;
   }
-  const ph = p.method === 'sms' && !p.ident && S.error ? 'Mobile number' : p.method === 'email' && !p.ident && S.error ? 'Email' : 'Email or Phone';
-  return `<h2 class="ld-h">Sign In</h2>
-    <form onsubmit="event.preventDefault();kv.ldSend()" novalidate>
-      <label for="loginId" class="ld-lbl">Email or Phone Number</label>
+  const ph = p.method === 'sms' && !p.ident && S.error ? 'Mobile number' : p.method === 'email' && !p.ident && S.error ? 'Email' : 'Email or phone';
+  return `<form onsubmit="event.preventDefault();kv.ldSend()" novalidate>
+      <label for="loginId" class="ld-lbl">Email or phone number</label>
       <input id="loginId" class="ld-in" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="${ph}" value="${esc(p.ident || '')}" oninput="kv.ldCheck(this)">
       <div id="ldErr">${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}</div>
-      <button id="ldGo" class="ld-go" ${S.busy || !ldKind(p.ident) ? 'disabled' : ''}>${S.busy ? '<span class="spin"></span>' : 'Continue'}</button>
+      <button id="ldGo" class="lp-go" ${S.busy || !ldKind(p.ident) ? 'disabled' : ''}>${S.busy ? '<span class="spin"></span>' : `Continue ${svg(IC_ARROW)}`}</button>
     </form>
-    <div class="ld-or"><span>Or Login With OTP</span></div>
+    <div class="ld-or"><span>Or get a one-time code</span></div>
     <div class="ld-otp">
-      <button type="button" onclick="kv.ldSend('sms')" ${S.busy ? 'disabled' : ''}>${svg(IC_PHONE)} Login via SMS</button>
-      <button type="button" onclick="kv.ldSend('email')" ${S.busy ? 'disabled' : ''}>${svg(IC_MAIL)} Login via Email</button>
+      <button type="button" onclick="kv.ldSend('sms')" ${S.busy ? 'disabled' : ''}>${svg(IC_PHONE)} Text me</button>
+      <button type="button" onclick="kv.ldSend('email')" ${S.busy ? 'disabled' : ''}>${svg(IC_MAIL)} Email me</button>
     </div>
-    <p class="ld-alt">Don't have an account? <a href="javascript:kv.setMode('signup')">Create Account</a></p>`;
+    <p class="ld-alt">New to Knox View? <a href="javascript:kv.setMode('signup')">Create an account</a></p>`;
+}
+function vLandingPrice() {
+  const a = S.addr, opts = S.config.settings.sqft_options || [];
+  const done = a.street && a.city && a.zip;
+  const line = [a.street + (a.unit ? ` #${a.unit}` : ''), a.city, [a.state, a.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return `<div class="lp-q"><span class="lp-n">1</span> Listing address</div>
+    <label class="lp-addr ${done ? 'ok' : ''}">${svg(IC_PIN, 22)}<input id="lpStreet" data-o="addr" data-k="street" placeholder="Listing address" value="${esc(a.street || '')}" autocomplete="off" aria-label="Listing address"></label>
+    ${done ? `<p class="lp-picked">${svg(IC_OK, 17)} ${esc(line)}</p>` : `<p class="lp-hint">Start typing, then pick the address from the list.</p>`}
+    <div class="lp-q"><span class="lp-n">2</span> Home size</div>
+    <div class="lp-sizes">${opts.map(o => `<button type="button" class="${a.sqftLabel === o.label ? 'on' : ''}" onclick="kv.lsize(${esc(JSON.stringify(o.label))})">${esc(o.label)}</button>`).join('')}</div>
+    <p class="lp-hint">Heated square feet. A guess is fine.</p>
+    ${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}
+    <button class="lp-go" onclick="kv.ldPricing()" ${a.sqftLabel ? '' : 'disabled'}>View pricing ${svg(IC_ARROW)}</button>`;
 }
 function vLanding() {
-  return `<div class="ld">
-    <div class="ld-left"><div class="ld-card">
-      <div class="ld-logo" role="img" aria-label="Knox View Real Estate Media"></div>
-      <div class="ld-m"><a class="ld-price" href="${PRICING_URL}">${svg(IC_EXT, 22)} See Pricing</a></div>
-      ${vLandingForm()}
-    </div></div>
-    <div class="ld-right"><a class="ld-price" href="${PRICING_URL}">${svg(IC_EXT, 22)} See Pricing</a></div>
+  const tab = S.ltab || 'price';
+  return `<div class="lp">
+    <div class="lp-main">
+      <header class="lp-top">
+        <a class="lp-logo" href="javascript:kv.ltab('price')" aria-label="Knox View Real Estate Media"></a>
+        <div class="lp-actions">
+          <button type="button" class="lp-signin" onclick="kv.ltab('signin')">${svg(IC_IN)} Sign in</button>
+          <a class="lp-text" href="${SMS_LINK}">${svg(IC_CHAT)} Text us</a>
+        </div>
+      </header>
+      <ol class="lp-steps" aria-label="Booking steps">${STEPS.map((s, i) => `<li class="${i === 0 && tab === 'price' ? 'on' : ''}">${s === 'Review & Pay' ? 'Checkout' : s}</li>`).join('')}</ol>
+      <section class="lp-hero">
+        <h1>${tab === 'price' ? 'Let’s make your listing <em>shine.</em>' : 'Welcome <em>back.</em>'}</h1>
+        <p>${tab === 'price' ? 'Enter the address and home size to see <b>your exact price</b>.' : 'Sign in to book, pay and download your media.'}</p>
+      </section>
+      <div class="lp-card">
+        <div class="seg lp-seg" role="tablist">
+          <button type="button" role="tab" aria-selected="${tab === 'price'}" class="${tab === 'price' ? 'on' : ''}" onclick="kv.ltab('price')">See pricing</button>
+          <button type="button" role="tab" aria-selected="${tab === 'signin'}" class="${tab === 'signin' ? 'on' : ''}" onclick="kv.ltab('signin')">Client sign in</button>
+        </div>
+        ${tab === 'price' ? vLandingPrice() : vLandingSignin()}
+      </div>
+      <p class="lp-foot">Questions? Call or text <a href="tel:+18658555669">865-855-5669</a></p>
+    </div>
+    <aside class="lp-photo"><div class="lp-cap"><b>Knox View Real Estate Media</b><span>Photo · Video · Drone · 3D tours<br>Knoxville &amp; the Smokies</span></div></aside>
   </div>`;
 }
 function vAccount() { return vLanding(); }
+
 
 /* ================= client portal (signed in) ================= */
 const ic = (p, s = 18) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
