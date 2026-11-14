@@ -708,9 +708,18 @@ function lbPaint() {
     if (multi && Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) kv.dLbGo(dx < 0 ? 1 : -1); else if (dy > 90) kv.dLbClose(); };
 }
 document.addEventListener('keydown', e => { if (D.lb == null) return; if (e.key === 'ArrowRight') kv.dLbGo(1); else if (e.key === 'ArrowLeft') kv.dLbGo(-1); else if (e.key === 'Escape') kv.dLbClose(); });
+// Video titles shown to the client are always the property address, cleaned up ("1208 FT CRAIG TRL" -> "1208 Ft Craig Trl").
+// The name from HQ (Branded, Unbranded, or a custom name) shows as a small tag next to it.
+const DIRS = new Set(['N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW']);
+function cleanAddress(a) {
+  return String(a || '').replace(/\s+/g, ' ').replace(/[\s,.;]+$/, '').trim()
+    .replace(/[A-Za-z][A-Za-z']*/g, w => DIRS.has(w.toUpperCase()) ? w.toUpperCase() : /^(po)$/i.test(w) ? 'PO' : w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .replace(/\b(\d+)(St|Nd|Rd|Th)\b/g, (m, n, x) => n + x.toLowerCase());
+}
 function dVideos(d) {
+  const title = cleanAddress(d.head.address) || 'Video';
   return d.videos.map((v, i) => `<article class="dl-vid">
-    <h3>${esc(v.title)}${v.label && v.label !== v.title ? ` <small>${esc(v.label)}</small>` : ''}</h3>
+    <h3>${esc(title)}${v.label && v.label !== title ? ` <small>${esc(v.label)}</small>` : ''}</h3>
     <div class="dl-player ${v.portrait ? 'tall' : ''}">${v.preview && (v.embed || v.file) ? '<span class="dl-badge">Preview</span>' : ''}${v.embed ? `<iframe src="${esc(v.embed)}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen loading="lazy" title="${esc(v.title)}"></iframe>`
       : v.file ? `<video src="${esc(v.file)}" controls playsinline preload="metadata"></video>`
       : v.poster ? `<img src="${esc(v.poster)}" alt="">` : `<div class="dl-ph-empty">${ic(d.locked ? I.lock : I.film, 40)}${v.pending ? '<p>Your video is being prepared.</p>' : ''}</div>`}</div>
