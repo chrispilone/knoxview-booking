@@ -942,12 +942,20 @@ window.addEventListener('hashchange', route);
       if (inv) { UI.iq = '#' + inv[1]; UI.itab = inv[2] ? 'paid' : 'pending'; }
       history.replaceState(null, '', location.pathname + (/^delivery\/[\w-]+$/.test(go) ? '#' + go : inv ? '#invoices' : '#listings'));
     }
-    const [svcs, ups, cfg, sess] = await Promise.all([
+    const load = () => Promise.all([
       sb.from('booking_services').select('id, kind, name, description, includes, price, duration_min, covers, badge, sort_order').order('sort_order'),
       sb.from('booking_upsells').select('service_id, title, description, show_when_any, hide_when_any, sort_order').order('sort_order'),
       api('config'),
       sb.auth.getSession(),
     ]);
+    let [svcs, ups, cfg, sess] = await load();
+    // A broken or fake saved sign-in makes every request fail. Forget it on this device and load again, signed out.
+    if (svcs.error && (svcs.error.code === 'PGRST301' || /jwt|token/i.test(svcs.error.message || ''))) {
+      console.warn('Saved sign-in is no longer valid; signing out on this device', svcs.error.message);
+      await sb.auth.signOut({ scope: 'local' }).catch(() => {});
+      try { Object.keys(localStorage).filter(k => /^sb-.+-auth-token$/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (_) {}
+      [svcs, ups, cfg, sess] = await load();
+    }
     if (svcs.error) throw svcs.error;
     S.services = svcs.data; S.upsells = ups.data || []; S.config = cfg; S.session = sess.data.session;
     if (cfg.stripe?.mode === 'test') $('testbar').hidden = false;
