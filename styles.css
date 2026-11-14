@@ -384,3 +384,18 @@ header.top{padding-top:env(safe-area-inset-top)}
   .dl-vbtns{grid-template-columns:1fr}
   .dl-bar .btn{min-width:0;flex-basis:100%}
 }
+/* delivery: previews before payment */
+.dl-bar.locked{align-items:center;background:#fff3dd;color:#6b4600;border:0;border-radius:10px;padding:10px 12px;margin-bottom:12px}
+.dl-bar.locked span{flex:1;min-width:200px;display:flex;gap:8px;align-items:center}
+.dl-bar.locked .btn{flex:0 0 auto;min-width:0}
+.dl-grid.preview .dl-img{cursor:default}
+.dl-grid.preview img,.dl-plan img{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;pointer-events:none}
+.dl-wm{position:absolute;inset:0;display:grid;place-items:center;font-weight:800;letter-spacing:.3em;font-size:clamp(14px,3vw,22px);color:rgba(255,255,255,.75);text-shadow:0 1px 6px rgba(0,0,0,.45);pointer-events:none;
+  background:repeating-linear-gradient(-30deg,transparent 0 46px,rgba(255,255,255,.08) 46px 48px)}
+.dl-plan{position:relative;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.dl-plan img{display:block;width:100%;height:auto;filter:blur(1.2px)}
+.dl-plan .dl-wm{color:rgba(29,50,80,.35);text-shadow:none}
+.dl-badge{position:absolute;top:10px;left:10px;z-index:2;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:4px 9px;border-radius:999px;pointer-events:none}
+.dl-q.one{grid-template-columns:1fr}
+.dl-ph-empty p{margin:8px 0 0;font-size:14px}
+.dl-ph-empty{flex-direction:column}
