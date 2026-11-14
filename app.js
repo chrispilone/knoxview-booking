@@ -36,11 +36,13 @@ const alacarte = () => S.services.filter(s => s.kind === 'addon').sort((a, b) =>
 const covered = () => new Set(S.pkg ? svc(S.pkg)?.covers ?? [] : []);
 const inCart = () => { const c = new Set(S.items); if (S.pkg) c.add(S.pkg); return c; };
 const anyOf = (list, set) => (list || []).some(x => set.has(x));
+const largeEnabled = () => +(S.config?.settings?.large_fee || 0) > 0;
 const largeOn = () => {
+  if (!largeEnabled()) return false;
   const o = (S.config?.settings?.sqft_options || []).find(x => x.label === S.addr.sqftLabel);
   return S.adu || (o ? (o.max === null || o.max >= S.config.settings.large_sqft) : false);
 };
-const largeVisible = () => !!S.pkg || [...S.items].some(id => /photograph/i.test(svc(id)?.name || ''));
+const largeVisible = () => largeEnabled() && (!!S.pkg || [...S.items].some(id => /photograph/i.test(svc(id)?.name || '')));
 function lines() {
   const out = [];
   if (S.pkg) { const p = svc(S.pkg); out.push({ name: p.name + ' Package', price: +p.price, subs: p.includes }); }
@@ -250,7 +252,7 @@ function field(key, label, obj, opt = {}) {
 function vProperty() {
   const st = S.config.settings;
   const bySize = (st.sqft_options || []).find(o => o.label === S.addr.sqftLabel);
-  const big = bySize && (bySize.max === null || bySize.max >= st.large_sqft);
+  const big = largeEnabled() && bySize && (bySize.max === null || bySize.max >= st.large_sqft);
   return `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Property</h2></div>
     <p class="d">Where are we shooting?</p>
     <div class="panel"><div class="fg">
