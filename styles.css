@@ -194,3 +194,9 @@ ul.chk.two li{padding:1px 0;gap:6px}
 .row.incl .row-n,.row.incl .row-d{color:#9aa3b0}
 .row.incl .box{background:#b9c9bf;border-color:#b9c9bf}
 .row-p .inc{color:var(--ok);font-size:12px;font-weight:600;background:#e3f1ea;padding:3px 8px;border-radius:20px}
+
+/* sign-in: Email / Phone toggle */
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin:0 0 16px;background:#eef2f7;border-radius:999px}
+.seg button{appearance:none;border:0;background:transparent;padding:10px 12px;border-radius:999px;font:inherit;font-weight:600;font-size:14px;color:var(--body,#44546b);cursor:pointer;transition:background .15s,color .15s,box-shadow .15s}
+.seg button.on{background:#fff;color:var(--primary,#1d3250);box-shadow:0 1px 3px rgba(13,23,38,.15)}
+.seg button:focus-visible{outline:2px solid var(--primary,#1d3250);outline-offset:2px}

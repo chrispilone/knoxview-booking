@@ -72,7 +72,7 @@ window.kv = {
   go, pickSlot(start, label) { S.start = start; S.startLabel = label; S.checkout = null; render(); },
   moreSlots() { loadSlots(S.slots.days[S.slots.days.length - 1].date, true); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
-  startCheckout, confirmPay, signIn, sendCode, verifyCode, loginBack, signOut, payBooking, closeModal() { $('modal').innerHTML = ''; },
+  startCheckout, confirmPay, signIn, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, closeModal() { $('modal').innerHTML = ''; },
 };
 
 function go(n) {
@@ -156,35 +156,44 @@ async function finishBooking(id, token) {
 }
 
 /* ---------- auth + portal ---------- */
-// Sign in with a one-time code sent by email, or by text to the mobile number on the client's record.
-async function signIn(ev) { // step 1: email -> which ways can we send a code
-  ev?.preventDefault();
-  const email = $('loginEmail').value.trim().toLowerCase();
-  if (!/\S+@\S+\.\S+/.test(email)) { S.error = 'Enter your email.'; render(); return; }
-  S.busy = true; S.error = ''; render();
-  try { const o = await api('options', { email }, 'auth-code'); S.portal = { stage: 'choose', email, opts: o }; }
-  catch (e) { S.error = e.message; }
-  S.busy = false; render();
+// Sign in with a one-time code: by email, or by text to a mobile number that matches a client record.
+const LP = () => (S.portal && S.portal.method ? S.portal : (S.portal = { stage: 'enter', method: 'email', email: '', phone: '' }));
+function keepInput() { const p = LP(), v = $('loginId')?.value; if (v != null) p[p.method === 'sms' ? 'phone' : 'email'] = v.trim(); }
+function setMethod(m) {
+  keepInput(); const p = LP();
+  p.method = m === 'sms' ? 'sms' : 'email'; p.stage = 'enter'; S.error = ''; render();
+  setTimeout(() => $('loginId')?.focus(), 30);
 }
-async function sendCode(channel) { // step 2: send the code
-  const p = S.portal; if (!p?.email || S.busy) return;
+const fmtPhone = v => { const d = v.replace(/\D/g, '').replace(/^1(?=\d{10})/, '').slice(0, 10);
+  return d.length < 4 ? d : d.length < 7 ? `(${d.slice(0, 3)}) ${d.slice(3)}` : `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`; };
+async function signIn(ev) { // send a code to the email or phone they entered
+  ev?.preventDefault(); keepInput();
+  const p = LP();
+  if (p.method === 'email' && !/\S+@\S+\.\S+/.test(p.email)) { S.error = 'Enter your email.'; render(); return; }
+  if (p.method === 'sms' && p.phone.replace(/\D/g, '').replace(/^1(?=\d{10})/, '').length !== 10) { S.error = 'Enter your 10-digit mobile number.'; render(); return; }
   S.busy = true; S.error = ''; render();
-  try { const r = await api('send', { email: p.email, channel }, 'auth-code'); S.portal = { ...p, stage: 'code', channel, to: r.to }; }
-  catch (e) { S.error = e.message; }
+  try {
+    const r = await api('send', p.method === 'sms' ? { channel: 'sms', phone: p.phone } : { channel: 'email', email: p.email.toLowerCase() }, 'auth-code');
+    Object.assign(p, { stage: 'code', ref: r.ref, to: r.to });
+  } catch (e) { S.error = e.message; }
   S.busy = false; render();
   setTimeout(() => $('loginCode')?.focus(), 50);
 }
-async function verifyCode(ev) { // step 3: check the code and sign in
+const sendCode = () => signIn();
+async function verifyCode(ev) {
   ev?.preventDefault();
-  const token = ($('loginCode')?.value || '').replace(/\D/g, '');
-  if (token.length < 6) { S.error = 'Enter the code we sent you.'; render(); return; }
+  const code = ($('loginCode')?.value || '').replace(/\D/g, '');
+  if (code.length < 6) { S.error = 'Enter the code we sent you.'; render(); return; }
   S.busy = true; S.error = ''; render();
-  const { error } = await sb.auth.verifyOtp({ email: S.portal.email, token, type: 'email' });
-  S.busy = false;
-  if (error) { S.error = /expired|invalid/i.test(error.message) ? 'That code is wrong or has expired. Check it or send a new one.' : error.message; render(); return; }
-  S.portal = null; // the auth listener links the client record and loads their orders
+  try {
+    const r = await api('verify', { ref: LP().ref, code }, 'auth-code');
+    const { error } = await sb.auth.setSession(r.session);
+    if (error) throw error;
+    S.portal = null; // the auth listener links the client record and loads their orders
+  } catch (e) { S.error = e.message; }
+  S.busy = false; render();
 }
-function loginBack() { S.portal = null; S.error = ''; render(); }
+function loginBack() { LP().stage = 'enter'; S.error = ''; render(); }
 async function signOut() { await sb.auth.signOut(); S.session = null; S.agent = null; S.portal = null; location.hash = ''; render(); }
 async function loadPortal() {
   S.portal = { loading: true }; render();
@@ -356,37 +365,39 @@ function vDone() {
       <a class="btn" href="#account" style="text-decoration:none">View my orders</a>
       <button class="btn o" onclick="location.href='/'">Book another</button></div></div>`;
 }
-function vLogin(p) {
+function vLogin() {
+  const p = LP(), sms = p.method === 'sms';
   const err = S.error ? `<div class="msg err">${esc(S.error)}</div>` : '';
   const spin = '<span class="spin"></span>';
-  if (p.stage === 'choose') return `
-      <p class="d" style="margin:6px 0 16px">How should we send your one-time code?</p>
-      <div style="display:grid;gap:10px">
-        <button class="btn" onclick="kv.sendCode('email')" ${S.busy ? 'disabled' : ''}>${S.busy ? spin : `Email code to ${esc(p.opts.email)}`}</button>
-        ${p.opts.sms ? `<button class="btn o" onclick="kv.sendCode('sms')" ${S.busy ? 'disabled' : ''}>Text code to ${esc(p.opts.sms)}</button>`
-          : '<p class="hint" style="margin:0">No mobile number on file for this email, so we can only email your code.</p>'}
-      </div>${err}
-      <p class="hint" style="margin-top:14px"><a href="javascript:kv.loginBack()">Use a different email</a></p>`;
+  const toggle = `<div class="seg" role="tablist" aria-label="Sign in with">
+      <button type="button" role="tab" aria-selected="${!sms}" class="${sms ? '' : 'on'}" onclick="kv.setMethod('email')">Email</button>
+      <button type="button" role="tab" aria-selected="${sms}" class="${sms ? 'on' : ''}" onclick="kv.setMethod('sms')">Phone number</button></div>`;
   if (p.stage === 'code') return `
-      <p class="d" style="margin:6px 0 16px">We ${p.channel === 'sms' ? 'texted' : 'emailed'} a code to <b>${esc(p.to)}</b>. It expires in 1 hour.</p>
+      <p class="d" style="margin:6px 0 16px">We ${sms ? 'texted' : 'emailed'} a code to <b>${esc(p.to)}</b>. It expires in 1 hour.</p>
       <form onsubmit="kv.verifyCode(event)"><label>Sign-in code</label>
       <input id="loginCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456" style="font-size:22px;letter-spacing:6px;text-align:center">
       ${err}
       <button class="btn" style="width:100%;margin-top:14px" ${S.busy ? 'disabled' : ''}>${S.busy ? spin : 'Sign in'}</button></form>
-      <p class="hint" style="margin-top:14px"><a href="javascript:kv.sendCode('${p.channel}')">Send a new code</a>
-        ${p.opts?.sms ? ` · <a href="javascript:kv.sendCode('${p.channel === 'sms' ? 'email' : 'sms'}')">${p.channel === 'sms' ? 'Email it instead' : 'Text it instead'}</a>` : ''}
-        · <a href="javascript:kv.loginBack()">Different email</a></p>`;
+      <p class="hint" style="margin-top:14px"><a href="javascript:kv.sendCode()">Send a new code</a>
+        · <a href="javascript:kv.setMethod('${sms ? 'email' : 'sms'}')">${sms ? 'Use email instead' : 'Use phone number instead'}</a>
+        · <a href="javascript:kv.loginBack()">Change ${sms ? 'number' : 'email'}</a></p>`;
   return `
-      <p class="d" style="margin:6px 0 16px">Enter the email you book with. We'll send you a one-time code by email or text. No password needed.</p>
-      <form onsubmit="kv.signIn(event)"><label>Email</label><input id="loginEmail" type="email" autocomplete="email" required value="${esc(p.email || '')}">
+      <p class="d" style="margin:6px 0 14px">Get a one-time code to sign in. No password needed.</p>
+      ${toggle}
+      <form onsubmit="kv.signIn(event)">
+      ${sms
+        ? `<label for="loginId">Mobile number</label><input id="loginId" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="(865) 555-1234" value="${esc(p.phone)}" oninput="this.value=kv.fmtPhone(this.value)">
+           <p class="hint" style="margin:6px 0 0">Use the mobile number on file with us. We'll text your code to it.</p>`
+        : `<label for="loginId">Email</label><input id="loginId" type="email" autocomplete="email" placeholder="you@brokerage.com" value="${esc(p.email)}">
+           <p class="hint" style="margin:6px 0 0">Use the email you book with. We'll email your code to it.</p>`}
       ${err}
-      <button class="btn" style="width:100%;margin-top:14px" ${S.busy ? 'disabled' : ''}>${S.busy ? spin : 'Continue'}</button></form>`;
+      <button class="btn" style="width:100%;margin-top:14px" ${S.busy ? 'disabled' : ''}>${S.busy ? spin : sms ? 'Text me a code' : 'Email me a code'}</button></form>`;
 }
 function vAccount() {
   if (!S.session) {
     const p = S.portal || {};
     return `<div class="panel" style="max-width:460px;margin:0 auto"><h2 style="font-size:26px">Client sign in</h2>
-      ${vLogin(p)}
+      ${vLogin()}
       <p class="hint" style="margin-top:16px"><a href="/">← Book a shoot</a></p></div>`;
   }
   const p = S.portal;

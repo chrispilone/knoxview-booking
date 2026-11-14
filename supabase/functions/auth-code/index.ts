@@ -1,12 +1,13 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
 // One-time sign-in codes for the Knox View client portal.
-//   options { email }           -> which ways we can send a code (email always; text if a mobile is on file)
-//   send    { email, channel }  -> sends a Supabase email OTP by email (Resend, Gmail fallback) or by text (Quo)
-// The browser then calls supabase.auth.verifyOtp({ email, token, type: 'email' }) to sign in.
-// Texts only ever go to the phone number already on the client's record, never one typed in at sign-in.
+//   send   { channel: 'email', email } | { channel: 'sms', phone } -> sends a one-time code, returns { ref, to }
+//   verify { ref, code }  -> checks the code and returns a Supabase session for the browser (setSession)
+// A phone number only works if it matches a client record; the code is texted to that number on file.
+// The client's email is never sent back to the browser for phone sign-ins.
 
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
+const anon = () => createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } });
 const env = (k: string) => (Deno.env.get(k) ?? '').trim();
 const QUO_KEY = env('QUO_API_KEY');
 const QUO_FROM = env('QUO_FROM_NUMBER') || '+18658555669';
@@ -36,11 +37,12 @@ function e164(raw: string | null | undefined) {
   return null;
 }
 const maskPhone = (p: string) => `(•••) •••-${p.slice(-4)}`;
-const maskEmail = (e: string) => { const [u, d] = e.split('@'); return `${u.slice(0, 1)}${'•'.repeat(Math.max(2, Math.min(u.length - 1, 6)))}@${d}`; };
 
-async function phoneOnFile(email: string) {
-  const { data } = await admin.from('agents').select('phone').ilike('email', email).not('phone', 'is', null).order('created_at').limit(1).maybeSingle();
-  return e164(data?.phone);
+async function emailForPhone(phone: string) { // client record whose phone matches (formatting ignored)
+  const last10 = phone.slice(-10);
+  const { data } = await admin.from('agents').select('email, phone, created_at').not('phone', 'is', null).not('email', 'is', null).ilike('phone', `%${last10.slice(-4)}%`).order('created_at').limit(200);
+  const hit = (data ?? []).find(a => e164(a.phone) === phone);
+  return hit ? String(hit.email).toLowerCase() : null;
 }
 
 /* ---------- code ---------- */
@@ -59,12 +61,12 @@ async function makeCode(email: string) {
 
 /* ---------- senders ---------- */
 async function sendSms(to: string, code: string) {
-  if (!QUO_KEY) throw new Bad('Text codes are not switched on yet. Choose email instead.', 503);
+  if (!QUO_KEY) throw new Bad('Text codes are not switched on yet. Use your email instead.', 503);
   const r = await fetch('https://api.openphone.com/v1/messages', {
     method: 'POST', headers: { Authorization: QUO_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from: QUO_FROM, to: [to], content: `${code} is your Knox View sign-in code. It expires in 1 hour. Don't share it with anyone.` }),
   });
-  if (!r.ok) { console.error('quo send failed', r.status, await r.text()); throw new Bad("We couldn't send a text right now. Choose email instead.", 502); }
+  if (!r.ok) { console.error('quo send failed', r.status, await r.text()); throw new Bad("We couldn't send a text right now. Use your email instead.", 502); }
 }
 function emailParts(code: string) {
   const subject = `${code} is your Knox View sign-in code`;
@@ -122,46 +124,62 @@ async function sendEmail(to: string, code: string) {
 }
 
 /* ---------- limits ---------- */
-async function checkLimits(email: string, ipHash: string | null) {
+async function checkIp(ipHash: string | null) {
+  if (!ipHash) return;
+  const { count } = await admin.from('auth_code_sends').select('id', { count: 'exact', head: true }).eq('ip_hash', ipHash).gte('created_at', new Date(Date.now() - 3600_000).toISOString());
+  if ((count ?? 0) >= 15) throw new Bad('Too many codes requested. Try again later.', 429);
+}
+async function checkLimits(email: string, channel: string) {
   const since = (min: number) => new Date(Date.now() - min * 60000).toISOString();
-  const { count: recent } = await admin.from('auth_code_sends').select('id', { count: 'exact', head: true }).ilike('email', email).gte('created_at', since(1));
+  const { count: recent } = await admin.from('auth_code_sends').select('id', { count: 'exact', head: true }).ilike('email', email).eq('channel', channel).gte('created_at', since(1));
   if ((recent ?? 0) >= 1) throw new Bad('A code was just sent. Wait a minute before asking for another.', 429);
   const { count: hour } = await admin.from('auth_code_sends').select('id', { count: 'exact', head: true }).ilike('email', email).gte('created_at', since(60));
   if ((hour ?? 0) >= 5) throw new Bad('Too many codes requested. Try again in an hour or call 865-855-5669.', 429);
-  if (ipHash) {
-    const { count: ipHour } = await admin.from('auth_code_sends').select('id', { count: 'exact', head: true }).eq('ip_hash', ipHash).gte('created_at', since(60));
-    if ((ipHour ?? 0) >= 15) throw new Bad('Too many codes requested. Try again later.', 429);
-  }
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors(req) });
   try {
     const b = await req.json().catch(() => ({}));
-    const email = String(b.email ?? '').trim().toLowerCase().slice(0, 200);
-    if (!EMAIL_RE.test(email)) throw new Bad('Enter a valid email.');
-
-    if (b.action === 'options') {
-      const phone = await phoneOnFile(email);
-      return json(req, { email: maskEmail(email), sms: phone && QUO_KEY ? maskPhone(phone) : null });
-    }
+    const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim();
+    const ipHash = ip ? await sha('kv-auth:' + ip) : null;
 
     if (b.action === 'send') {
       const channel = b.channel === 'sms' ? 'sms' : 'email';
-      const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim();
-      const ipHash = ip ? await sha('kv-auth:' + ip) : null;
-      await checkLimits(email, ipHash);
-      const phone = channel === 'sms' ? await phoneOnFile(email) : null;
-      if (channel === 'sms' && !phone) throw new Bad("There's no mobile number on file for this email. Choose email instead.");
-      const code = await makeCode(email);
-      let ok = false;
-      try {
-        if (channel === 'sms') await sendSms(phone!, code); else await sendEmail(email, code);
-        ok = true;
-      } finally {
-        await admin.from('auth_code_sends').insert({ email, channel, ip_hash: ipHash, ok });
+      await checkIp(ipHash);
+      let email: string, phone: string | null = null;
+      if (channel === 'sms') {
+        phone = e164(String(b.phone ?? ''));
+        if (!phone) throw new Bad('Enter a 10-digit mobile number.');
+        const found = await emailForPhone(phone);
+        if (!found) {
+          await admin.from('auth_code_sends').insert({ email: null, channel, ip_hash: ipHash, ok: false }); // counts toward the IP limit
+          throw new Bad("We couldn't find an account with that number. Try your email instead, or call 865-855-5669.", 404);
+        }
+        email = found;
+      } else {
+        email = String(b.email ?? '').trim().toLowerCase().slice(0, 200);
+        if (!EMAIL_RE.test(email)) throw new Bad('Enter a valid email.');
       }
-      return json(req, { sent: true, channel, to: channel === 'sms' ? maskPhone(phone!) : maskEmail(email) });
+      await checkLimits(email, channel);
+      const code = await makeCode(email);
+      const { data: row, error: insErr } = await admin.from('auth_code_sends').insert({ email, channel, ip_hash: ipHash, ok: false }).select('id, ref').single();
+      if (insErr) throw insErr;
+      if (channel === 'sms') await sendSms(phone!, code); else await sendEmail(email, code);
+      await admin.from('auth_code_sends').update({ ok: true }).eq('id', row.id);
+      return json(req, { sent: true, channel, ref: row.ref, to: channel === 'sms' ? maskPhone(phone!) : email });
+    }
+
+    if (b.action === 'verify') {
+      const ref = String(b.ref ?? ''), code = String(b.code ?? '').replace(/\D/g, '');
+      if (!/^[0-9a-f-]{36}$/i.test(ref) || code.length < 6) throw new Bad('Enter the code we sent you.');
+      const { data: row } = await admin.from('auth_code_sends').select('id, email, ok, attempts, created_at').eq('ref', ref).maybeSingle();
+      if (!row || !row.ok || !row.email || Date.parse(row.created_at) < Date.now() - 3600_000) throw new Bad('That code has expired. Send a new one.');
+      if (row.attempts >= 5) throw new Bad('Too many tries. Send a new code.', 429);
+      await admin.from('auth_code_sends').update({ attempts: row.attempts + 1 }).eq('id', row.id);
+      const { data, error } = await anon().auth.verifyOtp({ email: row.email, token: code, type: 'email' });
+      if (error || !data.session) throw new Bad('That code is wrong or has expired. Check it or send a new one.');
+      return json(req, { session: { access_token: data.session.access_token, refresh_token: data.session.refresh_token } });
     }
 
     throw new Bad('Unknown action');
