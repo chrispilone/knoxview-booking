@@ -3,6 +3,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 // One-time sign-in codes for the Knox View client portal.
 //   send   { channel: 'email', email } | { channel: 'sms', phone } -> sends a one-time code, returns { ref, to }
 //   signup { name, phone, email, company } -> emails a code to confirm the email; same reply as send
+//   test_session (HQ super admins only) -> a session for the portal's TEST client account, for previewing the portal
 //   verify { ref, code }  -> checks the code and returns a Supabase session for the browser (setSession).
 //                            For a sign-up, the client record (agents) is created or filled in here, once the email is proven.
 // A phone number only works if it matches a client record; the code is texted to that number on file
@@ -20,7 +21,8 @@ const RESEND_KEY = env('RESEND_API_KEY');
 const MAIL_FROM = env('AUTH_MAIL_FROM') || 'Knox View Media <noreply@mail.knoxview.com>';
 const G_ID = env('GOOGLE_CLIENT_ID'), G_SECRET = env('GOOGLE_CLIENT_SECRET');
 
-const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
+const TEST_CLIENT_EMAIL = 'chris+test@knoxview.com'; // the only account test_session can open
+const ORIGINS = ['https://hq.knoxview.com', 'https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
 const cors = (req: Request) => {
   const o = req.headers.get('origin') ?? '';
   const ok = ORIGINS.includes(o) || /^https:\/\/[a-z0-9-]+--knoxview-booking\.netlify\.app$/.test(o);
@@ -226,6 +228,17 @@ Deno.serve(async (req) => {
       else { const code = await makeCode(email); if (channel === 'sms') await sendSms(phone!, code); else await sendEmail(email, code); }
       await admin.from('auth_code_sends').update({ ok: true }).eq('id', row.id);
       return json(req, { sent: true, channel, ref: row.ref, expiresMin: provider === 'twilio' ? 10 : 60, to: channel === 'sms' ? maskPhone(phone!) : email });
+    }
+
+    if (b.action === 'test_session') { // HQ → "Open as test client". Caller must be an active HQ super admin.
+      const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+      const { data: u } = jwt.split('.').length === 3 ? await admin.auth.getUser(jwt) : { data: null };
+      const uid = u?.user?.id;
+      const { data: me } = uid ? await admin.from('team_members').select('id, role, active, permissions').eq('id', uid).maybeSingle() : { data: null };
+      if (!me?.active || !(me.role === 'owner' || me.permissions?.super_admin === true)) throw new Bad('Only HQ super admins can open the test client account.', 403);
+      const session = await sessionFor(TEST_CLIENT_EMAIL);
+      console.log('test_session opened by', me.id);
+      return json(req, { email: TEST_CLIENT_EMAIL, session: { access_token: session.access_token, refresh_token: session.refresh_token } });
     }
 
     if (b.action === 'signup') {

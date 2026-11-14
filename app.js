@@ -570,10 +570,22 @@ function vSettings() {
       ${f('team_name', 'Team', a.team_name)}
       <div class="full">${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}${UI.saved ? '<div class="msg info">Saved.</div>' : ''}
         <button class="btn" ${S.busy ? 'disabled' : ''}>${S.busy ? '<span class="spin"></span>' : 'Save changes'}</button></div>
-    </form></div>`;
+    </form></div>
+    <div class="panel" style="max-width:640px;margin-top:16px"><h2 style="font-size:22px;margin-bottom:6px">Get the app</h2>
+      <p class="hint" style="margin:0 0 10px">Add Knox View to your home screen to book and check your orders like an app.</p>
+      <p style="margin:0 0 6px"><b>iPhone:</b> open this page in Safari, tap the Share button, then <b>Add to Home Screen</b>.</p>
+      <p style="margin:0"><b>Android:</b> open this page in Chrome, tap the ⋮ menu, then <b>Add to Home screen</b> (or <b>Install app</b>).</p>
+      <p class="hint" style="margin:10px 0 0">The first time you open it from your home screen, sign in once with your email or phone.</p></div>`;
 }
 
+const TEST_EMAIL = 'chris+test@knoxview.com';
+const isTestAccount = () => (S.session?.user?.email || '').toLowerCase() === TEST_EMAIL;
 function vPortal() {
+  const p = S.pdata;
+  if (isTestAccount() && p && !p.loading && !p.error) return `<div class="msg info testacct"><b>Test account.</b> You're viewing the portal as the test client (${TEST_EMAIL}). Sample orders are marked TEST.</div>` + vPortalBody();
+  return vPortalBody();
+}
+function vPortalBody() {
   const p = S.pdata;
   if (!p || p.loading) return '<div class="panel loading"><span class="spin"></span> Loading…</div>';
   if (p.error) return `<div class="msg err">${esc(p.error)} <a href="javascript:kv.reloadPortal()">Try again</a></div>`;
@@ -702,6 +714,12 @@ window.addEventListener('hashchange', route);
 /* ================= boot ================= */
 (async function boot() {
   try {
+    const hand = location.hash.match(/^#ts=([\w-]+)$/); // HQ → "Open as test client" hands a session over in the URL fragment (never sent to a server)
+    if (hand) {
+      try { const t = JSON.parse(atob(hand[1].replace(/-/g, '+').replace(/_/g, '/'))); await sb.auth.setSession({ access_token: t.a, refresh_token: t.r }); }
+      catch (e) { console.warn('test session handoff failed', e); }
+      history.replaceState(null, '', location.pathname + '#listings');
+    }
     const [svcs, ups, cfg, sess] = await Promise.all([
       sb.from('booking_services').select('id, kind, name, description, includes, price, duration_min, covers, badge, sort_order').order('sort_order'),
       sb.from('booking_upsells').select('service_id, title, description, show_when_any, hide_when_any, sort_order').order('sort_order'),

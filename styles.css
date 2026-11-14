@@ -284,3 +284,38 @@ ul.chk.two li{padding:1px 0;gap:6px}
   .bal{order:5;max-width:none}
   .srch{flex:1}
 }
+
+/* ---- app-like mobile + installed (home screen) ---- */
+header.top{padding-top:env(safe-area-inset-top)}
+.testacct{border:1.5px dashed var(--accent);margin:0 0 16px}
+@media(max-width:880px){
+  /* portal pages: bottom tab bar like a phone app */
+  .in-portal .pnav{position:fixed;left:0;right:0;bottom:0;z-index:35;background:#fff;border-top:1px solid var(--line);box-shadow:0 -4px 16px rgba(29,50,80,.08);
+    display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:6px 6px calc(6px + env(safe-area-inset-bottom));overflow:visible;order:0;flex-basis:auto}
+  .in-portal .pnav a{flex-direction:column;gap:3px;padding:6px 4px;border-radius:10px;font-size:11.5px;justify-content:center}
+  .in-portal .pnav a .ic{width:22px;height:22px}
+  .in-portal .wrap{padding-bottom:calc(100px + env(safe-area-inset-bottom))}
+  .in-portal .brand{flex-wrap:nowrap}
+  .ptools{gap:10px}
+  .ptools .tabs{width:100%}
+  .ptools .tabs button{flex:1;justify-content:center;padding:10px 8px;font-size:13.5px}
+  .ptools .grow{display:none}
+  .sel-l{flex:1}.sel-l select{flex:1}
+  .srch{min-width:0;flex-basis:100%}
+  .bal{min-width:0;flex-basis:100%}
+  .lgrid{grid-template-columns:1fr;gap:14px}
+  .menu{position:fixed;right:10px;left:10px;top:calc(64px + env(safe-area-inset-top));width:auto}
+}
+@media(max-width:640px){
+  /* tables become stacked cards */
+  .tbl-w{background:none;border:0;overflow:visible}
+  .tbl thead{display:none}
+  .tbl,.tbl tbody,.tbl tr,.tbl td{display:block;width:100%}
+  .tbl tr{background:#fff;border:1px solid var(--line);border-radius:var(--r-box);padding:12px 14px;margin-bottom:10px;position:relative}
+  .tbl td{border:0;padding:2px 0}
+  .tbl td.r{text-align:left}
+  .tbl td:first-child{font-size:15px}
+  .tbl td .btn.sm{width:100%;margin-top:8px;padding:11px}
+  .tbl .acts{justify-content:flex-start;margin-top:6px}
+  .bal b{font-size:15px}
+}
