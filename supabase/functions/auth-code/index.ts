@@ -3,12 +3,15 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 // One-time sign-in codes for the Knox View client portal.
 //   send   { channel: 'email', email } | { channel: 'sms', phone } -> sends a one-time code, returns { ref, to }
 //   verify { ref, code }  -> checks the code and returns a Supabase session for the browser (setSession)
-// A phone number only works if it matches a client record; the code is texted to that number on file.
+// A phone number only works if it matches a client record; the code is texted to that number on file
+// by Twilio Verify (Twilio creates and checks the code), or by Quo if Twilio isn't set up.
 // The client's email is never sent back to the browser for phone sign-ins.
 
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 const anon = () => createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } });
 const env = (k: string) => (Deno.env.get(k) ?? '').trim();
+const TW_SID = env('TWILIO_ACCOUNT_SID'), TW_TOKEN = env('TWILIO_AUTH_TOKEN'), TW_VERIFY = env('TWILIO_VERIFY_SERVICE_SID');
+const TWILIO = !!(TW_SID && TW_TOKEN && TW_VERIFY); // texts go through Twilio Verify when set; Quo is the fallback
 const QUO_KEY = env('QUO_API_KEY');
 const QUO_FROM = env('QUO_FROM_NUMBER') || '+18658555669';
 const RESEND_KEY = env('RESEND_API_KEY');
@@ -57,6 +60,32 @@ async function makeCode(email: string) {
   const code = r.data.properties?.email_otp;
   if (!code) throw new Error('No code returned');
   return code;
+}
+
+/* ---------- Twilio Verify ---------- */
+async function twilio(path: string, params: Record<string, string>) {
+  const r = await fetch(`https://verify.twilio.com/v2/Services/${TW_VERIFY}/${path}`, {
+    method: 'POST', headers: { Authorization: 'Basic ' + btoa(`${TW_SID}:${TW_TOKEN}`), 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(params),
+  });
+  const d = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, d };
+}
+async function twilioSend(to: string) {
+  const r = await twilio('Verifications', { To: to, Channel: 'sms' });
+  if (!r.ok) { console.error('twilio send failed', r.status, JSON.stringify(r.d)); throw new Bad("We couldn't send a text right now. Use your email instead.", 502); }
+}
+async function twilioCheck(to: string, code: string) {
+  const r = await twilio('VerificationCheck', { To: to, Code: code });
+  if (r.status === 404) return false; // expired, already used, or too many tries
+  if (!r.ok) { console.error('twilio check failed', r.status, JSON.stringify(r.d)); throw new Bad("We couldn't check that code right now. Please try again.", 502); }
+  return r.d.status === 'approved';
+}
+async function sessionFor(email: string) { // mint a Supabase session for a client Twilio has verified
+  const code = await makeCode(email);
+  const { data, error } = await anon().auth.verifyOtp({ email, token: code, type: 'email' });
+  if (error || !data.session) throw error || new Error('No session');
+  return data.session;
 }
 
 /* ---------- senders ---------- */
@@ -162,24 +191,32 @@ Deno.serve(async (req) => {
         if (!EMAIL_RE.test(email)) throw new Bad('Enter a valid email.');
       }
       await checkLimits(email, channel);
-      const code = await makeCode(email);
-      const { data: row, error: insErr } = await admin.from('auth_code_sends').insert({ email, channel, ip_hash: ipHash, ok: false }).select('id, ref').single();
+      const provider = channel === 'email' ? 'supabase' : TWILIO ? 'twilio' : 'quo';
+      const { data: row, error: insErr } = await admin.from('auth_code_sends').insert({ email, channel, phone, provider, ip_hash: ipHash, ok: false }).select('id, ref').single();
       if (insErr) throw insErr;
-      if (channel === 'sms') await sendSms(phone!, code); else await sendEmail(email, code);
+      if (provider === 'twilio') await twilioSend(phone!);
+      else { const code = await makeCode(email); if (channel === 'sms') await sendSms(phone!, code); else await sendEmail(email, code); }
       await admin.from('auth_code_sends').update({ ok: true }).eq('id', row.id);
-      return json(req, { sent: true, channel, ref: row.ref, to: channel === 'sms' ? maskPhone(phone!) : email });
+      return json(req, { sent: true, channel, ref: row.ref, expiresMin: provider === 'twilio' ? 10 : 60, to: channel === 'sms' ? maskPhone(phone!) : email });
     }
 
     if (b.action === 'verify') {
       const ref = String(b.ref ?? ''), code = String(b.code ?? '').replace(/\D/g, '');
       if (!/^[0-9a-f-]{36}$/i.test(ref) || code.length < 6) throw new Bad('Enter the code we sent you.');
-      const { data: row } = await admin.from('auth_code_sends').select('id, email, ok, attempts, created_at').eq('ref', ref).maybeSingle();
+      const { data: row } = await admin.from('auth_code_sends').select('id, email, phone, provider, ok, attempts, created_at').eq('ref', ref).maybeSingle();
       if (!row || !row.ok || !row.email || Date.parse(row.created_at) < Date.now() - 3600_000) throw new Bad('That code has expired. Send a new one.');
       if (row.attempts >= 5) throw new Bad('Too many tries. Send a new code.', 429);
       await admin.from('auth_code_sends').update({ attempts: row.attempts + 1 }).eq('id', row.id);
-      const { data, error } = await anon().auth.verifyOtp({ email: row.email, token: code, type: 'email' });
-      if (error || !data.session) throw new Bad('That code is wrong or has expired. Check it or send a new one.');
-      return json(req, { session: { access_token: data.session.access_token, refresh_token: data.session.refresh_token } });
+      let session;
+      if (row.provider === 'twilio') {
+        if (!(await twilioCheck(row.phone, code))) throw new Bad('That code is wrong or has expired. Check it or send a new one.');
+        session = await sessionFor(row.email);
+      } else {
+        const { data, error } = await anon().auth.verifyOtp({ email: row.email, token: code, type: 'email' });
+        if (error || !data.session) throw new Bad('That code is wrong or has expired. Check it or send a new one.');
+        session = data.session;
+      }
+      return json(req, { session: { access_token: session.access_token, refresh_token: session.refresh_token } });
     }
 
     throw new Bad('Unknown action');

@@ -174,7 +174,7 @@ async function signIn(ev) { // send a code to the email or phone they entered
   S.busy = true; S.error = ''; render();
   try {
     const r = await api('send', p.method === 'sms' ? { channel: 'sms', phone: p.phone } : { channel: 'email', email: p.email.toLowerCase() }, 'auth-code');
-    Object.assign(p, { stage: 'code', ref: r.ref, to: r.to });
+    Object.assign(p, { stage: 'code', ref: r.ref, to: r.to, expiresMin: r.expiresMin || 60 });
   } catch (e) { S.error = e.message; }
   S.busy = false; render();
   setTimeout(() => $('loginCode')?.focus(), 50);
@@ -373,7 +373,7 @@ function vLogin() {
       <button type="button" role="tab" aria-selected="${!sms}" class="${sms ? '' : 'on'}" onclick="kv.setMethod('email')">Email</button>
       <button type="button" role="tab" aria-selected="${sms}" class="${sms ? 'on' : ''}" onclick="kv.setMethod('sms')">Phone number</button></div>`;
   if (p.stage === 'code') return `
-      <p class="d" style="margin:6px 0 16px">We ${sms ? 'texted' : 'emailed'} a code to <b>${esc(p.to)}</b>. It expires in 1 hour.</p>
+      <p class="d" style="margin:6px 0 16px">We ${sms ? 'texted' : 'emailed'} a code to <b>${esc(p.to)}</b>. It expires in ${p.expiresMin >= 60 ? '1 hour' : p.expiresMin + ' minutes'}.</p>
       <form onsubmit="kv.verifyCode(event)"><label>Sign-in code</label>
       <input id="loginCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456" style="font-size:22px;letter-spacing:6px;text-align:center">
       ${err}
