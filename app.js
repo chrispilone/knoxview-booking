@@ -987,12 +987,12 @@ const acBoxEl = () => document.getElementById('acBox');
 function acClose() { acBoxEl()?.remove(); AC.list = []; AC.i = -1; }
 async function acSearch(input) {
   const q = input.value.trim(); AC.input = input; AC.q = q;
-  if (q.length < 4 || !/\d/.test(q)) return acClose();
+  if (q.length < 3) return acClose();
   AC.tok = AC.tok || crypto.randomUUID();
   try {
     const r = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': GKEY },
-      body: JSON.stringify({ input: q, sessionToken: AC.tok, includedRegionCodes: ['us'], includedPrimaryTypes: ['street_address', 'premise', 'subpremise'],
+      body: JSON.stringify({ input: q, sessionToken: AC.tok, includedRegionCodes: ['us'], ...(/\d/.test(q) ? { includedPrimaryTypes: ['street_address', 'premise', 'subpremise'] } : {}), // with a house number: addresses only; without: streets, cabins and places too
         locationBias: { circle: { center: { latitude: 35.86, longitude: -83.75 }, radius: 50000 } } }), // Knoxville + the Smokies first
     });
     const d = await r.json();
