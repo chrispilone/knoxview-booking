@@ -16,7 +16,8 @@ async function hmac(data: string) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(SIGN_KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return b64u(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data)))).slice(0, 32);
 }
-export type MediaRef = { src: 'dbx' | 'vimeo' | 'url'; link?: string; path?: string; vid?: string; url?: string; v?: 'thumb' | 'web' | 'high'; name?: string; dl?: 1 };
+// v: thumb (640px), preview (1024px, for the photo viewer), web (2048px), high (original). wm: burn in the PREVIEW watermark.
+export type MediaRef = { src: 'dbx' | 'vimeo' | 'url'; link?: string; path?: string; vid?: string; url?: string; v?: 'thumb' | 'preview' | 'web' | 'high'; name?: string; dl?: 1; wm?: 1 };
 export async function sign(ref: MediaRef, hours = 12) {
   const d = b64u(new TextEncoder().encode(JSON.stringify({ ...ref, exp: Math.floor(Date.now() / 1000) + hours * 3600 })));
   return `${MEDIA_BASE}?d=${d}&s=${await hmac(d)}`;
@@ -65,13 +66,13 @@ export async function dropboxFiles(link: string): Promise<DbxFile[] | null> {
   return out.sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
 }
 // Stream one file (or a JPEG rendition) from a shared link.
-export async function dropboxStream(link: string, path: string, v: 'thumb' | 'web' | 'high') {
+export async function dropboxStream(link: string, path: string, v: 'thumb' | 'preview' | 'web' | 'high') {
   const tok = await dropboxToken(); if (!tok) throw new Error('Dropbox is not connected');
   const url = cleanDropboxLink(link);
   if (v === 'high') return fetch('https://content.dropboxapi.com/2/sharing/get_shared_link_file', { method: 'POST',
     headers: { Authorization: `Bearer ${tok}`, 'Dropbox-API-Arg': JSON.stringify(path ? { url, path } : { url }) } });
   return fetch('https://content.dropboxapi.com/2/files/get_thumbnail_v2', { method: 'POST', headers: { Authorization: `Bearer ${tok}`,
-    'Dropbox-API-Arg': JSON.stringify({ resource: { '.tag': 'link', url, ...(path ? { path } : {}) }, format: 'jpeg', size: v === 'thumb' ? 'w640h480' : 'w2048h1536', mode: 'bestfit' }) } });
+    'Dropbox-API-Arg': JSON.stringify({ resource: { '.tag': 'link', url, ...(path ? { path } : {}) }, format: 'jpeg', size: v === 'thumb' ? 'w640h480' : v === 'preview' ? 'w1024h768' : 'w2048h1536', mode: 'bestfit' }) } });
 }
 
 /* ---------- Vimeo ---------- */

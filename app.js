@@ -231,9 +231,10 @@ async function payBooking(id) {
   try {
     const r = await api('pay', { bookingId: id });
     if (r.alreadyPaid) { if (S.view === 'delivery') loadDelivery(S.dl.key); else loadPortal(); return; }
-    $('modal').innerHTML = `<div class="modal"><div class="panel"><h2 style="font-size:22px">Pay ${money(r.booking.total)}</h2>
+    $('modal').innerHTML = `<div class="modal"><div class="panel"><h2 style="font-size:22px">Pay to download</h2>
+      <div class="tot" style="padding:6px 0 0"><span>Amount due</span><span>${money(r.booking.total)}</span></div>
       <div id="pay-el2" style="margin-top:14px"></div><div id="payErr"></div>
-      <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" id="payGo">Pay now</button></div></div></div>`;
+      <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" id="payGo">Pay ${money(r.booking.total)}</button></div></div></div>`;
     const elements = stripe.elements({ clientSecret: r.clientSecret, appearance });
     elements.create('payment').mount('#pay-el2');
     $('payGo').onclick = async () => {
@@ -527,7 +528,7 @@ function vListings() {
     <a class="lcov" href="#delivery/${l.key}" aria-label="Media for ${esc(l.line1)}">${cover(l)}</a>
     <div class="lbody"><div class="laddr">${esc(l.line1)}<br><span>${esc(l.line2)}</span></div>
       <div class="lmeta"><div>${ic(I.tag)}<span class="pill ${l.status[1]}">${esc(l.status[0])}</span></div><div>${ic(I.cal)}${esc(fmtDate(l.date))}</div></div>
-      ${l.b?.locked ? `<button class="btn" style="width:100%;margin-top:10px" onclick="kv.payBooking('${l.b.id}')">${ic(I.lock, 15)} Pay ${money(l.b.total)} to unlock</button>` : ''}
+      ${l.b?.locked ? `<button class="btn" style="width:100%;margin-top:10px" onclick="kv.payBooking('${l.b.id}')">${ic(I.lock, 15)} Pay to download</button>` : ''}
       <div class="acts">${acts(l)}</div></div></article>`).join('')}</div>`;
 }
 function empty(text, cta) {
@@ -652,8 +653,8 @@ function vDelivery() {
   let out = `<a class="dl-back" href="#listings">‹ Listings</a>
     <header class="dl-head"><h1>${esc(d.head.address)}</h1><p>${esc([d.head.line2, d.head.brokerage].filter(Boolean).join(' · '))}</p>
       <p class="hint">${when ? esc(when) : ''}${d.head.number ? ` · Order #${esc(d.head.number)}` : ''}</p></header>`;
-  if (d.locked) out += `<div class="dl-lock">${ic(I.lock, 22)}<div><b>Your media is ready.</b> Preview it below, then pay ${money(d.total)} to download everything and unlock your links and 3D tour.</div>
-      <button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay ${money(d.total)}</button></div>`;
+  if (d.locked) out += `<div class="dl-lock">${ic(I.lock, 22)}<div><b>Your media is ready.</b> Preview it below, then pay to download everything and unlock your links and 3D tour.</div>
+      <button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay to download</button></div>`;
   const cards = [...d.websites.map(w => linkCard(w.label, w.url)), d.tour ? linkCard('3D tour', d.tour.url, I.cube) : ''].join('');
   if (cards) out += `<section class="dl-cards">${cards}</section>`;
   if (!tabs.length && !d.marketing) return out + `<div class="empty-st">${ic(I.photo, 56)}<p>Your media isn't delivered yet. We'll text and email you as soon as it is.</p></div>`;
@@ -666,26 +667,48 @@ function dPhotos(d) {
   const n = D.sel.size, zip = d.folders.find(f => f.zip)?.zip, all = d.photos.length;
   if (!all) return `<p class="hint" style="margin:14px 2px">${d.locked ? 'Your photos unlock after payment.' : 'Your photos are being prepared. Check back shortly.'}</p>
     ${zip ? `<a class="btn" href="${esc(zip)}">${ic(I.dl, 16)} Download all photos (zip)</a>` : ''}`;
-  if (d.locked) return `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> Pay ${money(d.total)} to download all ${all} photos in full resolution.</span>
-      <button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay ${money(d.total)}</button></div>
-    <div class="dl-grid preview">${d.photos.map(p => `<figure class="dl-ph"><div class="dl-img"><img src="${esc(p.thumb)}" alt="" loading="lazy" draggable="false" oncontextmenu="return false"><span class="dl-wm">PREVIEW</span></div>
+  if (d.locked) return `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> Pay to download all ${all} photos in full resolution, without the watermark.</span>
+      <button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay to download</button></div>
+    <div class="dl-grid preview">${d.photos.map((p, i) => `<figure class="dl-ph"><button class="dl-img" onclick="kv.dView(${i})" aria-label="View ${esc(p.name)}"><img src="${esc(p.thumb)}" alt="" loading="lazy" draggable="false" oncontextmenu="return false"></button>
       <figcaption><span>${esc(p.name)}</span></figcaption></figure>`).join('')}</div>`;
   const bar = `<div class="dl-bar">
       <button class="btn o" onclick="kv.dSelAll()">${n === all ? 'Clear selection' : 'Select all'}</button>
       <button class="btn" ${n ? '' : 'disabled'} onclick="kv.dPick()">${ic(I.dl, 16)} Download${n ? ` ${n}` : ''}</button>
       ${zip && !isPhone() ? `<a class="btn o" href="${esc(zip)}">${ic(I.dl, 16)} Download all (zip)</a>` : `<button class="btn o" onclick="kv.dAll()">${ic(I.dl, 16)} Download all ${all}</button>`}</div>
-      ${isPhone() ? '<p class="hint dl-tip">Pick photos and tap Download, then <b>Save Images</b> to put them in Photos.</p>' : ''}`;
+      <p class="hint dl-tip">Tap a photo to see it full size. Tap the box in the corner to select it.${isPhone() ? ' After Download, choose <b>Save Images</b> to put them in Photos.' : ''}</p>`;
   return bar + `<div class="dl-grid">${d.photos.map((p, i) => `<figure class="dl-ph ${D.sel.has(i) ? 'sel' : ''}">
-      <button class="dl-img" onclick="kv.dSel(${i})" aria-label="Select ${esc(p.name)}"><img src="${esc(p.thumb)}" alt="" loading="lazy"><span class="dl-chk">${CHECK}</span></button>
+      <div class="dl-img"><button class="dl-open" onclick="kv.dView(${i})" aria-label="View ${esc(p.name)}"><img src="${esc(p.thumb)}" alt="" loading="lazy"></button>
+        <button class="dl-chk" onclick="kv.dSel(${i})" aria-label="${D.sel.has(i) ? 'Unselect' : 'Select'} ${esc(p.name)}" aria-pressed="${D.sel.has(i)}">${CHECK}</button></div>
       <figcaption><span>${esc(p.name)}</span><span class="dl-q ${p.web ? '' : 'one'}">${p.web ? `<button onclick="kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button>` : ''}<button onclick="kv.dSave([${i}],'high')">${ic(I.dl, 14)} ${p.web ? 'High' : 'Download'}</button></span></figcaption></figure>`).join('')}</div>`;
 }
+/* ----- full-screen photo viewer: swipe / arrows, select from inside ----- */
+function lbEl() { let el = document.getElementById('lb'); if (!el) { el = document.createElement('div'); el.id = 'lb'; document.body.appendChild(el); } return el; }
+function lbPaint() {
+  const d = D.data, i = D.lb, p = d.photos[i], el = lbEl(), sel = D.sel.has(i);
+  el.className = 'lb on';
+  el.innerHTML = `<div class="lb-top"><span>${i + 1} / ${d.photos.length}</span><span class="lb-name">${esc(p.name)}</span><button class="lb-x" onclick="kv.dLbClose()" aria-label="Close">✕</button></div>
+    <div class="lb-stage" id="lbStage"><img src="${esc(p.view || p.thumb)}" alt="${esc(p.name)}" draggable="false" ${d.locked ? 'oncontextmenu="return false"' : ''}>
+      <button class="lb-nav prev" onclick="kv.dLbGo(-1)" aria-label="Previous photo">‹</button><button class="lb-nav next" onclick="kv.dLbGo(1)" aria-label="Next photo">›</button></div>
+    <div class="lb-bar">${d.locked
+      ? `<span class="lb-note">${ic(I.lock, 16)} Preview</span><button class="btn" onclick="kv.dLbClose();kv.payBooking('${d.bookingId}')">Pay to download</button>`
+      : `<button class="btn ${sel ? '' : 'o'} lb-sel" onclick="kv.dLbSel()" aria-pressed="${sel}">${sel ? `${CHECK} Selected` : 'Select'}</button>
+         ${p.web ? `<button class="btn o" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 16)} Web</button>` : ''}
+         <button class="btn o" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 16)} ${p.web ? 'High' : 'Download'}</button>
+         ${D.sel.size ? `<button class="btn" onclick="kv.dLbClose();kv.dPick()">${ic(I.dl, 16)} Download ${D.sel.size}</button>` : ''}`}</div>`;
+  [i - 1, i + 1].forEach(k => { const q = d.photos[(k + d.photos.length) % d.photos.length]; if (q) new Image().src = q.view || q.thumb; }); // preload neighbours
+  const st = document.getElementById('lbStage'); let x0 = null, y0 = null;
+  st.ontouchstart = e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; };
+  st.ontouchend = e => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) kv.dLbGo(dx < 0 ? 1 : -1); else if (dy > 90) kv.dLbClose(); };
+}
+document.addEventListener('keydown', e => { if (D.lb == null) return; if (e.key === 'ArrowRight') kv.dLbGo(1); else if (e.key === 'ArrowLeft') kv.dLbGo(-1); else if (e.key === 'Escape') kv.dLbClose(); });
 function dVideos(d) {
   return d.videos.map((v, i) => `<article class="dl-vid">
     <h3>${esc(v.title)}${v.label && v.label !== v.title ? ` <small>${esc(v.label)}</small>` : ''}</h3>
     <div class="dl-player ${v.portrait ? 'tall' : ''}">${v.preview && (v.embed || v.file) ? '<span class="dl-badge">Preview</span>' : ''}${v.embed ? `<iframe src="${esc(v.embed)}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen loading="lazy" title="${esc(v.title)}"></iframe>`
       : v.file ? `<video src="${esc(v.file)}" controls playsinline preload="metadata"></video>`
       : v.poster ? `<img src="${esc(v.poster)}" alt="">` : `<div class="dl-ph-empty">${ic(d.locked ? I.lock : I.film, 40)}${v.pending ? '<p>Your video is being prepared.</p>' : ''}</div>`}</div>
-    ${d.locked ? `<div class="dl-bar locked"><span>${ic(I.lock, 18)} Pay ${money(d.total)} to download and share this video.</span><button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay ${money(d.total)}</button></div>` : `
+    ${d.locked ? `<div class="dl-bar locked"><span>${ic(I.lock, 18)} Pay to download and share this video.</span><button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay to download</button></div>` : `
     <div class="dl-vbtns">
       ${v.download ? `<button class="btn" onclick="kv.dVideo(${i})">${ic(I.dl, 16)} ${isPhone() ? 'Save to phone' : 'Download'}</button>` : v.open ? `<a class="btn" href="${esc(v.open)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open video</a>` : ''}
       ${v.share && !d.locked ? `<button class="btn o" onclick="kv.dShare(${esc(JSON.stringify(v.share))}, ${esc(JSON.stringify(v.title))})">${ic(I.share, 16)} Share</button>` : ''}
@@ -694,8 +717,8 @@ function dVideos(d) {
     </div>`}${v.download && isPhone() ? '<p class="hint dl-tip">Tap <b>Save to phone</b>, then <b>Save Video</b> to add it to your camera roll.</p>' : ''}</article>`).join('');
 }
 function dPlans(d) {
-  if (d.locked && d.floorplans.some(f => f.thumb)) return `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> Pay ${money(d.total)} to download your floor plan.</span><button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay ${money(d.total)}</button></div>
-    ${d.floorplans.filter(f => f.thumb).map(f => `<div class="dl-plan"><img src="${esc(f.thumb)}" alt="Floor plan" draggable="false" oncontextmenu="return false"><span class="dl-wm">PREVIEW</span></div>`).join('')}`;
+  if (d.locked && d.floorplans.some(f => f.thumb)) return `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> Pay to download your floor plan.</span><button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay to download</button></div>
+    ${d.floorplans.filter(f => f.thumb).map(f => `<div class="dl-plan"><img src="${esc(f.thumb)}" alt="Floor plan" draggable="false" oncontextmenu="return false"></div>`).join('')}`;
   return `<ul class="dl-files">${d.floorplans.map(f => `<li>${f.thumb ? `<img src="${esc(f.thumb)}" alt="" loading="lazy">` : ic(I.plan, 26)}<span>${esc(f.name)}</span>
     ${f.download ? `<button class="act" title="Download" onclick="kv.dSaveUrl(${esc(JSON.stringify(f.download))}, ${esc(JSON.stringify(f.name))})">${ic(I.dl)}</button>` : ''}
     ${f.open ? `<a class="act" title="Open" href="${esc(f.open)}" target="_blank" rel="noopener">${ic(I.ext)}</a>` : ''}${!f.download && !f.open ? ic(I.lock, 18) : ''}</li>`).join('')}</ul>`;
@@ -753,6 +776,10 @@ async function saveFiles(list, what) {
   kv.closeModal();
 }
 Object.assign(window.kv, {
+  dView(i) { D.lb = i; document.body.style.overflow = 'hidden'; lbPaint(); },
+  dLbGo(step) { const n = D.data.photos.length; D.lb = (D.lb + step + n) % n; lbPaint(); },
+  dLbSel() { const i = D.lb; D.sel.has(i) ? D.sel.delete(i) : D.sel.add(i); lbPaint(); render(); },
+  dLbClose() { D.lb = null; document.body.style.overflow = ''; const el = document.getElementById('lb'); if (el) { el.className = 'lb'; el.innerHTML = ''; } },
   dTab(t) { D.tab = t; history.replaceState(null, '', `#delivery/${D.key}/${t}`); render(); },
   dSel(i) { if (D.data.locked) return; D.sel.has(i) ? D.sel.delete(i) : D.sel.add(i); render(); },
   dSelAll() { D.sel = D.sel.size === D.data.photos.length ? new Set() : new Set(D.data.photos.map((_, i) => i)); render(); },

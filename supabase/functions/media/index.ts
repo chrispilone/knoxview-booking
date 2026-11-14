@@ -6,6 +6,19 @@
 //     src url:   any direct file link
 // The browser can fetch these (CORS open) to hand files to the share sheet ("Save Video" / "Save Images").
 import { verify, dropboxStream, vimeoInfo, pickPhoneMp4, safeName } from './lib.ts';
+import { Image } from 'https://deno.land/x/imagescript@1.3.0/mod.ts';
+
+// Before payment, photos are served with the PREVIEW watermark burned in (can't be removed by saving the image).
+const WM_URL = (Deno.env.get('WATERMARK_URL') ?? '').trim() || 'https://knoxview-booking.netlify.app/watermark.png';
+let WM: any = null;
+async function watermark(bytes: Uint8Array) {
+  let img: any = await Image.decode(bytes);
+  if (img.width > 1400) img = img.resize(1400, Image.RESIZE_AUTO); // previews never need more
+  if (!WM) WM = await Image.decode(new Uint8Array(await (await fetch(WM_URL)).arrayBuffer()));
+  const tile = WM.clone().resize(img.width, Image.RESIZE_AUTO);
+  for (let y = 0; y < img.height; y += tile.height) img.composite(tile, 0, y);
+  return await img.encodeJPEG(80);
+}
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, range',
   'Access-Control-Allow-Methods': 'GET, OPTIONS', 'Access-Control-Expose-Headers': 'content-length, content-disposition, content-type' };
@@ -22,7 +35,7 @@ Deno.serve(async (req) => {
     let up: Response, name = safeName(ref.name || 'file'), type = '';
     if (ref.src === 'dbx') {
       up = await dropboxStream(ref.link!, ref.path || '', ref.v || 'high');
-      if (ref.v === 'thumb' || ref.v === 'web') { type = 'image/jpeg'; name = name.replace(/\.[^.]+$/, '') + (ref.v === 'web' ? '-web' : '') + '.jpg'; }
+      if (ref.v === 'thumb' || ref.v === 'preview' || ref.v === 'web') { type = 'image/jpeg'; name = name.replace(/\.[^.]+$/, '') + (ref.v === 'web' ? '-web' : '') + '.jpg'; }
     } else if (ref.src === 'vimeo') {
       const info = await vimeoInfo(ref.vid!);
       const f = pickPhoneMp4(info?.download);
@@ -32,12 +45,16 @@ Deno.serve(async (req) => {
       up = await fetch(ref.url!, { redirect: 'follow' });
     } else return err('Bad link');
     if (!up.ok || !up.body) { console.error('media upstream', ref.src, up.status, (await up.text().catch(() => '')).slice(0, 300)); return err('We could not get that file right now. Please try again.', 502); }
+    if (ref.wm) { // watermarked preview (never the clean file)
+      const out = await watermark(new Uint8Array(await up.arrayBuffer()));
+      return new Response(req.method === 'HEAD' ? null : out, { status: 200, headers: { ...CORS, 'Content-Type': 'image/jpeg', 'Content-Length': String(out.length), 'Content-Disposition': 'inline; filename="preview.jpg"', 'Cache-Control': 'private, max-age=3600' } });
+    }
     const ext = (name.split('.').pop() || '').toLowerCase();
     const h = new Headers(CORS);
     h.set('Content-Type', type || EXT_TYPE[ext] || up.headers.get('content-type') || 'application/octet-stream');
     const len = up.headers.get('content-length'); if (len) h.set('Content-Length', len);
-    h.set('Content-Disposition', `${ref.dl || ref.v !== 'thumb' ? 'attachment' : 'inline'}; filename="${name.replace(/"/g, '')}"`);
-    h.set('Cache-Control', ref.v === 'thumb' ? 'private, max-age=3600' : 'private, no-store');
+    h.set('Content-Disposition', `${ref.dl ? 'attachment' : 'inline'}; filename="${name.replace(/"/g, '')}"`);
+    h.set('Cache-Control', ref.v === 'thumb' || ref.v === 'preview' ? 'private, max-age=3600' : 'private, no-store');
     return new Response(req.method === 'HEAD' ? null : up.body, { status: 200, headers: h });
   } catch (e) {
     console.error('media error', String((e as Error)?.message || e));

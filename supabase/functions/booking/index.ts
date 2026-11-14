@@ -385,7 +385,7 @@ async function handle(req: Request) {
     if (action === 'portal') {
       const { data: agent } = await admin.from('agents').select('id, full_name, email, phone, brokerage').eq('auth_user_id', user.id).maybeSingle();
       if (!agent) return json(req, { agent: null, bookings: [], listings: [] });
-      const { data: bks } = await admin.from('bookings').select('id, number, status, address, unit, city, state, zip, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, videos, tour_url, floorplan_url, website_url, media_files')
+      const { data: bks } = await admin.from('bookings').select('id, number, status, address, unit, city, state, zip, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, videos, tour_url, floorplan_url, website_url, media_files, require_payment')
         .eq('agent_id', agent.id).neq('status', 'cancelled').order('shoot_start', { ascending: false }).limit(200);
       // deliveries made outside the portal (HQ / Spiro era) for this client, not tied to a portal booking
       const { data: own } = await admin.from('projects').select('id, name, address, city, media, status, dropbox_url, vimeo_url, delivered_at, created_at, parent_project_id')
@@ -402,11 +402,11 @@ async function handle(req: Request) {
         });
         // delivery links set on the booking in HQ count as delivered media too
         // (only true/false flags reach the client here; real file links come from the delivery page's signed links)
-        if (b.photos_url || ((b.media_files as any[]) ?? []).some(f => (f?.kind || 'photo') === 'photo')) media.push({ name: 'Photos', media: 'photo', delivered: true, deliveredAt: null, dropbox: b.paid ? 'delivery' : null, vimeo: null });
-        for (const v of ((b.videos as any[]) ?? []).filter(v => v?.url)) media.push({ name: v.label || 'Video', media: 'video', delivered: true, deliveredAt: null, dropbox: null, vimeo: b.paid ? 'delivery' : null });
+        if (b.photos_url || ((b.media_files as any[]) ?? []).some(f => (f?.kind || 'photo') === 'photo')) media.push({ name: 'Photos', media: 'photo', delivered: true, deliveredAt: null, dropbox: b.paid || b.require_payment === false ? 'delivery' : null, vimeo: null });
+        for (const v of ((b.videos as any[]) ?? []).filter(v => v?.url)) media.push({ name: v.label || 'Video', media: 'video', delivered: true, deliveredAt: null, dropbox: null, vimeo: b.paid || b.require_payment === false ? 'delivery' : null });
         const extras = !!(b.tour_url || b.floorplan_url || b.website_url);
         const out = { ...b, project_ids: undefined, photos_url: undefined, videos: undefined, tour_url: undefined, floorplan_url: undefined, website_url: undefined, media_files: undefined, media, hasDelivery: media.some((m: any) => m.delivered) || extras };
-        return { ...out, locked: out.hasDelivery && !b.paid };
+        return { ...out, require_payment: undefined, locked: out.hasDelivery && !b.paid && b.require_payment !== false };
       });
       // group outside deliveries by address into one listing each
       const groups = new Map<string, any>();
@@ -454,7 +454,7 @@ async function handle(req: Request) {
         if ((b.project_ids ?? []).length) projects = (await admin.from('projects').select(projCols).in('id', b.project_ids)).data ?? [];
         head = { address: b.address + (b.unit ? ', ' + b.unit : ''), line2: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '), date: b.shoot_start, number: b.number };
       }
-      const locked = !!b && !b.paid; // must pay before media unlocks (HQ deliveries outside the portal are paid elsewhere)
+      const locked = !!b && !b.paid && b.require_payment !== false; // pay before download (switch per order in HQ; HQ deliveries outside the portal are paid elsewhere)
       const done = projects.filter(p => p.status === 'delivered');
       const photoLinks = [b?.photos_url, ...done.filter(p => p.media === 'photo').map(p => p.dropbox_url)].filter(Boolean).map(cleanDropboxLink);
       const videoLinks: { url: string; label?: string }[] = [...((b?.videos as any[]) ?? []).filter(v => v?.url), ...done.filter(p => p.media === 'video').flatMap(p => [p.vimeo_url && { url: p.vimeo_url, label: p.name }, p.dropbox_url && { url: p.dropbox_url, label: p.name }]).filter(Boolean)];
@@ -467,14 +467,16 @@ async function handle(req: Request) {
         if (dropboxConfigured()) folders.push({ zip: locked ? null : await sign({ src: 'dbx', link, path: '', v: 'high', name: `${head.address} photos.zip`, dl: 1 }) });
         const files = await dropboxFiles(link).catch(e => { console.error('dropbox', String(e)); return null; });
         for (const f of (files ?? []).filter(f => f.kind === 'image')) photos.push({ name: f.name,
-          thumb: await sign({ src: 'dbx', link, path: f.path, v: 'thumb', name: f.name }),
+          thumb: await sign({ src: 'dbx', link, path: f.path, v: 'thumb', name: f.name, ...(locked ? { wm: 1 as const } : {}) }),
+          view: await sign({ src: 'dbx', link, path: f.path, v: locked ? 'preview' : 'web', name: f.name, ...(locked ? { wm: 1 as const } : {}) }),
           web: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'web', name: f.name, dl: 1 }),
           high: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'high', name: f.name, dl: 1 }) });
       }
       let n = 0;
       for (const f of direct.filter(f => (f.kind || 'photo') === 'photo')) {
         const name = f.name || `${String(++n).padStart(3, '0')} ${pretty(f.url.split('/').pop() || 'photo')}.jpg`;
-        photos.push({ name, thumb: await sign({ src: 'url', url: f.preview || f.url, v: 'thumb', name }),
+        photos.push({ name, thumb: await sign({ src: 'url', url: f.preview || f.url, v: 'thumb', name, ...(locked ? { wm: 1 as const } : {}) }),
+          view: await sign(locked ? { src: 'url', url: f.preview || f.url, v: 'preview', name, wm: 1 } : { src: 'url', url: f.web || f.url, v: 'preview', name }),
           web: locked || !f.web ? null : await sign({ src: 'url', url: f.web, name, dl: 1 }),
           high: locked ? null : await sign({ src: 'url', url: f.url, name, dl: 1 }) });
       }
@@ -500,12 +502,12 @@ async function handle(req: Request) {
       const floorplans: any[] = [];
       for (const f of direct.filter(f => f.kind === 'floorplan')) {
         const name = f.name || `Floor plan - ${head.address}.${(f.url.split('.').pop() || 'jpg').slice(0, 4)}`;
-        floorplans.push({ name, thumb: await sign({ src: 'url', url: f.preview || f.url, v: 'thumb', name }), download: locked ? null : await sign({ src: 'url', url: f.url, name, dl: 1 }) });
+        floorplans.push({ name, thumb: await sign({ src: 'url', url: f.preview || f.url, v: 'preview', name, ...(locked ? { wm: 1 as const } : {}) }), download: locked ? null : await sign({ src: 'url', url: f.url, name, dl: 1 }) });
       }
       if (b?.floorplan_url && /dropbox\.com/.test(b.floorplan_url)) {
         const link = cleanDropboxLink(b.floorplan_url);
         for (const f of ((await dropboxFiles(link).catch(() => null)) ?? []).filter(f => f.kind !== 'other')) floorplans.push({ name: f.name,
-          thumb: f.kind === 'image' ? await sign({ src: 'dbx', link, path: f.path, v: 'thumb', name: f.name }) : null,
+          thumb: f.kind === 'image' ? await sign({ src: 'dbx', link, path: f.path, v: 'preview', name: f.name, ...(locked ? { wm: 1 as const } : {}) }) : null,
           download: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'high', name: f.name, dl: 1 }) });
       } else if (b?.floorplan_url) floorplans.push({ name: 'Floor plan', open: locked ? null : b.floorplan_url });
       const gate = (u: string | null) => locked ? null : u || null;
