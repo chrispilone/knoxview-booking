@@ -250,8 +250,9 @@ function alertModal(text) {
 }
 
 /* ================= views ================= */
-// Upsell pop-ups (e.g. Zillow 3D, Real Twilight) are off until Chris picks which ones to show.
-const SHOW_UPSELLS = false;
+// Upsell pop-ups are switched on and off per upsell in HQ (Bookings → Portal settings → Upsells).
+// Only active upsells are readable by the public, so this stays true; set false to hide them all.
+const SHOW_UPSELLS = true;
 function vServices() {
   const cov = covered();
   const pk = packages().map(p => `
