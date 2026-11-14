@@ -6,7 +6,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-const STEPS = ['Services', 'Property', 'Schedule', 'Review & Pay'];
+const STEPS = ['Property', 'Services', 'Schedule', 'Review & Pay']; // address first; to revert, swap back here + in isValid/validate/navs/render
 
 async function api(action, body = {}) {
   const { data, error } = await sb.functions.invoke('booking', { body: { action, ...body } });
@@ -84,8 +84,8 @@ function go(n) {
   window.scrollTo({ top: 0, behavior: 'smooth' }); render();
 }
 function isValid(step) {
-  if (step === 0) return inCart().size > 0;
-  if (step === 1) { const a = S.addr; return a.street && a.city && a.state && /^\d{5}$/.test(a.zip) && a.sqftLabel; }
+  if (step === 1) return inCart().size > 0;
+  if (step === 0) { const a = S.addr; return a.street && a.city && a.state && /^\d{5}$/.test(a.zip) && a.sqftLabel; }
   if (step === 2) return !!S.start;
   if (step === 3) { const c = S.contact; return c.first && c.last && /\S+@\S+\.\S+/.test(c.email) && c.phone.replace(/\D/g, '').length >= 10; }
   return true;
@@ -93,7 +93,7 @@ function isValid(step) {
 function validate(step) {
   S.errors = {};
   const a = S.addr, c = S.contact;
-  if (step === 1) { if (!a.street) S.errors.street = 1; if (!a.city) S.errors.city = 1; if (!/^\d{5}$/.test(a.zip)) S.errors.zip = 1; if (!a.sqftLabel) S.errors.sqftLabel = 1; }
+  if (step === 0) { if (!a.street) S.errors.street = 1; if (!a.city) S.errors.city = 1; if (!/^\d{5}$/.test(a.zip)) S.errors.zip = 1; if (!a.sqftLabel) S.errors.sqftLabel = 1; }
   if (step === 3) { if (!c.first) S.errors.first = 1; if (!c.last) S.errors.last = 1; if (!/\S+@\S+\.\S+/.test(c.email)) S.errors.email = 1; if (c.phone.replace(/\D/g, '').length < 10) S.errors.phone = 1; }
   return isValid(step);
 }
@@ -238,7 +238,7 @@ function vServices() {
       <p class="d">Need just one thing, or want to add to a package? Book any service on its own. A basic floor plan is included with every photo shoot.</p>
       <div class="list">${alacarte().map(row).join('')}</div></section>
     ${large}
-    <div class="nav"><span></span><button class="btn" onclick="kv.go(1)" ${inCart().size ? '' : 'disabled'}>Continue to property</button></div>`;
+    <div class="nav"><button class="btn o" onclick="kv.go(0)">Back</button><button class="btn" onclick="kv.go(2)" ${inCart().size ? '' : 'disabled'}>Continue to schedule</button></div>`;
 }
 function field(key, label, obj, opt = {}) {
   const v = S[obj][key] || '', req = opt.req !== false, err = S.errors[key] ? 'err' : '';
@@ -268,7 +268,7 @@ function vProperty() {
     ${big ? `<div class="callout"><span>Homes over ${Number(st.large_sqft).toLocaleString()} sq ft include the ${esc(st.large_label)} add-on (+${money(st.large_fee)}): more photos and more time on site.</span></div>` : ''}
     ${largeVisible() && !big ? `<label class="check"><input type="checkbox" ${S.adu ? 'checked' : ''} onchange="kv.toggleAdu()"> This property has an ADU, guest house or extra structure (+${money(st.large_fee)})</label>` : ''}
     </div></section>
-    <div class="nav"><button class="btn o" onclick="kv.go(0)">Back</button><button class="btn" onclick="kv.go(2)">Continue to schedule</button></div>`;
+    <div class="nav"><span></span><button class="btn" onclick="kv.go(1)">Continue to services</button></div>`;
 }
 function vSchedule() {
   if (!S.slots) return `<div class="panel loading"><span class="spin"></span> Checking the calendar…</div>${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}`;
@@ -400,7 +400,7 @@ function render() {
     $('revErr').innerHTML = tmp.querySelector('#revErr').innerHTML;
     $('revNav').innerHTML = tmp.querySelector('#revNav').innerHTML;
   } else {
-    $('view').innerHTML = [vServices, vProperty, vSchedule, vReview][S.step]() + (S.step < 3 && S.error ? `<div class="msg err">${esc(S.error)}</div>` : '');
+    $('view').innerHTML = [vProperty, vServices, vSchedule, vReview][S.step]() + (S.step < 3 && S.error ? `<div class="msg err">${esc(S.error)}</div>` : '');
   }
   $('sumDesk').innerHTML = vSummary(true);
   $('sumMob').innerHTML = vSummary(false);
@@ -408,7 +408,7 @@ function render() {
   $('barSub').textContent = lines().length ? lines().map(l => l.name).join(' · ') : 'Nothing selected';
   const nb = $('barNext');
   nb.textContent = S.step < 3 ? 'Continue' : S.checkout ? (S.checkout.intentType === 'payment' ? 'Pay & book' : 'Save card & book') : 'To payment';
-  nb.disabled = S.busy || (S.step === 0 ? !inCart().size : S.step === 2 ? !S.start : false);
+  nb.disabled = S.busy || (S.step === 1 ? !inCart().size : S.step === 2 ? !S.start : false);
   nb.onclick = () => S.step < 3 ? go(S.step + 1) : S.checkout ? confirmPay() : startCheckout();
 }
 document.addEventListener('input', e => {
