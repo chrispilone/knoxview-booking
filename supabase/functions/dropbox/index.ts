@@ -10,6 +10,8 @@ import { sign, dbxApi, dropboxFolderImages, dropboxConfigured, dropboxToken, for
 //   create_folders { bookingId }   -> makes <root>/<folder name>/<subfolders> and saves bookings.dropbox_path
 //   sync { bookingId }             -> reads <dropbox_path>/<final photos>, keeps the order already set, adds new photos at the end
 //   gallery { bookingId }          -> the synced photos with preview thumbnails (links expire)
+//   preview_path { bookingId }     -> the folder path this order gets (nothing is created)
+// Folder name fill-ins: {year} {quarter} {photographer} {date_dots} {day_seq} {address_slug} {client_lower} + more (see HQ settings).
 // Needs secrets DROPBOX_APP_KEY + DROPBOX_APP_SECRET (from the Dropbox app). The lib.ts here is a copy of booking/lib.ts.
 
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
@@ -25,14 +27,31 @@ class Bad extends Error { constructor(m: string, public status = 400) { super(m)
 const NOT_CONNECTED = "Dropbox isn't connected yet. Connect it in HQ → Bookings → Portal settings → Dropbox.";
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const clean = (s: string) => String(s ?? '').replace(/[\\:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '');
-function folderPath(set: any, b: any, agent: any) {
+// strip characters Dropbox doesn't allow; keep spacing as written (Spiro folders use two spaces before the client name)
+const clean = (s: string) => String(s ?? '').replace(/[\\:*?"<>|]+/g, '').replace(/[\r\n\t]+/g, ' ').trim().replace(/[. ]+$/, '');
+const ABBR: Record<string, string> = { street: 'st', avenue: 'ave', road: 'rd', drive: 'dr', lane: 'ln', circle: 'cir', court: 'ct', boulevard: 'blvd', place: 'pl',
+  trail: 'trl', parkway: 'pkwy', highway: 'hwy', terrace: 'ter', springs: 'spgs', meadows: 'mdws', mountain: 'mountain', north: 'n', south: 's', east: 'e', west: 'w' };
+// "2381 Misty Mountain Circle" -> "2381-misty-mountain-cir" (same style as the Spiro folders)
+const slug = (s: string) => String(s ?? '').toLowerCase().replace(/[#.,']/g, ' ').split(/[^a-z0-9]+/).filter(Boolean).map(w => ABBR[w] ?? w).join('-');
+async function folderPath(set: any, b: any, agent: any) {
+  const tz = set.timezone || 'America/New_York';
   const d = new Date(b.shoot_start || b.created_at || Date.now());
-  const p = new Intl.DateTimeFormat('en-US', { timeZone: set.timezone || 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
+  const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
   const g = (t: string) => p.find(x => x.type === t)?.value || '';
-  const v: Record<string, string> = { year: g('year'), month: g('month'), day: g('day'), month_name: MONTHS[+g('month') - 1] || '', date: `${g('year')}-${g('month')}-${g('day')}`,
-    address: b.address + (b.unit ? ' ' + b.unit : ''), city: b.city || '', zip: b.zip || '', order_number: String(b.number || ''),
-    client_name: agent?.full_name || b.client_name || '', brokerage: agent?.brokerage || '' };
+  // order of this shoot among the day's shoots: 01, 02, 03…
+  const dayKey = `${g('year')}-${g('month')}-${g('day')}`;
+  const { data: sameDay } = await admin.from('bookings').select('id, shoot_start').neq('status', 'cancelled')
+    .gte('shoot_start', new Date(d.getTime() - 36 * 3600e3).toISOString()).lte('shoot_start', new Date(d.getTime() + 36 * 3600e3).toISOString()).order('shoot_start');
+  const local = (x: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(x));
+  const seq = Math.max(1, (sameDay ?? []).filter(x => x.shoot_start && local(x.shoot_start) === dayKey).findIndex(x => x.id === b.id) + 1);
+  let photographer = '';
+  if (b.photographer_id) photographer = (await admin.from('team_members').select('full_name').eq('id', b.photographer_id).maybeSingle()).data?.full_name || '';
+  if (!photographer) photographer = (await admin.from('team_members').select('full_name').eq('role', 'owner').eq('active', true).order('created_at').limit(1).maybeSingle()).data?.full_name || 'Photographer';
+  const client = agent?.full_name || b.client_name || '';
+  const v: Record<string, string> = { year: g('year'), month: g('month'), day: g('day'), month_name: MONTHS[+g('month') - 1] || '', date: dayKey,
+    date_dots: `${g('month')}.${g('day')}.${g('year')}`, quarter: String(Math.ceil(+g('month') / 3)), day_seq: String(seq).padStart(2, '0'),
+    address: b.address + (b.unit ? ' ' + b.unit : ''), address_slug: slug(b.address + (b.unit ? ' ' + b.unit : '')), city: b.city || '', zip: b.zip || '',
+    order_number: String(b.number || ''), client_name: client, client_lower: client.toLowerCase(), brokerage: agent?.brokerage || '', photographer };
   const name = String(set.dropbox_folder_name || '{address} #{order_number}').split('/').map(seg => clean(seg.replace(/\{(\w+)\}/g, (m, k) => k in v ? v[k] : m))).filter(Boolean).join('/');
   const root = '/' + String(set.dropbox_root || '/Knox View Media/Orders').split('/').map(clean).filter(Boolean).join('/');
   return (root === '/' ? '' : root) + '/' + name;
@@ -78,10 +97,14 @@ Deno.serve(async (req) => {
     if (!b) throw new Bad('Order not found', 404);
     const needDbx = async () => { if (!dropboxConfigured() || !(await dropboxToken().catch(() => null))) throw new Bad(NOT_CONNECTED, 409); };
 
+    if (body.action === 'preview_path') {
+      const { data: agent } = b.agent_id ? await admin.from('agents').select('full_name, brokerage').eq('id', b.agent_id).maybeSingle() : { data: null };
+      return json(req, { path: b.dropbox_path || await folderPath(set, b, agent), existing: !!b.dropbox_path });
+    }
     if (body.action === 'create_folders') {
       await needDbx();
       const { data: agent } = b.agent_id ? await admin.from('agents').select('full_name, brokerage').eq('id', b.agent_id).maybeSingle() : { data: null };
-      const base = b.dropbox_path && !body.force ? b.dropbox_path : folderPath(set, b, agent);
+      const base = b.dropbox_path && !body.force ? b.dropbox_path : await folderPath(set, b, agent);
       const paths = [base, ...((set.dropbox_subfolders as string[]) ?? []).map(s => clean(s)).filter(Boolean).map(s => `${base}/${s}`)];
       const r = await dbxApi('files/create_folder_batch', { paths, autorename: false, force_async: false });
       if (!r.ok) throw new Bad('Dropbox could not make the folders: ' + (await r.text()).slice(0, 200), 502);
