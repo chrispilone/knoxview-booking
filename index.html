@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book Listing Media · Knox View</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<script src="https://js.stripe.com/v3/"></script>
+<script src="/config.js"></script>
+</head>
+<body>
+<div class="proto testbar" id="testbar" hidden>TEST SITE · use Stripe test card 4242 4242 4242 4242 · no real charges</div>
+<header class="top"><div class="top-in">
+  <div class="brand"><h1>Knox View</h1><a href="#account" id="acctLink">Sign in</a></div>
+  <nav class="steps" id="steps"></nav>
+</div></header>
+
+<main class="wrap" id="main">
+  <div id="view"><div class="loading"><span class="spin"></span> Loading…</div></div>
+  <aside class="side" id="side"><div class="sum" id="sumDesk"></div></aside>
+</main>
+
+<div class="bar" id="bar">
+  <div class="t"><b id="barTot">$0</b><small id="barSub">Nothing selected</small><button class="link" id="barOpen">View order</button></div>
+  <button class="btn" id="barNext">Continue</button>
+</div>
+<div class="sheet" id="sheet"><div class="sum" id="sumMob"></div></div>
+<div id="modal"></div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
