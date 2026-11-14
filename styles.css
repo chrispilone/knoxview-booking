@@ -423,3 +423,13 @@ header.top{padding-top:env(safe-area-inset-top)}
 .lb-sel svg{width:16px;height:16px;stroke:currentColor}
 .lb-note{display:inline-flex;gap:6px;align-items:center;opacity:.85;margin-right:6px}
 @media(max-width:640px){.lb-nav{width:40px;height:54px;font-size:30px;background:rgba(0,0,0,.35)}.lb-bar .btn{flex:1 1 40%;justify-content:center}}
+/* floor plans use the photo grid + viewer */
+.dl-grid.floorplans{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.dl-grid.floorplans .dl-img{aspect-ratio:4/3;background:#fff;border:1px solid var(--line)}
+.dl-grid.floorplans .dl-img img{object-fit:contain;padding:6px}
+.lb-stage.floorplans img{background:#fff;border-radius:6px}
+.dl-file{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;height:100%;color:var(--slate)}
+.dl-file small{font-weight:700;letter-spacing:.1em}
+.dl-card.soon{background:#fafbfc;border-style:dashed}
+.dl-card.soon h3{color:var(--slate)}
+@media(max-width:640px){.dl-grid.floorplans{grid-template-columns:1fr}}

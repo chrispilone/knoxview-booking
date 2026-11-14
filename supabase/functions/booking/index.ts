@@ -502,19 +502,25 @@ async function handle(req: Request) {
       const floorplans: any[] = [];
       for (const f of direct.filter(f => f.kind === 'floorplan')) {
         const name = f.name || `Floor plan - ${head.address}.${(f.url.split('.').pop() || 'jpg').slice(0, 4)}`;
-        floorplans.push({ name, thumb: await sign({ src: 'url', url: f.preview || f.url, v: 'preview', name, ...(locked ? { wm: 1 as const } : {}) }), download: locked ? null : await sign({ src: 'url', url: f.url, name, dl: 1 }) });
+        const wm = locked ? { wm: 1 as const } : {};
+        floorplans.push({ name, thumb: await sign({ src: 'url', url: f.preview || f.url, v: 'thumb', name, ...wm }), view: await sign({ src: 'url', url: f.preview && locked ? f.preview : f.url, v: 'preview', name, ...wm }),
+          web: null, high: locked ? null : await sign({ src: 'url', url: f.url, name, dl: 1 }) });
       }
       if (b?.floorplan_url && /dropbox\.com/.test(b.floorplan_url)) {
         const link = cleanDropboxLink(b.floorplan_url);
+        const wm = locked ? { wm: 1 as const } : {};
         for (const f of ((await dropboxFiles(link).catch(() => null)) ?? []).filter(f => f.kind !== 'other')) floorplans.push({ name: f.name,
-          thumb: f.kind === 'image' ? await sign({ src: 'dbx', link, path: f.path, v: 'preview', name: f.name, ...(locked ? { wm: 1 as const } : {}) }) : null,
-          download: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'high', name: f.name, dl: 1 }) });
+          thumb: f.kind === 'image' ? await sign({ src: 'dbx', link, path: f.path, v: 'thumb', name: f.name, ...wm }) : null,
+          view: f.kind === 'image' ? await sign({ src: 'dbx', link, path: f.path, v: 'preview', name: f.name, ...wm }) : null,
+          web: null, high: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'high', name: f.name, dl: 1 }) });
       } else if (b?.floorplan_url) floorplans.push({ name: 'Floor plan', open: locked ? null : b.floorplan_url });
       const gate = (u: string | null) => locked ? null : u || null;
       return json(req, {
         head: { ...head, brokerage: [agent.team_name, agent.brokerage].filter(Boolean).join(' - ') || agent.full_name },
         locked, bookingId: b?.id ?? null, total: b ? +b.total : null,
-        websites: [b?.website_url && { label: 'Branded property website', url: gate(b.website_url) }, b?.website_unbranded_url && { label: 'Unbranded property website', url: gate(b.website_unbranded_url) }].filter(Boolean),
+        websites: b && b.websites_enabled !== false ? [
+          { label: 'Branded property website', url: gate(b.website_url), soon: !b.website_url },
+          { label: 'Unbranded property website', url: gate(b.website_unbranded_url), soon: !b.website_unbranded_url }] : [],
         tour: b?.tour_url ? { url: gate(b.tour_url) } : null, marketing: b?.marketing_url ? { url: gate(b.marketing_url) } : null,
         photos, folders, videos, floorplans,
         setup: { dropbox: dropboxConfigured(), vimeo: vimeoConfigured() },
