@@ -72,7 +72,7 @@ window.kv = {
   go, pickSlot(start, label) { S.start = start; S.startLabel = label; S.checkout = null; render(); },
   moreSlots() { loadSlots(S.slots.days[S.slots.days.length - 1].date, true); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
-  startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, closeModal() { $('modal').innerHTML = ''; },
+  startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
 
 function go(n) {
@@ -473,13 +473,16 @@ function ldSend(prefer) { // "Continue" (no prefer) or "Login via SMS" / "Login 
 }
 function ltab(t) { S.ltab = t === 'signin' ? 'signin' : 'price'; S.error = ''; render(); setTimeout(() => $(S.ltab === 'signin' ? 'loginId' : 'lpStreet')?.focus(), 30); }
 function lsize(label) { S.addr.sqftLabel = label; resetSchedule(); S.error = ''; render(); }
-function ldPricing() { // "View pricing": straight to the packages when the address is complete, otherwise to the property step
+function locc(v) { S.addr.occupancy = v; S.error = ''; render(); }
+function ldPricing() { // "View pricing": straight to the packages (Services step)
   const a = S.addr; a.street = ($('lpStreet')?.value ?? a.street ?? '').trim();
-  if (!a.street) { S.error = 'Enter the listing address.'; render(); setTimeout(() => $('lpStreet')?.focus(), 30); return; }
-  if (!a.sqftLabel) { S.error = 'Pick the home size.'; render(); return; }
-  S.error = ''; S.view = 'book'; history.pushState(null, '', '#order');
-  S.step = isValid(0) ? 1 : 0;
-  render(); window.scrollTo({ top: 0 });
+  ['city', 'zip'].forEach(k => { const el = $('lp_' + k); if (el) a[k] = el.value.trim(); });
+  if (!a.state) a.state = 'TN';
+  const err = !a.street ? 'Enter the listing address.' : !a.city || !/^\d{5}$/.test(a.zip || '') ? 'Add the city and 5-digit ZIP for this address.'
+    : !a.sqftLabel ? 'Pick the home size.' : !a.occupancy ? 'Let us know if the property is vacant or occupied.' : '';
+  if (err) { S.error = err; render(); return; }
+  S.error = ''; S.errors = {}; S.view = 'book'; history.pushState(null, '', '#order');
+  S.step = 1; render(); window.scrollTo({ top: 0 });
 }
 function vLandingSignin() {
   const p = LP();
@@ -506,15 +509,22 @@ function vLandingPrice() {
   const a = S.addr, opts = S.config.settings.sqft_options || [];
   const done = a.street && a.city && a.zip, hasAddr = (a.street || '').trim().length >= 5;
   const line = [a.street + (a.unit ? ` #${a.unit}` : ''), a.city, [a.state, a.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-  return `<div class="lp-q"><span class="lp-n">1</span> Listing address</div>
+  const sel = (id, ph, list, val, fn) => `<div class="lp-sel"><select id="${id}" onchange="kv.${fn}(this.value)" aria-label="${ph}">
+      <option value="">${ph}</option>${list.map(o => `<option ${val === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>`;
+  let n = 1;
+  return `<div class="lp-q"><span class="lp-n">${n++}</span> Listing address</div>
     <label class="lp-addr ${done ? 'ok' : ''}">${svg(IC_PIN, 22)}<input id="lpStreet" data-o="addr" data-k="street" placeholder="Start typing the address" value="${esc(a.street || '')}" autocomplete="off" aria-label="Listing address" onchange="kv.lpAddr(this)"></label>
-    ${done ? `<p class="lp-picked">${svg(IC_OK, 17)} ${esc(line)}</p>` : `<p class="lp-hint">Pick the address from the list and we'll fill in the rest.</p>`}
-    ${hasAddr ? `<div class="lp-q"><span class="lp-n">2</span> Home size</div>
-    <div class="lp-sel"><select id="lpSize" onchange="kv.lsize(this.value)" aria-label="Home size">
-      <option value="">Select home size</option>${opts.map(o => `<option ${a.sqftLabel === o.label ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>
-    <p class="lp-hint">Heated square feet. A close guess is fine.</p>
+    ${done ? `<p class="lp-picked">${svg(IC_OK, 17)} ${esc(line)}</p>`
+      : hasAddr ? `<div class="lp-row"><input id="lp_city" data-o="addr" data-k="city" placeholder="City" value="${esc(a.city || '')}" autocomplete="address-level2"><input id="lp_zip" data-o="addr" data-k="zip" placeholder="ZIP" inputmode="numeric" maxlength="5" value="${esc(a.zip || '')}" autocomplete="postal-code"></div>
+        <p class="lp-hint">Didn't see it in the list? Add the city and ZIP.</p>`
+      : `<p class="lp-hint">Pick the address from the list and we'll fill in the rest.</p>`}
+    ${hasAddr ? `<div class="lp-q"><span class="lp-n">${n++}</span> Home size</div>
+      ${sel('lpSize', 'Select home size', opts.map(o => o.label), a.sqftLabel, 'lsize')}
+      <p class="lp-hint">Heated square feet. A close guess is fine.</p>` : ''}
+    ${hasAddr && a.sqftLabel ? `<div class="lp-q"><span class="lp-n">${n++}</span> Is the property vacant?</div>
+      ${sel('lpOcc', 'Select occupancy', ['Vacant', 'Owner occupied', 'Tenant occupied'], a.occupancy, 'locc')}` : ''}
     ${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}
-    <button class="lp-go" onclick="kv.ldPricing()" ${a.sqftLabel ? '' : 'disabled'}>View pricing ${svg(IC_ARROW, 18)}</button>` : ''}`;
+    ${hasAddr && a.sqftLabel ? `<button class="lp-go" onclick="kv.ldPricing()" ${a.occupancy ? '' : 'disabled'}>View pricing ${svg(IC_ARROW, 18)}</button>` : ''}`;
 }
 function vLanding() {
   const tab = S.ltab || 'price';

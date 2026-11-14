@@ -553,6 +553,9 @@ body.landing .top,body.landing #main,body.landing .bar,body.landing .sheet{displ
 .lp-addr:focus-within{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
 .lp-addr.ok svg{color:#2f7a52;opacity:1}
 .lp-picked{display:flex;gap:8px;align-items:center;margin:9px 2px 0;color:#2f7a52;font-weight:600;font-size:.88rem}
+.lp-row{display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:8px}
+.lp-row input{height:50px;border:1px solid #c9d2de;border-radius:4px;padding:0 14px;font:inherit;font-size:1rem;color:var(--ink);background:#fff;box-sizing:border-box;width:100%}
+.lp-row input:focus{outline:none;border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
 .lp-hint{color:var(--mute);font-size:.82rem;margin:8px 2px 0}
 .lp-sel{position:relative}
 .lp-sel::after{content:'';position:absolute;right:18px;top:50%;width:8px;height:8px;border-right:1.6px solid var(--ink);border-bottom:1.6px solid var(--ink);transform:translateY(-70%) rotate(45deg);pointer-events:none}
