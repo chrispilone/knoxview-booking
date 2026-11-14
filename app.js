@@ -164,8 +164,8 @@ function setMethod(m) {
   p.method = m === 'sms' ? 'sms' : 'email'; p.stage = 'enter'; S.error = ''; render();
   setTimeout(() => $('loginId')?.focus(), 30);
 }
-const fmtPhone = v => { const d = v.replace(/\D/g, '').replace(/^1(?=\d{10})/, '').slice(0, 10);
-  return d.length < 4 ? d : d.length < 7 ? `(${d.slice(0, 3)}) ${d.slice(3)}` : `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`; };
+function fmtPhone(v) { const d = v.replace(/\D/g, '').replace(/^1(?=\d{10})/, '').slice(0, 10);
+  return d.length < 4 ? d : d.length < 7 ? `(${d.slice(0, 3)}) ${d.slice(3)}` : `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`; }
 async function signIn(ev) { // send a code to the email or phone they entered
   ev?.preventDefault(); keepInput();
   const p = LP();
@@ -179,7 +179,7 @@ async function signIn(ev) { // send a code to the email or phone they entered
   S.busy = false; render();
   setTimeout(() => $('loginCode')?.focus(), 50);
 }
-const sendCode = () => signIn();
+function sendCode() { return signIn(); }
 async function verifyCode(ev) {
   ev?.preventDefault();
   const code = ($('loginCode')?.value || '').replace(/\D/g, '');

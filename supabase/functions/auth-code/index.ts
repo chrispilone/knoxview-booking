@@ -173,6 +173,16 @@ Deno.serve(async (req) => {
     const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim();
     const ipHash = ip ? await sha('kv-auth:' + ip) : null;
 
+    if (b.action === 'status') { // setup check: which senders are configured (no secrets returned, nothing sent)
+      let twilio: Record<string, unknown> = { configured: TWILIO };
+      if (TWILIO) {
+        const r = await fetch(`https://verify.twilio.com/v2/Services/${TW_VERIFY}`, { headers: { Authorization: 'Basic ' + btoa(`${TW_SID}:${TW_TOKEN}`) } });
+        const d = await r.json().catch(() => ({}));
+        twilio = { configured: true, ok: r.ok, status: r.status, service: r.ok ? d.friendly_name : null, error: r.ok ? null : d.message ?? null };
+      }
+      return json(req, { twilio, quo: !!QUO_KEY, resend: !!RESEND_KEY });
+    }
+
     if (b.action === 'send') {
       const channel = b.channel === 'sms' ? 'sms' : 'email';
       await checkIp(ipHash);
