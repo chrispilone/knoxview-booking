@@ -1,11 +1,12 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
 // Delivery emails, sent from HQ (Bookings → order → Send delivery). HQ super admins only.
-//   context { bookingId } -> { to, phone, bcc, sms } defaults: the agent's email/mobile on file (else the order's)
-//   preview { bookingId, subject, heading, body, button } -> { html }   (what the client will see)
-//   send    { bookingId, templateKey, to, cc[], subject, heading, body, button, markComplete, sms, smsTo, smsBody }
-//           -> { ok, provider, sms }   Every email is BCC'd to DELIVERY_BCC (chris@knoxview.com).
-// Placeholders in any field: {first_name} {client_name} {address} {city} {order_number} {link}
+//   context { bookingId } -> { to, phone, bcc, sms, history } defaults: the agent's email/mobile on file (else the order's)
+//   preview { bookingId, templateKey, notes, smsBody } -> { html, subject, sms }   (exactly what the client will get)
+//   send    { bookingId, templateKey, to, cc[], notes, markComplete, sms, smsTo, smsBody } -> { ok, provider, sms }
+// Subject, heading, message and button come from the template (delivery_templates, edited in HQ settings) so every
+// email is consistent; the only per-order text is the optional "notes" box. Every email is BCC'd to chris@knoxview.com.
+// Layout matches the Resend "Media delivered" template. Placeholders: {first_name} {client_name} {address} {city} {order_number} {link}
 // The email's button opens the client's delivery page in the portal. Unpaid orders (with "Require payment" on)
 // get a line saying media unlocks after payment. Sent through Resend (RESEND_API_KEY) or, until that's set,
 // the owner's Gmail (same as sign-in codes). Every send is logged in delivery_emails.
@@ -13,7 +14,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 const env = (k: string) => (Deno.env.get(k) ?? '').trim();
 const RESEND_KEY = env('RESEND_API_KEY');
-const MAIL_FROM = env('DELIVERY_MAIL_FROM') || 'Knox View Media <delivery@mail.knoxview.com>';
+const MAIL_FROM = env('DELIVERY_MAIL_FROM') || 'Knox View <bookings@mail.knoxview.com>';
 const REPLY_TO = env('DELIVERY_REPLY_TO') || 'chris@knoxview.com';
 const PORTAL = (env('PORTAL_URL') || 'https://knoxview-booking.netlify.app').replace(/\/$/, '');
 const BCC = env('DELIVERY_BCC') || 'chris@knoxview.com';
@@ -58,37 +59,51 @@ async function sendSms(to: string, content: string) {
 }
 
 /* ---------- email ---------- */
-function render(b: any, t: { heading: string; body: string; button: string }) {
+const F = "font-family:Arial,Helvetica,sans-serif;";
+const P = `margin:0 0 16px 0;${F}font-size:15px;line-height:24px;color:#44546b;`;
+function render(b: any, a: any, tpl: any, notes: string) {
   const link = `${PORTAL}/#delivery/${b.id}`;
   const locked = !b.paid && b.require_payment !== false;
-  const paras = String(t.body || '').split(/\n{2,}/).map(p => p.trim()).filter(Boolean)
-    .map(p => `<p style="margin:0 0 16px">${esc(p).replace(/\n/g, '<br>')}</p>`);
-  // the button goes after the first two paragraphs (before the sign-off)
-  const cut = Math.min(2, paras.length);
-  const cover = b.cover_url && /^https:\/\//.test(b.cover_url) ? `<tr><td><img src="${esc(b.cover_url)}" width="560" alt="" style="display:block;width:100%;max-width:560px;height:auto;border:0"></td></tr>` : '';
-  const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"></head>
-<body style="margin:0;background:#f5f4f0;font-family:Helvetica,Arial,sans-serif;color:#1d3250">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f4f0;padding:24px 12px"><tr><td align="center">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px;overflow:hidden">
-<tr><td style="background:#1d3250;padding:22px 28px;text-align:center">
-  <div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;letter-spacing:3px;color:#ffffff">KNOX VIEW</div>
-  <div style="font-size:10px;letter-spacing:4px;color:#bccadc;margin-top:4px">REAL ESTATE MEDIA</div></td></tr>
-${cover}
-<tr><td style="padding:28px 28px 8px;font-size:15px;line-height:1.6;color:#44546b">
-  <h1 style="margin:0 0 6px;font-family:Georgia,'Times New Roman',serif;font-weight:normal;font-size:26px;color:#1d3250">${esc(t.heading)}</h1>
-  <p style="margin:0 0 20px;font-size:13px;color:#5f7389">${esc([b.address, b.city].filter(Boolean).join(', '))}${b.number ? ` · Order #${b.number}` : ''}</p>
-  ${paras.slice(0, cut).join('')}
-  ${locked ? `<p style="margin:0 0 16px;padding:12px 14px;background:#fff3dd;border-radius:8px;color:#6b4600">You can preview everything now. Your downloads unlock as soon as payment is made, right from your delivery page.</p>` : ''}
-  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 22px"><tr><td style="background:#1d3250;border-radius:8px">
-    <a href="${esc(link)}" style="display:inline-block;padding:14px 26px;color:#ffffff;text-decoration:none;font-weight:bold;font-size:15px">${esc(t.button || 'View & download')}</a></td></tr></table>
-  ${paras.slice(cut).join('')}
+  const heading = fill(tpl.heading, b, a), button = tpl.button_label || 'Open my media';
+  const paras = fill(tpl.body, b, a).split(/\n{2,}/).map((x: string) => x.trim()).filter(Boolean);
+  const closing = paras.length > 2 ? paras.pop()! : '';
+  const p = (x: string) => `<p style="${P}">${esc(x).replace(/\n/g, '<br />')}</p>`;
+  const items = (b.items || []).map((i: any) => i.name).filter((n: string) => n && !/large property|travel|fee/i.test(n));
+  const deliverables = tpl.deliverables ? fill(tpl.deliverables, b, a) : items.join(', ') || 'Your listing media';
+  const payment = b.paid ? 'Paid, thank you!' : locked ? 'Due. Preview now, downloads unlock once paid' : 'Due on your invoice';
+  const row = (k: string, v: string) => `<tr><td style="padding:7px 0;${F}font-size:12px;line-height:18px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#1f3c66;width:110px;vertical-align:top;">${k}</td><td style="padding:7px 0;${F}font-size:15px;line-height:22px;color:#44546b;vertical-align:top;">${v}</td></tr>`;
+  // graphics: the listing's cover photo as a hero; once downloads are open, a strip of three more photos
+  const pics = (b.media_files || []).filter((f: any) => f.kind === 'photo' && /^https:\/\//.test(f.preview || f.url || '')).map((f: any) => f.preview || f.url);
+  const cover = /^https:\/\//.test(b.cover_url || '') ? b.cover_url : pics[0] || '';
+  const strip = !locked ? pics.filter((u: string) => u !== cover).slice(0, 3) : [];
+  const hero = cover ? `<a href="${esc(link)}"><img src="${esc(cover)}" width="536" alt="${esc(b.address || 'Your listing')}" style="display:block;width:100%;max-width:536px;height:auto;border:0;border-radius:10px;margin:0 0 22px 0;" /></a>` : '';
+  const stripHtml = strip.length === 3 ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 22px 0;"><tr>${strip.map((u: string, i: number) => `<td width="33%" style="padding:0 ${i < 2 ? '6px' : '0'} 0 0;"><a href="${esc(link)}"><img src="${esc(u)}" width="174" alt="" style="display:block;width:100%;height:auto;border:0;border-radius:6px;" /></a></td>`).join('')}</tr></table>` : '';
+  const note = String(notes || '').trim();
+  const noteHtml = note ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 22px 0;"><tr><td style="border-left:3px solid #1d3250;background-color:#f5f4f0;border-radius:0 10px 10px 0;padding:14px 18px;">
+    <p style="margin:0 0 6px 0;${F}font-size:12px;line-height:18px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#1f3c66;">A note from Chris</p>
+    <p style="margin:0;${F}font-size:15px;line-height:24px;color:#44546b;">${esc(note).replace(/\n/g, '<br />')}</p></td></tr></table>` : '';
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Knox View</title></head>
+<body style="margin:0;padding:0;background-color:#f5f4f0;">
+<div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#f5f4f0;">${esc(heading)} · ${esc(b.address || '')}</div>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f5f4f0" style="background-color:#f5f4f0;"><tr><td align="center" style="padding:28px 12px;">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;">
+<tr><td bgcolor="#0d1726" style="background-color:#0d1726;border-radius:12px 12px 0 0;padding:0;line-height:0;font-size:0;overflow:hidden;"><img src="${PORTAL}/email-header.jpg" width="600" alt="Knox View Real Estate Media" style="display:block;width:100%;max-width:600px;height:auto;border:0;border-radius:12px 12px 0 0;color:#ffffff;font-family:Georgia,serif;font-size:22px;line-height:1.4;" /></td></tr>
+<tr><td bgcolor="#ffffff" style="background-color:#ffffff;padding:34px 32px 18px 32px;">
+  <h1 style="margin:0 0 6px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:32px;font-weight:normal;letter-spacing:1px;text-transform:uppercase;color:#1f3c66;">${esc(heading)}</h1>
+  <p style="margin:0 0 20px 0;${F}font-size:13px;line-height:20px;color:#8a96a8;">${esc([b.address, b.city].filter(Boolean).join(', '))}</p>
+  ${hero}${paras.map(p).join('')}
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#e7edf6" style="background-color:#e7edf6;border-radius:12px;margin:4px 0 22px 0;"><tr><td style="padding:16px 20px;"><table width="100%" cellpadding="0" cellspacing="0" border="0">
+    ${row('Delivered', esc(deliverables))}${b.number ? row('Order', '#' + esc(String(b.number))) : ''}${row('Payment', esc(payment))}</table></td></tr></table>
+  <table cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px 0;"><tr><td bgcolor="#1d3250" style="background-color:#1d3250;border-radius:8px;">
+    <a href="${esc(link)}" style="display:inline-block;padding:13px 26px;${F}font-size:13px;line-height:16px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#ffffff;text-decoration:none;">${esc(button)}</a></td></tr></table>
+  ${stripHtml}${noteHtml}${closing ? p(closing) : ''}
 </td></tr>
-<tr><td style="padding:16px 28px 24px;font-size:12px;line-height:1.5;color:#8a97a8;border-top:1px solid #eef1f5">
-  Button not working? Copy this link: <a href="${esc(link)}" style="color:#5f7389">${esc(link)}</a><br>
-  You'll sign in with your email or mobile number. Knox View Real Estate Media · Knoxville &amp; the Smokies · 865-855-5669</td></tr>
+<tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:0 0 12px 12px;padding:0 32px 30px 32px;">
+  <p style="margin:0;${F}font-size:15px;line-height:22px;color:#44546b;">Chris Pilone<br /><span style="color:#1f3c66;">Knox View Real Estate Media</span><br /><a href="tel:+18658555669" style="color:#1f3c66;text-decoration:none;">865-855-5669</a> &middot; <a href="https://knoxview.com" style="color:#1f3c66;text-decoration:none;">knoxview.com</a></p></td></tr>
+<tr><td align="center" style="padding:18px 24px;"><p style="margin:0;${F}font-size:11px;line-height:17px;color:#8a96a8;">Button not working? Open <a href="${esc(link)}" style="color:#8a96a8;">${esc(link)}</a><br />You'll sign in with your email or mobile number.<br />Knox View Real Estate Media &middot; Knoxville, Tennessee</p></td></tr>
 </table></td></tr></table></body></html>`;
-  const text = `${t.heading}\n${[b.address, b.city].filter(Boolean).join(', ')}\n\n${String(t.body || '').trim()}\n\n${locked ? 'You can preview everything now. Your downloads unlock as soon as payment is made.\n\n' : ''}${t.button || 'View & download'}: ${link}\n`;
-  return { html, text, link };
+  const text = `${heading}\n${[b.address, b.city].filter(Boolean).join(', ')}\n\n${paras.join('\n\n')}\n\nDelivered: ${deliverables}\n${b.number ? `Order: #${b.number}\n` : ''}Payment: ${payment}\n\n${button}: ${link}\n\n${note ? `A note from Chris:\n${note}\n\n` : ''}${closing ? closing + '\n\n' : ''}Chris Pilone\nKnox View Real Estate Media\n865-855-5669 · knoxview.com\n`;
+  return { html, text, subject: fill(tpl.subject, b, a).replace(/[\r\n]+/g, ' ').trim().slice(0, 200) };
 }
 async function ownerGmailToken() {
   if (!G_ID || !G_SECRET) return null;
@@ -141,14 +156,16 @@ Deno.serve(async (req) => {
 
     const b0 = await req.json().catch(() => ({}));
     const { b, a } = await load(String(b0.bookingId || ''));
-    const t = { heading: fill(String(b0.heading || ''), b, a).slice(0, 200), body: fill(String(b0.body || ''), b, a).slice(0, 8000), button: String(b0.button || 'View & download').slice(0, 80) };
-    const subject = fill(String(b0.subject || ''), b, a).replace(/[\r\n]+/g, ' ').trim().slice(0, 200);
-
     if (b0.action === 'context') {
       const { data: hist } = await admin.from('delivery_emails').select('created_at, template_key, to_email, cc, subject, ok, error, sms_to, sms_ok, sms_error, marked_complete').eq('booking_id', b.id).order('created_at', { ascending: false }).limit(20);
       return json(req, { to: (a?.email || b.client_email || '').toLowerCase(), phone: a?.phone || b.client_phone || '', bcc: BCC, sms: !!QUO_KEY, link: `${PORTAL}/#delivery/${b.id}`, history: hist || [] });
     }
-    if (b0.action === 'preview') return json(req, { html: render(b, t).html, subject, sms: fill(String(b0.smsBody || ''), b, a) });
+    const { data: tpl } = await admin.from('delivery_templates').select('*').eq('key', String(b0.templateKey || 'media')).maybeSingle();
+    if (!tpl) throw new Bad('Pick a delivery email template.');
+    const notes = String(b0.notes || '').slice(0, 4000);
+    const smsBody = fill(String(b0.smsBody || tpl.sms_body || 'Hi {first_name}, your media for {address} is ready! View and download here: {link} - Knox View Media'), b, a).slice(0, 640);
+    const mail = render(b, a, tpl, notes);
+    if (b0.action === 'preview') return json(req, { html: mail.html, subject: mail.subject, sms: smsBody });
 
     if (b0.action === 'send') {
       const to = String(b0.to || a?.email || b.client_email || '').trim().toLowerCase();
@@ -156,18 +173,14 @@ Deno.serve(async (req) => {
       const ccIn: string[] = (Array.isArray(b0.cc) ? b0.cc : String(b0.cc || '').split(/[\s,;]+/)).map((x: string) => String(x).trim().toLowerCase()).filter(Boolean);
       const badCc = ccIn.find(x => !EMAIL_RE.test(x)); if (badCc) throw new Bad(`"${badCc}" isn't a valid email.`);
       const cc = [...new Set(ccIn)].filter(x => x !== to).slice(0, 10);
-      if (!subject || !t.heading || !t.body) throw new Bad('Subject, heading and message are all needed.');
       let smsTo: string | null = null;
       if (b0.sms) { smsTo = e164(String(b0.smsTo || a?.phone || b.client_phone || '')); if (!smsTo) throw new Bad('Enter a valid mobile number for the text.'); }
-      const smsBody = b0.sms ? fill(String(b0.smsBody || 'Your media for {address} is ready: {link}'), b, a).slice(0, 640) : '';
-
-      const { html, text } = render(b, t);
       let provider: string | null = null, error: string | null = null;
-      try { provider = await sendEmail(to, cc, subject, html, text); } catch (e) { error = (e as Error).message; }
+      try { provider = await sendEmail(to, cc, mail.subject, mail.html, mail.text); } catch (e) { error = (e as Error).message; }
       let smsOk: boolean | null = null, smsError: string | null = null;
       if (smsTo && provider) { try { await sendSms(smsTo, smsBody); smsOk = true; } catch (e) { smsOk = false; smsError = (e as Error).message; } }
       const markComplete = !!b0.markComplete && !!provider;
-      await admin.from('delivery_emails').insert({ booking_id: b.id, template_key: String(b0.templateKey || '') || null, to_email: to, cc, bcc: BCC || null, subject, provider, ok: !!provider, error,
+      await admin.from('delivery_emails').insert({ booking_id: b.id, template_key: tpl.key, to_email: to, cc, bcc: BCC || null, subject: mail.subject, notes: notes || null, provider, ok: !!provider, error,
         sent_by: me.id, marked_complete: markComplete, sms_to: smsTo, sms_ok: smsOk, sms_error: smsError });
       if (error) throw new Bad(error, 502);
       if (markComplete) await admin.from('bookings').update({ status: b.status === 'cancelled' ? b.status : 'completed', delivered_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', b.id);
