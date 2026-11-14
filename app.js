@@ -207,6 +207,13 @@ function vServices() {
     </button>`).join('');
   const ups = upsells().map(u => `<div class="up"><div style="flex:1"><h3>${esc(u.title)}</h3><p>${esc(u.description)}</p></div>
       <button class="btn lt" onclick="kv.toggle('${u.service_id}')">+ ${money(svc(u.service_id).price)}</button></div>`).join('');
+  const row = s => {
+    const inc = cov.has(s.id), sel = S.items.has(s.id);
+    return `<button class="row ${sel ? 'sel' : ''} ${inc ? 'incl' : ''}" onclick="kv.toggle('${s.id}')" aria-pressed="${sel || inc}">
+      <span class="box">${CHECK}</span>
+      <span class="row-t"><span class="row-n">${esc(s.name)}</span>${s.description ? `<span class="row-d">${esc(s.description)}</span>` : ''}</span>
+      <span class="row-p">${inc ? `<span class="inc">Included</span>` : money(s.price)}</span></button>`;
+  };
   const card = s => {
     const inc = cov.has(s.id), sel = S.items.has(s.id);
     return `<button class="card sq small-card ${sel ? 'sel' : ''} ${inc ? 'incl' : ''}" onclick="kv.toggle('${s.id}')" aria-pressed="${sel || inc}">
@@ -226,7 +233,7 @@ function vServices() {
     ${ups ? `<section class="sec">${ups}</section>` : ''}
     <section class="sec"><div class="sec-h"><i style="background:#1f3c66"></i><h2>À La Carte Services</h2></div>
       <p class="d">Need just one thing, or want to add to a package? Book any service on its own. A basic floor plan is included with every photo shoot.</p>
-      <div class="grid">${alacarte().map(card).join('')}</div></section>
+      <div class="list">${alacarte().map(row).join('')}</div></section>
     ${large}
     <div class="nav"><span></span><button class="btn" onclick="kv.go(1)" ${inCart().size ? '' : 'disabled'}>Continue to property</button></div>`;
 }
