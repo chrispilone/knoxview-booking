@@ -72,7 +72,7 @@ window.kv = {
   go, pickSlot(start, label) { S.start = start; S.startLabel = label; S.checkout = null; render(); },
   moreSlots() { loadSlots(S.slots.days[S.slots.days.length - 1].date, true); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
-  startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, closeModal() { $('modal').innerHTML = ''; },
+  startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, closeModal() { $('modal').innerHTML = ''; },
 };
 
 function go(n) {
@@ -438,11 +438,68 @@ function vLogin() {
         <p class="hint" style="margin:0 0 10px">New to Knox View? Create an account to book and track your orders.</p>
         <button type="button" class="btn o" style="width:100%" onclick="kv.setMode('signup')">Create an account</button></div>`;
 }
-function vAccount() {
-  return `<div class="panel" style="max-width:460px;margin:0 auto"><h2 style="font-size:26px">${LP().mode === 'signup' ? 'Create account' : 'Client sign in'}</h2>
-      ${vLogin()}
-      <p class="hint" style="margin-top:16px"><a href="#order">← Book a shoot</a></p></div>`;
+// ---- Sign-in landing: the first page of book.knoxview.com for anyone not signed in ----
+// Desktop: sign-in card on the left, twilight photo with "See Pricing" on the right. Mobile: logo, See Pricing, then the form.
+const PRICING_URL = '#order'; // the booking form, starting at the property address
+const IC_PHONE = '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>';
+const IC_MAIL = '<rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="M3 6l9 7 9-7"/>';
+const IC_EXT = '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>';
+const svg = (d, s = 20) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+function ldKind(v) { // what's typed in the one field: 'email', 'sms' (10-digit phone) or null
+  v = String(v || '').trim();
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'email';
+  if (!/[a-z@]/i.test(v) && v.replace(/\D/g, '').replace(/^1(?=\d{10})/, '').length === 10) return 'sms';
+  return null;
 }
+function ldCheck(el) {
+  LP().ident = el.value; const b = $('ldGo'); if (b) b.disabled = !ldKind(el.value);
+  if (S.error) { S.error = ''; const e = $('ldErr'); if (e) e.innerHTML = ''; }
+}
+function ldSend(prefer) { // "Continue" (no prefer) or "Login via SMS" / "Login via Email"
+  const p = LP(), v = ($('loginId')?.value || '').trim(), kind = ldKind(v);
+  p.ident = v;
+  if (prefer && kind !== prefer) { // empty, or the wrong kind for the button they tapped: ask for the right one
+    p.method = prefer; p.ident = '';
+    S.error = prefer === 'sms' ? "Enter your mobile number and we'll text you a code." : "Enter your email and we'll email you a code.";
+    render(); setTimeout(() => $('loginId')?.focus(), 30); return;
+  }
+  if (!kind) { S.error = v ? 'Enter a valid email or 10-digit mobile number.' : 'Enter your email or mobile number.'; render(); return; }
+  p.method = kind; p[kind === 'sms' ? 'phone' : 'email'] = v;
+  return signIn();
+}
+function vLandingForm() {
+  const p = LP();
+  if (p.stage === 'code' || p.mode === 'signup') {
+    const h = p.stage === 'code' ? `Check your ${p.method === 'sms' ? 'phone' : 'email'}` : 'Create Account';
+    return `<h2 class="ld-h">${h}</h2>${vLogin()}${p.stage === 'code' && p.mode !== 'signup' ? '' : ''}`;
+  }
+  const ph = p.method === 'sms' && !p.ident && S.error ? 'Mobile number' : p.method === 'email' && !p.ident && S.error ? 'Email' : 'Email or Phone';
+  return `<h2 class="ld-h">Sign In</h2>
+    <form onsubmit="event.preventDefault();kv.ldSend()" novalidate>
+      <label for="loginId" class="ld-lbl">Email or Phone Number</label>
+      <input id="loginId" class="ld-in" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="${ph}" value="${esc(p.ident || '')}" oninput="kv.ldCheck(this)">
+      <div id="ldErr">${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}</div>
+      <button id="ldGo" class="ld-go" ${S.busy || !ldKind(p.ident) ? 'disabled' : ''}>${S.busy ? '<span class="spin"></span>' : 'Continue'}</button>
+    </form>
+    <div class="ld-or"><span>Or Login With OTP</span></div>
+    <div class="ld-otp">
+      <button type="button" onclick="kv.ldSend('sms')" ${S.busy ? 'disabled' : ''}>${svg(IC_PHONE)} Login via SMS</button>
+      <button type="button" onclick="kv.ldSend('email')" ${S.busy ? 'disabled' : ''}>${svg(IC_MAIL)} Login via Email</button>
+    </div>
+    <p class="ld-alt">Don't have an account? <a href="javascript:kv.setMode('signup')">Create Account</a></p>`;
+}
+function vLanding() {
+  return `<div class="ld">
+    <div class="ld-left"><div class="ld-card">
+      <div class="ld-logo" role="img" aria-label="Knox View Real Estate Media"></div>
+      <div class="ld-m"><a class="ld-price" href="${PRICING_URL}">${svg(IC_EXT, 22)} See Pricing</a></div>
+      ${vLandingForm()}
+    </div></div>
+    <div class="ld-right"><a class="ld-price" href="${PRICING_URL}">${svg(IC_EXT, 22)} See Pricing</a></div>
+  </div>`;
+}
+function vAccount() { return vLanding(); }
+
 /* ================= client portal (signed in) ================= */
 const ic = (p, s = 18) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 const I = {
@@ -875,6 +932,10 @@ function vSummary(btn) {
 /* ================= render ================= */
 function render() {
   const portal = PORTAL_VIEWS.includes(S.view), acct = S.view === 'account' || portal, done = S.view === 'done';
+  const landing = S.view === 'account' && !S.loading;
+  document.body.classList.toggle('landing', landing);
+  if (landing) { $('landing').innerHTML = vLanding(); return; }
+  $('landing').innerHTML = '';
   vHeader();
   document.body.classList.toggle('in-portal', portal);
   $('main').classList.toggle('one', acct || done);
@@ -924,7 +985,7 @@ function route() {
       S.view = h; if (!S.pdata && h !== 'delivery') loadPortal();
       if (h === 'delivery') { if (hKey && (hKey !== S.dl.key || !S.dl.data)) loadDelivery(hKey); S.dl.tab = hTab || S.dl.tab; if (hKey !== S.dl.key) S.dl.tab = hTab || null; }
     }
-  } else S.view = h === 'account' ? 'account' : S.view === 'done' && !h ? 'done' : 'book';
+  } else S.view = h === 'account' || (!h && !S.session && S.view !== 'done') ? 'account' : S.view === 'done' && !h ? 'done' : 'book';
   render(); if (PORTAL_VIEWS.includes(S.view) || S.view === 'account') window.scrollTo({ top: 0 });
 }
 window.addEventListener('hashchange', route);
