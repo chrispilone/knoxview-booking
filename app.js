@@ -673,8 +673,8 @@ function dGrid(d, key) {
   const tile = (p, i, inner) => p.thumb ? `<img src="${esc(p.thumb)}" alt="" loading="lazy" draggable="false" ${d.locked ? 'oncontextmenu="return false"' : ''}>` : `<span class="dl-file">${ic(I.plan, 34)}<small>${esc((p.name.split('.').pop() || '').toUpperCase())}</small></span>`;
   if (!all) return `<p class="hint" style="margin:14px 2px">${d.locked ? `Your ${many} unlock after payment.` : `Your ${many} are being prepared. Check back shortly.`}</p>
     ${zip ? `<a class="btn" href="${esc(zip)}">${ic(I.dl, 16)} Download all ${many} (zip)</a>` : ''}`;
-  if (d.locked) return `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> Pay to download ${all === 1 ? `your ${one}` : `all ${all} ${many}`} in full resolution, without the watermark.</span>
-      <button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay to download</button></div>
+  if (d.locked) return `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> ${all === 1 ? `Your ${one} downloads` : `All ${all} ${many} download`} in full resolution, without the watermark, after payment.</span>
+</div>
     <div class="dl-grid preview ${key}">${list.map((p, i) => `<figure class="dl-ph"><button class="dl-img" onclick="kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
       <figcaption><span>${esc(p.name)}</span></figcaption></figure>`).join('')}</div>`;
   const bar = `<div class="dl-bar">
@@ -697,7 +697,7 @@ function lbPaint() {
     <div class="lb-stage ${D.cur}" id="lbStage"><img src="${esc(p.view || p.thumb || '')}" alt="${esc(p.name)}" draggable="false" ${d.locked ? 'oncontextmenu="return false"' : ''}>
       ${multi ? '<button class="lb-nav prev" onclick="kv.dLbGo(-1)" aria-label="Previous">‹</button><button class="lb-nav next" onclick="kv.dLbGo(1)" aria-label="Next">›</button>' : ''}</div>
     <div class="lb-bar">${d.locked
-      ? `<span class="lb-note">${ic(I.lock, 16)} Preview</span><button class="btn" onclick="kv.dLbClose();kv.payBooking('${d.bookingId}')">Pay to download</button>`
+      ? `<span class="lb-note">${ic(I.lock, 16)} Preview · downloads unlock after payment</span>`
       : `${multi ? `<button class="btn ${sel ? '' : 'o'} lb-sel" onclick="kv.dLbSel()" aria-pressed="${sel}">${sel ? `${CHECK} Selected` : 'Select'}</button>` : ''}
          ${p.web ? `<button class="btn o" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 16)} Web</button>` : ''}
          <button class="btn o" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 16)} ${p.web ? 'High' : 'Download'}</button>
@@ -715,7 +715,7 @@ function dVideos(d) {
     <div class="dl-player ${v.portrait ? 'tall' : ''}">${v.preview && (v.embed || v.file) ? '<span class="dl-badge">Preview</span>' : ''}${v.embed ? `<iframe src="${esc(v.embed)}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen loading="lazy" title="${esc(v.title)}"></iframe>`
       : v.file ? `<video src="${esc(v.file)}" controls playsinline preload="metadata"></video>`
       : v.poster ? `<img src="${esc(v.poster)}" alt="">` : `<div class="dl-ph-empty">${ic(d.locked ? I.lock : I.film, 40)}${v.pending ? '<p>Your video is being prepared.</p>' : ''}</div>`}</div>
-    ${d.locked ? `<div class="dl-bar locked"><span>${ic(I.lock, 18)} Pay to download and share this video.</span><button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay to download</button></div>` : `
+    ${d.locked ? `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> Download and sharing unlock after payment.</span></div>` : `
     <div class="dl-vbtns">
       ${v.download ? `<button class="btn" onclick="kv.dVideo(${i})">${ic(I.dl, 16)} ${isPhone() ? 'Save to phone' : 'Download'}</button>` : v.open ? `<a class="btn" href="${esc(v.open)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open video</a>` : ''}
       ${v.share && !d.locked ? `<button class="btn o" onclick="kv.dShare(${esc(JSON.stringify(v.share))}, ${esc(JSON.stringify(v.title))})">${ic(I.share, 16)} Share</button>` : ''}
