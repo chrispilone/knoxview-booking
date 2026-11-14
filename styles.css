@@ -167,3 +167,20 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .row-d{font-size:12.5px;color:var(--slate);line-height:1.4}
 .row-p{flex:none;font-weight:700;color:var(--primary);font-size:15px}
 .row-p .inc{color:var(--ok);font-size:13px}
+
+/* compact package cards */
+.pkgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:10px}
+@media (max-width:760px){.pkgs{grid-template-columns:1fr}}
+.card.pkg{padding:12px 16px 12px}
+.card.pkg .tick{top:12px;right:12px;width:24px;height:24px}
+.pkg-h{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;padding-right:34px;margin-bottom:6px}
+.pkg-h h3{font-size:19px;padding-right:0;line-height:1.1}
+.pkg-h .badge{margin:0;font-size:9.5px;padding:2px 7px}
+.pkg-p{margin-left:auto;font-weight:700;color:var(--primary);font-size:17px;white-space:nowrap}
+.pkg-p small{font-size:11px;font-weight:500;color:var(--slate);margin-left:3px}
+ul.chk.two{display:grid;grid-template-columns:1fr 1fr;gap:2px 14px;margin:0;padding:0}
+ul.chk.two li{font-size:12.5px;line-height:1.35;margin:0}
+ul.chk.two li svg{width:13px;height:13px;margin-top:2px}
+ul.chk.two li{padding:1px 0;gap:6px}
+.pkg-h{flex-wrap:nowrap;align-items:center}
+.pkg-nm{display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px;min-width:0}

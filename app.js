@@ -200,12 +200,11 @@ const SHOW_UPSELLS = false;
 function vServices() {
   const cov = covered();
   const pk = packages().map(p => `
-    <button class="card round ${S.pkg === p.id ? 'sel' : ''}" onclick="kv.pickPkg('${p.id}')" aria-pressed="${S.pkg === p.id}">
-      ${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}
+    <button class="card round pkg ${S.pkg === p.id ? 'sel' : ''}" onclick="kv.pickPkg('${p.id}')" aria-pressed="${S.pkg === p.id}">
       <span class="tick">${CHECK}</span>
-      <h3>${esc(p.name)}</h3>
-      <div class="price">${money(p.price)}<small>starting</small></div>
-      <ul class="chk">${(p.includes || []).map(i => `<li>${CHECK}<span>${esc(i)}</span></li>`).join('')}</ul>
+      <div class="pkg-h"><div class="pkg-nm"><h3>${esc(p.name)}</h3>${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}</div>
+        <span class="pkg-p">${money(p.price)}<small>starting</small></span></div>
+      <ul class="chk two">${(p.includes || []).map(i => `<li>${CHECK}<span>${esc(i)}</span></li>`).join('')}</ul>
     </button>`).join('');
   const ups = upsells().map(u => `<div class="up"><div style="flex:1"><h3>${esc(u.title)}</h3><p>${esc(u.description)}</p></div>
       <button class="btn lt" onclick="kv.toggle('${u.service_id}')">+ ${money(svc(u.service_id).price)}</button></div>`).join('');
@@ -231,7 +230,7 @@ function vServices() {
       <h3>${esc(st.large_label)}</h3><div class="price">${money(st.large_fee)}</div><div class="meta">Over ${Number(st.large_sqft).toLocaleString()} sq ft, or an ADU / guest house / extra structure</div></button></div></section>` : '';
   return `
     <section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Listing Media Packages</h2></div>
-      <div class="grid">${pk}</div></section>
+      <div class="pkgs">${pk}</div></section>
     ${SHOW_UPSELLS && ups ? `<section class="sec">${ups}</section>` : ''}
     <section class="sec"><div class="sec-h"><i style="background:#1f3c66"></i><h2>À La Carte Services</h2></div>
       <p class="d">Need just one thing, or want to add to a package? Book any service on its own. A basic floor plan is included with every photo shoot.</p>
