@@ -654,7 +654,7 @@ function vDelivery() {
   let out = `<a class="dl-back" href="#listings">‹ Listings</a>
     <header class="dl-head"><h1>${esc(d.head.address)}</h1><p>${esc([d.head.line2, d.head.brokerage].filter(Boolean).join(' · '))}</p>
       <p class="hint">${when ? esc(when) : ''}${d.head.number ? ` · Order #${esc(d.head.number)}` : ''}</p></header>`;
-  if (d.locked) out += `<div class="dl-lock">${ic(I.lock, 22)}<div><b>Your media is ready.</b> Preview it below, then pay to download everything and unlock your links and 3D tour.</div>
+  if (d.locked) out += `<div class="dl-lock">${ic(I.lock, 22)}<div><b>Your media is ready.</b> Preview it below, then pay to unlock and download all your media!</div>
       <button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay to download</button></div>`;
   const cards = d.websites.map(w => linkCard(w.label, w.url, null, w.soon)).join('');
   if (cards) out += `<section class="dl-cards">${cards}</section>`;
