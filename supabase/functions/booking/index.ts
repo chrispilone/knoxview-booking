@@ -1,8 +1,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { sign, dropboxFiles, dropboxZip, dropboxConfigured, parseVimeo, vimeoEmbed, vimeoInfo, vimeoConfigured, cleanDropboxLink } from './lib.ts';
 
 // Knox View client booking portal API (test.knoxview.com → book.knoxview.com).
-// Public actions: config, slots, quote, create, confirm.  Signed-in client actions: link, portal, pay, profile.
+// Public actions: config, slots, quote, create, confirm.  Signed-in client actions: link, portal, pay, profile, delivery.
 // Stripe webhooks arrive at this same URL. Stripe mode: LIVE only for requests from book.knoxview.com (and only
 // if live keys are set); everything else uses TEST keys.
 // Prices are always computed here from booking_services; the browser's totals are never trusted.
@@ -384,7 +385,7 @@ async function handle(req: Request) {
     if (action === 'portal') {
       const { data: agent } = await admin.from('agents').select('id, full_name, email, phone, brokerage').eq('auth_user_id', user.id).maybeSingle();
       if (!agent) return json(req, { agent: null, bookings: [], listings: [] });
-      const { data: bks } = await admin.from('bookings').select('id, number, status, address, unit, city, state, zip, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at')
+      const { data: bks } = await admin.from('bookings').select('id, number, status, address, unit, city, state, zip, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, videos, tour_url, floorplan_url, website_url')
         .eq('agent_id', agent.id).neq('status', 'cancelled').order('shoot_start', { ascending: false }).limit(200);
       // deliveries made outside the portal (HQ / Spiro era) for this client, not tied to a portal booking
       const { data: own } = await admin.from('projects').select('id, name, address, city, media, status, dropbox_url, vimeo_url, delivered_at, created_at, parent_project_id')
@@ -399,7 +400,12 @@ async function handle(req: Request) {
             // must-pay: links unlock only once the order is paid
             dropbox: delivered && b.paid ? p.dropbox_url : null, vimeo: delivered && b.paid ? p.vimeo_url : null };
         });
-        return { ...b, project_ids: undefined, media, locked: media.some((m: any) => m.delivered) && !b.paid };
+        // delivery links set on the booking in HQ count as delivered media too
+        if (b.photos_url) media.push({ name: 'Photos', media: 'photo', delivered: true, deliveredAt: null, dropbox: b.paid ? b.photos_url : null, vimeo: null });
+        for (const v of ((b.videos as any[]) ?? []).filter(v => v?.url)) media.push({ name: v.label || 'Video', media: 'video', delivered: true, deliveredAt: null, dropbox: null, vimeo: b.paid ? v.url : null });
+        const extras = !!(b.tour_url || b.floorplan_url || b.website_url);
+        const out = { ...b, project_ids: undefined, photos_url: undefined, videos: undefined, tour_url: undefined, floorplan_url: undefined, website_url: undefined, media, hasDelivery: media.some((m: any) => m.delivered) || extras };
+        return { ...out, locked: out.hasDelivery && !b.paid };
       });
       // group outside deliveries by address into one listing each
       const groups = new Map<string, any>();
@@ -425,6 +431,80 @@ async function handle(req: Request) {
       if (agent) saved = (await admin.from('agents').update(patch).eq('id', agent.id).select('id, full_name, email, phone, brokerage, team_name').single()).data;
       else saved = (await admin.from('agents').insert({ ...patch, email: (user.email || '').toLowerCase(), auth_user_id: user.id, preferences: 'Created by portal settings' }).select('id, full_name, email, phone, brokerage, team_name').single()).data;
       return json(req, { agent: saved });
+    }
+
+    if (action === 'delivery') { // one listing's delivery page: websites, 3D tour, photos, videos, floor plans, marketing
+      const { data: agent } = await admin.from('agents').select('id, full_name, brokerage, team_name').eq('auth_user_id', user.id).maybeSingle();
+      if (!agent) throw new UserError('Delivery not found', 404);
+      const key = String(body.key || '');
+      const projCols = 'id, name, address, city, media, status, dropbox_url, vimeo_url, delivered_at, created_at';
+      let head: Record<string, unknown>, b: any = null, projects: any[] = [];
+      if (key.startsWith('p-')) { // deliveries made in HQ outside a portal order: every project for that address
+        const { data: p0 } = await admin.from('projects').select(projCols).eq('id', key.slice(2)).eq('agent_id', agent.id).maybeSingle();
+        if (!p0) throw new UserError('Delivery not found', 404);
+        const k = (p0.address || p0.name || '').trim().toLowerCase();
+        const { data: all } = await admin.from('projects').select(projCols).eq('agent_id', agent.id).neq('status', 'archived').limit(300);
+        projects = (all ?? []).filter(p => (p.address || p.name || '').trim().toLowerCase() === k);
+        head = { address: p0.address || p0.name, line2: p0.city || '', date: p0.delivered_at || p0.created_at };
+      } else {
+        const { data } = await admin.from('bookings').select('*').eq('id', key).eq('agent_id', agent.id).maybeSingle();
+        if (!data || data.status === 'cancelled') throw new UserError('Delivery not found', 404);
+        b = data;
+        if ((b.project_ids ?? []).length) projects = (await admin.from('projects').select(projCols).in('id', b.project_ids)).data ?? [];
+        head = { address: b.address + (b.unit ? ', ' + b.unit : ''), line2: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '), date: b.shoot_start, number: b.number };
+      }
+      const locked = !!b && !b.paid; // must pay before media unlocks (HQ deliveries outside the portal are paid elsewhere)
+      const done = projects.filter(p => p.status === 'delivered');
+      const photoLinks = [b?.photos_url, ...done.filter(p => p.media === 'photo').map(p => p.dropbox_url)].filter(Boolean).map(cleanDropboxLink);
+      const videoLinks: { url: string; label?: string }[] = [...((b?.videos as any[]) ?? []).filter(v => v?.url), ...done.filter(p => p.media === 'video').flatMap(p => [p.vimeo_url && { url: p.vimeo_url, label: p.name }, p.dropbox_url && { url: p.dropbox_url, label: p.name }]).filter(Boolean)];
+      const fname = (n: string) => n;
+      // photos
+      const photos: any[] = [], folders: any[] = [];
+      for (const link of [...new Set(photoLinks)]) {
+        folders.push({ zip: locked ? null : dropboxZip(link), open: locked ? null : link });
+        const files = await dropboxFiles(link).catch(e => { console.error('dropbox', String(e)); return null; });
+        for (const f of (files ?? []).filter(f => f.kind === 'image')) photos.push({ name: f.name,
+          thumb: await sign({ src: 'dbx', link, path: f.path, v: 'thumb', name: f.name }),
+          web: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'web', name: fname(f.name), dl: 1 }),
+          high: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'high', name: fname(f.name), dl: 1 }) });
+      }
+      // videos: Vimeo (embed + phone-friendly MP4) or video files in a Dropbox folder
+      const videos: any[] = [];
+      for (const v of videoLinks) {
+        const vm = parseVimeo(v.url);
+        if (vm) {
+          const info = await vimeoInfo(vm.id).catch(() => null);
+          const title = info?.name || v.label || 'Video';
+          videos.push({ title, label: v.label || '', share: `https://vimeo.com/${vm.id}${vm.hash ? '/' + vm.hash : ''}`, embed: locked ? null : vimeoEmbed(vm),
+            poster: info?.pictures?.base_link ? info.pictures.base_link + '_960x540' : null, portrait: info ? (info.height || 0) > (info.width || 0) : false, duration: info?.duration || null,
+            download: locked || !info?.download?.length ? null : await sign({ src: 'vimeo', vid: vm.id, name: `${head.address}${videoLinks.length > 1 ? ' - ' + title : ''}.mp4`, dl: 1 }) });
+        } else if (/dropbox\.com/.test(v.url)) {
+          const files = await dropboxFiles(v.url).catch(() => null);
+          for (const f of (files ?? []).filter(f => f.kind === 'video')) videos.push({ title: f.name.replace(/\.[^.]+$/, ''), label: v.label || '', share: null, embed: null, poster: null,
+            file: locked ? null : await sign({ src: 'dbx', link: cleanDropboxLink(v.url), path: f.path, v: 'high', name: f.name }),
+            download: locked ? null : await sign({ src: 'dbx', link: cleanDropboxLink(v.url), path: f.path, v: 'high', name: f.name, dl: 1 }) });
+          if (!files) videos.push({ title: v.label || 'Video', share: null, embed: null, poster: null, open: locked ? null : v.url, download: locked ? null : dropboxZip(v.url) });
+        } else videos.push({ title: v.label || 'Video', share: v.url, open: locked ? null : v.url, embed: null, poster: null, download: null });
+      }
+      // floor plans
+      const floorplans: any[] = [];
+      if (b?.floorplan_url) {
+        const link = cleanDropboxLink(b.floorplan_url);
+        const files = /dropbox\.com/.test(link) ? await dropboxFiles(link).catch(() => null) : null;
+        if (files?.length) for (const f of files.filter(f => f.kind !== 'other')) floorplans.push({ name: f.name,
+          thumb: f.kind === 'image' ? await sign({ src: 'dbx', link, path: f.path, v: 'thumb', name: f.name }) : null,
+          download: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'high', name: f.name, dl: 1 }) });
+        else floorplans.push({ name: 'Floor plan', open: locked ? null : b.floorplan_url, download: locked ? null : (/dropbox\.com/.test(link) ? dropboxZip(link) : null) });
+      }
+      const gate = (u: string | null) => locked ? null : u || null;
+      return json(req, {
+        head: { ...head, brokerage: [agent.team_name, agent.brokerage].filter(Boolean).join(' - ') || agent.full_name },
+        locked, bookingId: b?.id ?? null, total: b ? +b.total : null,
+        websites: [b?.website_url && { label: 'Branded property website', url: gate(b.website_url) }, b?.website_unbranded_url && { label: 'Unbranded property website', url: gate(b.website_unbranded_url) }].filter(Boolean),
+        tour: b?.tour_url ? { url: gate(b.tour_url) } : null, marketing: b?.marketing_url ? { url: gate(b.marketing_url) } : null,
+        photos, folders, videos, floorplans,
+        setup: { dropbox: dropboxConfigured(), vimeo: vimeoConfigured() },
+      });
     }
 
     if (action === 'pay') { // pay an unpaid booking from the portal

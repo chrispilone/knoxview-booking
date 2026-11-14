@@ -230,7 +230,7 @@ async function payBooking(id) {
   if (!stripeReady()) { alertModal('Online payments are not switched on yet.'); return; }
   try {
     const r = await api('pay', { bookingId: id });
-    if (r.alreadyPaid) { loadPortal(); return; }
+    if (r.alreadyPaid) { if (S.view === 'delivery') loadDelivery(S.dl.key); else loadPortal(); return; }
     $('modal').innerHTML = `<div class="modal"><div class="panel"><h2 style="font-size:22px">Pay ${money(r.booking.total)}</h2>
       <div id="pay-el2" style="margin-top:14px"></div><div id="payErr"></div>
       <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" id="payGo">Pay now</button></div></div></div>`;
@@ -241,7 +241,7 @@ async function payBooking(id) {
       const { error } = await stripe.confirmPayment({ elements, confirmParams: { return_url: `${location.origin}/#invoices` }, redirect: 'if_required' });
       if (error) { $('payErr').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; $('payGo').disabled = false; return; }
       await api('confirm', { bookingId: r.booking.id, token: r.booking.token }).catch(() => {});
-      kv.closeModal(); loadPortal();
+      kv.closeModal(); S.pdata = null; if (S.view === 'delivery') loadDelivery(S.dl.key); else loadPortal();
     };
   } catch (e) { alertModal(e.message); }
 }
@@ -467,7 +467,7 @@ const UI = (S.ui = { lview: 'cards', sort: 'new', q: '', itab: 'pending', iq: ''
 const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit', year: 'numeric' }) : '';
 const fmtShort = d => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
 const initials = n => (n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
-const PORTAL_VIEWS = ['listings', 'invoices', 'settings'];
+const PORTAL_VIEWS = ['listings', 'invoices', 'settings', 'delivery'];
 
 function listingsAll() {
   const d = S.pdata; if (!d || !d.agent) return [];
@@ -500,8 +500,10 @@ function acts(l) {
   const a = (href, icon, title) => href ? `<a class="act" href="${esc(href)}" target="_blank" rel="noopener" title="${title}" aria-label="${title}">${ic(icon)}</a>`
     : `<span class="act off" title="${title} · not ready yet">${ic(icon)}</span>`;
   const b = (fn, icon, title) => `<button class="act" onclick="${fn}" title="${title}" aria-label="${title}">${ic(icon)}</button>`;
-  return [a(ph?.dropbox, I.dl, 'Download photos'), a(vd?.vimeo, I.vid, 'Watch video'),
-    b(`kv.details('${l.key}')`, I.eye, 'Order details'),
+  const dl = `#delivery/${l.key}`, has = l.media.some(m => m.delivered) || l.b?.hasDelivery;
+  const go = (tab, icon, title, on) => on ? `<a class="act" href="${dl}/${tab}" title="${title}" aria-label="${title}">${ic(icon)}</a>` : `<span class="act off" title="${title} · not ready yet">${ic(icon)}</span>`;
+  return [go('photos', I.dl, 'Photos', !!ph || (has && l.media.some(m => m.media === 'photo'))), go('video', I.vid, 'Video', !!vd || (has && l.media.some(m => m.media === 'video'))),
+    `<a class="act" href="${dl}" title="Media & delivery" aria-label="Media & delivery">${ic(I.eye)}</a>`,
     l.b ? b(`kv.invoiceFor(${l.b.number})`, I.inv, 'Invoice') : '',
     b(`kv.orderAgain('${l.key}')`, I.again, 'Book this address again')].join('');
 }
@@ -522,7 +524,7 @@ function vListings() {
     ${all.map(l => `<tr><td><b>${esc(l.line1)}</b><div class="hint">${esc(l.line2)}</div></td><td>${esc(fmtShort(l.date))}</td>
       <td><span class="pill ${l.status[1]}">${esc(l.status[0])}</span></td><td class="r"><div class="acts">${acts(l)}</div></td></tr>`).join('')}</tbody></table></div>`;
   return tools + `<div class="lgrid">${all.map(l => `<article class="lcard">
-    <button class="lcov" onclick="kv.details('${l.key}')" aria-label="Details for ${esc(l.line1)}">${cover(l)}</button>
+    <a class="lcov" href="#delivery/${l.key}" aria-label="Media for ${esc(l.line1)}">${cover(l)}</a>
     <div class="lbody"><div class="laddr">${esc(l.line1)}<br><span>${esc(l.line2)}</span></div>
       <div class="lmeta"><div>${ic(I.tag)}<span class="pill ${l.status[1]}">${esc(l.status[0])}</span></div><div>${ic(I.cal)}${esc(fmtDate(l.date))}</div></div>
       ${l.b?.locked ? `<button class="btn" style="width:100%;margin-top:10px" onclick="kv.payBooking('${l.b.id}')">${ic(I.lock, 15)} Pay ${money(l.b.total)} to unlock</button>` : ''}
@@ -591,10 +593,13 @@ function vPortalBody() {
   if (p.error) return `<div class="msg err">${esc(p.error)} <a href="javascript:kv.reloadPortal()">Try again</a></div>`;
   return S.view === 'invoices' ? vInvoices() : S.view === 'settings' ? vSettings() : vListings();
 }
+function vPortalOrDelivery() {
+  return S.view === 'delivery' ? vDelivery() : vPortal();
+}
 
 function vHeader() {
   const v = S.view, signedIn = !!S.session;
-  const nav = signedIn ? [['#order', I.cart, 'Order now', v === 'book' || v === 'done'], ['#listings', I.home, 'Listings', v === 'listings'], ['#invoices', I.inv, 'Invoices', v === 'invoices']]
+  const nav = signedIn ? [['#order', I.cart, 'Order now', v === 'book' || v === 'done'], ['#listings', I.home, 'Listings', v === 'listings' || v === 'delivery'], ['#invoices', I.inv, 'Invoices', v === 'invoices']]
     .map(([h, i, t, on]) => `<a href="${h}" class="${on ? 'on' : ''}">${ic(i)}<span>${t}</span></a>`).join('') : '';
   $('pnav').innerHTML = nav;
   const a = S.pdata?.agent || S.agent, name = a?.full_name || S.session?.user?.email || '';
@@ -604,6 +609,170 @@ function vHeader() {
       ${UI.menu ? `<div class="menu" onclick="event.stopPropagation()"><div class="menu-h"><span class="av">${esc(initials(a?.full_name || name))}</span><div><b>${esc(name)}</b><small>${esc(a?.email || S.session.user.email || '')}</small></div></div>
         <a href="#settings" onclick="kv.menu()">${ic(I.gear)}Settings</a><a href="#invoices" onclick="kv.menu()">${ic(I.inv)}Invoices</a><button onclick="kv.signOut()">${ic(I.out)}Log out</button></div>` : ''}`;
 }
+
+/* ================= delivery page (#delivery/<listing key>[/<tab>]) ================= */
+// Modeled on the Spiro download page. Files come from the `media` function (signed links, only once the order is paid).
+// Phones: files go through the share sheet, so iPhone offers "Save Video" (camera roll) / "Save N Images" to Photos.
+I.photo = '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="M21 16l-5-5-9 9"/>';
+I.film = '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 8h4M3 12h4M3 16h4M17 8h4M17 12h4M17 16h4"/>';
+I.plan = '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h7v9M14 3v6h7M14 15h7"/>';
+I.cube = '<path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 22V12M21 7l-9 5-9-5"/>';
+I.ext = '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/>';
+I.share = '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/>';
+I.qr = '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>';
+I.code = '<path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/>';
+I.copy = '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
+const isPhone = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
+const D = (S.dl = { key: null, data: null, loading: false, error: '', tab: null, sel: new Set() });
+
+async function loadDelivery(key) {
+  Object.assign(D, { key, data: null, loading: true, error: '', sel: new Set() }); render();
+  try { D.data = await api('delivery', { key }); } catch (e) { D.error = e.message; }
+  D.loading = false; render();
+}
+const dTabs = d => [
+  (d.photos.length || d.folders.length) && ['photos', I.photo, 'Photos'],
+  d.videos.length && ['video', I.film, 'Video'],
+  d.floorplans.length && ['floorplan', I.plan, 'Floor plan'],
+  d.tour && ['tour', I.cube, '3D tour'],
+].filter(Boolean);
+
+function linkCard(title, url, icon) {
+  if (!url) return `<div class="dl-card"><h3>${esc(title)}</h3><p class="hint" style="margin:0">${ic(I.lock, 14)} Unlocks after payment.</p></div>`;
+  return `<div class="dl-card"><h3>${icon ? ic(icon, 20) : ''}${esc(title)}</h3>
+    <input class="dl-url" readonly value="${esc(url)}" onclick="this.select()">
+    <div class="dl-btns"><a class="btn o" href="${esc(url)}" target="_blank" rel="noopener">${ic(I.eye, 16)} View</a>
+      <button class="btn o" onclick="kv.dShare(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title))})">${ic(I.share, 16)} Share</button>
+      <button class="btn o wide" onclick="kv.dQR(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title))})">${ic(I.qr, 16)} QR code</button></div></div>`;
+}
+function vDelivery() {
+  if (D.loading || !D.data) return D.error ? `<a class="dl-back" href="#listings">‹ Listings</a><div class="msg err">${esc(D.error)}</div>` : '<div class="panel loading"><span class="spin"></span> Getting your media…</div>';
+  const d = D.data, tabs = dTabs(d), tab = (tabs.find(t => t[0] === D.tab) || tabs[0] || [])[0];
+  const when = d.head.date ? fmtDate(d.head.date) : '';
+  let out = `<a class="dl-back" href="#listings">‹ Listings</a>
+    <header class="dl-head"><h1>${esc(d.head.address)}</h1><p>${esc([d.head.line2, d.head.brokerage].filter(Boolean).join(' · '))}</p>
+      <p class="hint">${when ? esc(when) : ''}${d.head.number ? ` · Order #${esc(d.head.number)}` : ''}</p></header>`;
+  if (d.locked) out += `<div class="dl-lock">${ic(I.lock, 22)}<div><b>Your media is ready.</b> Pay ${money(d.total)} to unlock downloads, links and your 3D tour.</div>
+      <button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay ${money(d.total)}</button></div>`;
+  const cards = [...d.websites.map(w => linkCard(w.label, w.url)), d.tour ? linkCard('3D tour', d.tour.url, I.cube) : ''].join('');
+  if (cards) out += `<section class="dl-cards">${cards}</section>`;
+  if (!tabs.length && !d.marketing) return out + `<div class="empty-st">${ic(I.photo, 56)}<p>Your media isn't delivered yet. We'll text and email you as soon as it is.</p></div>`;
+  out += `<section class="dl-media"><nav class="dl-tabs">${tabs.map(([k, i, l]) => `<button class="${k === tab ? 'on' : ''}" onclick="kv.dTab('${k}')">${ic(i, 20)}<span>${l}</span></button>`).join('')}
+    ${d.marketing ? (d.marketing.url ? `<a class="dl-tabx" href="${esc(d.marketing.url)}" target="_blank" rel="noopener">${ic(I.ext, 20)}<span>Marketing content</span></a>` : `<span class="dl-tabx off">${ic(I.lock, 18)}<span>Marketing content</span></span>`) : ''}</nav>`;
+  out += tab === 'photos' ? dPhotos(d) : tab === 'video' ? dVideos(d) : tab === 'floorplan' ? dPlans(d) : tab === 'tour' ? dTour(d) : '';
+  return out + '</section>';
+}
+function dPhotos(d) {
+  const n = D.sel.size, zip = d.folders.find(f => f.zip)?.zip;
+  const bar = d.locked ? '' : `<div class="dl-bar">
+      ${d.photos.length ? `<button class="btn o" onclick="kv.dSelAll()">${n === d.photos.length ? 'Clear selection' : 'Select all'}</button>
+      <button class="btn" ${n ? '' : 'disabled'} onclick="kv.dPick()">${ic(I.dl, 16)} Download${n ? ` ${n}` : ''}</button>` : ''}
+      ${zip ? `<a class="btn ${d.photos.length ? 'o' : ''}" href="${esc(zip)}">${ic(I.dl, 16)} Download all (zip)</a>` : ''}</div>
+      ${isPhone() && d.photos.length ? '<p class="hint dl-tip">On iPhone, pick photos and tap Download, then <b>Save Images</b> to put them in Photos.</p>' : ''}`;
+  if (!d.photos.length) return bar + `<p class="hint" style="margin:14px 2px">${d.locked ? 'Your photos unlock after payment.' : 'Download your photos as one zip file, or open the folder in Dropbox.'}</p>
+    ${d.folders.map(f => f.open ? `<a class="btn o" href="${esc(f.open)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open in Dropbox</a>` : '').join(' ')}`;
+  return bar + `<div class="dl-grid">${d.photos.map((p, i) => `<figure class="dl-ph ${D.sel.has(i) ? 'sel' : ''}">
+      <button class="dl-img" onclick="kv.dSel(${i})" aria-label="Select ${esc(p.name)}"><img src="${esc(p.thumb)}" alt="" loading="lazy"><span class="dl-chk">${CHECK}</span></button>
+      <figcaption><span>${esc(p.name)}</span>${p.web ? `<span class="dl-q"><button onclick="kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button><button onclick="kv.dSave([${i}],'high')">${ic(I.dl, 14)} High</button></span>` : ''}</figcaption></figure>`).join('')}</div>`;
+}
+function dVideos(d) {
+  return d.videos.map((v, i) => `<article class="dl-vid">
+    <h3>${esc(v.title)}${v.label && v.label !== v.title ? ` <small>${esc(v.label)}</small>` : ''}</h3>
+    <div class="dl-player ${v.portrait ? 'tall' : ''}">${v.embed ? `<iframe src="${esc(v.embed)}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen loading="lazy" title="${esc(v.title)}"></iframe>`
+      : v.file ? `<video src="${esc(v.file)}" controls playsinline preload="metadata"></video>`
+      : v.poster ? `<img src="${esc(v.poster)}" alt="">` : `<div class="dl-ph-empty">${ic(d.locked ? I.lock : I.film, 40)}</div>`}</div>
+    <div class="dl-vbtns">
+      ${v.download ? `<button class="btn" onclick="kv.dVideo(${i})">${ic(I.dl, 16)} ${isPhone() ? 'Save to phone' : 'Download'}</button>` : v.open ? `<a class="btn" href="${esc(v.open)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open video</a>` : ''}
+      ${v.share && !d.locked ? `<button class="btn o" onclick="kv.dShare(${esc(JSON.stringify(v.share))}, ${esc(JSON.stringify(v.title))})">${ic(I.share, 16)} Share</button>` : ''}
+      ${v.embed ? `<button class="btn o" onclick="kv.dEmbed(${i})">${ic(I.code, 16)} Embed</button>` : ''}
+      ${v.share && !d.locked ? `<button class="btn o" onclick="kv.dCopy(${esc(JSON.stringify(v.share))}, 'Video link')">${ic(I.copy, 16)} Copy video link</button>` : ''}
+    </div>${v.download && isPhone() ? '<p class="hint dl-tip">Tap <b>Save to phone</b>, then <b>Save Video</b> to add it to your camera roll.</p>' : ''}</article>`).join('');
+}
+function dPlans(d) {
+  return `<ul class="dl-files">${d.floorplans.map(f => `<li>${f.thumb ? `<img src="${esc(f.thumb)}" alt="" loading="lazy">` : ic(I.plan, 26)}<span>${esc(f.name)}</span>
+    ${f.download ? `<button class="act" title="Download" onclick="kv.dSaveUrl(${esc(JSON.stringify(f.download))}, ${esc(JSON.stringify(f.name))})">${ic(I.dl)}</button>` : ''}
+    ${f.open ? `<a class="act" title="Open" href="${esc(f.open)}" target="_blank" rel="noopener">${ic(I.ext)}</a>` : ''}${!f.download && !f.open ? ic(I.lock, 18) : ''}</li>`).join('')}</ul>`;
+}
+function dTour(d) {
+  const u = d.tour.url;
+  if (!u) return `<p class="hint" style="margin:14px 2px">${ic(I.lock, 14)} Your 3D tour unlocks after payment.</p>`;
+  const embed = /matterport|zillow|cupix|iguide|my\.matterport/i.test(u);
+  return `<div class="dl-player">${embed ? `<iframe src="${esc(u)}" allow="fullscreen; xr-spatial-tracking" allowfullscreen loading="lazy" title="3D tour"></iframe>` : `<div class="dl-ph-empty">${ic(I.cube, 44)}</div>`}</div>
+    <div class="dl-vbtns"><a class="btn" href="${esc(u)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open 3D tour</a>
+      <button class="btn o" onclick="kv.dShare(${esc(JSON.stringify(u))}, '3D tour')">${ic(I.share, 16)} Share</button>
+      <button class="btn o" onclick="kv.dCopy(${esc(JSON.stringify(`<iframe src="${u}" width="100%" height="480" frameborder="0" allow="fullscreen; xr-spatial-tracking" allowfullscreen></iframe>`))}, 'Embed code')">${ic(I.code, 16)} Embed</button>
+      <button class="btn o" onclick="kv.dCopy(${esc(JSON.stringify(u))}, 'Tour link')">${ic(I.copy, 16)} Copy link</button></div>`;
+}
+
+/* ----- saving files (phones: share sheet → camera roll / Photos; computers: normal downloads) ----- */
+function dModal(html) { $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel dl-modal">${html}</div></div>`; }
+function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2400); }
+function anchorDownload(url, name) { const a = document.createElement('a'); a.href = url; a.download = name || ''; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
+async function fetchAsFile(url, name, onBytes) {
+  const r = await fetch(url); if (!r.ok) throw new Error((await r.text().catch(() => '')) || 'Download failed');
+  const total = +r.headers.get('content-length') || 0, type = r.headers.get('content-type') || 'application/octet-stream';
+  const fromHeader = (r.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)?.[1];
+  if (!r.body || !onBytes) return new File([await r.blob()], fromHeader || name, { type });
+  const rd = r.body.getReader(), parts = []; let got = 0;
+  for (;;) { const { done, value } = await rd.read(); if (done) break; parts.push(value); got += value.length; onBytes(got, total); }
+  return new File(parts, fromHeader || name, { type });
+}
+// list: [{ url, name }]. Phones share in batches (iOS asks once per batch); computers download each file.
+async function saveFiles(list, what) {
+  const canShareFiles = isPhone() && navigator.canShare && navigator.canShare({ files: [new File(['x'], 'x.jpg', { type: 'image/jpeg' })] });
+  if (!canShareFiles) {
+    list.forEach((f, i) => setTimeout(() => anchorDownload(f.url, f.name), i * 450));
+    toast(list.length > 1 ? `Downloading ${list.length} files…` : 'Downloading…'); return;
+  }
+  const size = what === 'video' ? 1 : 10;
+  for (let i = 0; i < list.length; i += size) {
+    const chunk = list.slice(i, i + size), label = list.length > size ? ` (${i + 1}–${i + chunk.length} of ${list.length})` : '';
+    dModal(`<div class="dl-prep"><span class="spin"></span><p id="dlProg">Preparing ${what === 'video' ? 'your video' : chunk.length > 1 ? chunk.length + ' photos' : 'your photo'}${label}…</p></div>`);
+    let files;
+    try {
+      const prog = $('dlProg'), done = new Array(chunk.length).fill(0), tot = new Array(chunk.length).fill(0);
+      const tick = () => { const a = done.reduce((x, y) => x + y, 0), b = tot.reduce((x, y) => x + y, 0); if (prog && b) prog.textContent = `Preparing${label}… ${Math.round(a / b * 100)}% (${(a / 1048576).toFixed(1)} of ${(b / 1048576).toFixed(1)} MB)`; };
+      files = await Promise.all(chunk.map((f, j) => fetchAsFile(f.url, f.name, (g, t) => { done[j] = g; tot[j] = t; tick(); })));
+    } catch (e) { dModal(`<p>${esc(e.message)}</p><div class="nav"><span></span><button class="btn" onclick="kv.closeModal()">OK</button></div>`); return; }
+    if (!navigator.canShare({ files })) { kv.closeModal(); chunk.forEach((f, j) => setTimeout(() => anchorDownload(f.url, f.name), j * 450)); return; }
+    const ok = await new Promise(res => {
+      dModal(`<div class="dl-ready">${CHECK}</div><p class="dl-ready-t">Your ${what === 'video' ? 'video is' : files.length > 1 ? 'photos are' : 'photo is'} ready to save.<br>Press continue.</p>
+        <p class="hint" style="text-align:center;margin:0 0 14px">Then choose <b>${what === 'video' ? 'Save Video' : files.length > 1 ? `Save ${files.length} Images` : 'Save Image'}</b>.</p>
+        <button class="btn" id="dlGo" style="width:100%">Continue</button>`);
+      $('dlGo').onclick = () => navigator.share({ files }).then(() => res(true), e => res(e?.name !== 'AbortError' ? null : false)); // must run inside the tap
+    });
+    if (ok === false) break; // they cancelled the share sheet
+  }
+  kv.closeModal();
+}
+Object.assign(window.kv, {
+  dTab(t) { D.tab = t; history.replaceState(null, '', `#delivery/${D.key}/${t}`); render(); },
+  dSel(i) { if (D.data.locked) return; D.sel.has(i) ? D.sel.delete(i) : D.sel.add(i); render(); },
+  dSelAll() { D.sel = D.sel.size === D.data.photos.length ? new Set() : new Set(D.data.photos.map((_, i) => i)); render(); },
+  dPick() { // choose quality for the selected photos
+    const n = D.sel.size;
+    dModal(`<h2 style="font-size:22px;margin-bottom:12px">Download ${n} photo${n === 1 ? '' : 's'}</h2>
+      <label class="radio sel"><input type="radio" name="dq" value="high" checked> <span><b>High resolution</b><br><small class="hint">Full size, for print and MLS</small></span></label>
+      <label class="radio"><input type="radio" name="dq" value="web"> <span><b>Web quality</b><br><small class="hint">2048 px, smaller files for social and websites</small></span></label>
+      <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" onclick="kv.dSave([...kv._sel()], document.querySelector('[name=dq]:checked').value)">${ic(I.dl, 16)} Download</button></div>`);
+    document.querySelectorAll('[name=dq]').forEach(r => r.onchange = () => document.querySelectorAll('.dl-modal .radio').forEach(l => l.classList.toggle('sel', l.querySelector('input').checked)));
+  },
+  _sel: () => [...D.sel].sort((a, b) => a - b),
+  dSave(idx, q) { const list = idx.map(i => D.data.photos[i]).map(p => ({ url: p[q], name: p.name })).filter(f => f.url); if (list.length) saveFiles(list, 'photo'); },
+  dSaveUrl(url, name) { saveFiles([{ url, name }], /\.(mp4|mov|m4v)$/i.test(name) ? 'video' : 'photo'); },
+  dVideo(i) { const v = D.data.videos[i]; saveFiles([{ url: v.download, name: `${D.data.head.address}.mp4` }], 'video'); },
+  async dShare(url, title) {
+    if (navigator.share) { try { await navigator.share({ title, url }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
+    kv.dCopy(url, 'Link');
+  },
+  dCopy(text, what) { (navigator.clipboard?.writeText(text) || Promise.reject()).then(() => toast(`${what} copied`), () => { prompt(`Copy the ${what.toLowerCase()}:`, text); }); },
+  dEmbed(i) { const v = D.data.videos[i]; kv.dCopy(`<iframe src="${v.embed}" width="100%" height="${v.portrait ? 720 : 405}" frameborder="0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>`, 'Embed code'); },
+  dQR(url, title) {
+    dModal(`<h2 style="font-size:22px;margin-bottom:12px">${esc(title)}</h2><img src="https://api.qrserver.com/v1/create-qr-code/?size=480x480&margin=10&data=${encodeURIComponent(url)}" alt="QR code" style="width:100%;max-width:300px;display:block;margin:0 auto;border-radius:12px">
+      <p class="hint" style="text-align:center">Scan with a phone camera, or save the image for flyers and signs.</p>
+      <div class="nav"><a class="btn o" href="https://api.qrserver.com/v1/create-qr-code/?size=1200x1200&margin=20&format=png&data=${encodeURIComponent(url)}" target="_blank" rel="noopener">Full size</a><button class="btn" onclick="kv.closeModal()">Done</button></div>`);
+  },
+});
 
 Object.assign(window.kv, {
   ui(k, v) { UI[k] = v; render(); },
@@ -668,7 +837,7 @@ function render() {
   $('steps').style.display = acct || done ? 'none' : '';
   $('bar').style.visibility = acct || done || S.loading ? 'hidden' : 'visible';
   if (S.loading) return;
-  if (portal) { $('view').innerHTML = vPortal(); return; }
+  if (portal) { $('view').innerHTML = vPortalOrDelivery(); return; }
   if (acct) { $('view').innerHTML = vAccount(); return; }
   if (done) { $('view').innerHTML = vDone(); return; }
   $('steps').innerHTML = STEPS.map((s, i) => `<button class="step ${S.step === i ? 'on' : ''} ${S.step > i ? 'done' : ''}" ${canReach(i) && !S.busy ? '' : 'disabled'} onclick="kv.go(${i})"><b>${S.step > i ? '✓' : i + 1}</b><span class="lbl">${s}</span></button>`).join('');
@@ -700,12 +869,15 @@ $('sheet').onclick = e => { if (e.target.id === 'sheet') e.currentTarget.classLi
 
 function route() {
   S.error = '';
-  const h = location.hash.replace('#', '');
+  const [h, hKey, hTab] = location.hash.replace('#', '').split('/');
   UI.menu = false; UI.saved = false;
   if (h === 'account' && S.session) { location.replace('#listings'); return; }
   if (PORTAL_VIEWS.includes(h)) {
-    if (!S.session) { S.after = '#' + h; S.view = 'account'; }
-    else { S.view = h; if (!S.pdata) loadPortal(); }
+    if (!S.session) { S.after = location.hash; S.view = 'account'; }
+    else {
+      S.view = h; if (!S.pdata && h !== 'delivery') loadPortal();
+      if (h === 'delivery') { if (hKey && (hKey !== S.dl.key || !S.dl.data)) loadDelivery(hKey); S.dl.tab = hTab || S.dl.tab; if (hKey !== S.dl.key) S.dl.tab = hTab || null; }
+    }
   } else S.view = h === 'account' ? 'account' : S.view === 'done' && !h ? 'done' : 'book';
   render(); if (PORTAL_VIEWS.includes(S.view) || S.view === 'account') window.scrollTo({ top: 0 });
 }
