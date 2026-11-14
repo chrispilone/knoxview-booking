@@ -969,3 +969,79 @@ window.addEventListener('hashchange', route);
     console.error(e);
   }
 })();
+
+/* ================= Google address search (Places API New) =================
+   Type a street address and pick a suggestion: street, unit, city, state and ZIP fill in.
+   Billed per session (typing + one lookup); our volume stays inside Google's free monthly allowance. */
+const GKEY = 'AIzaSyDI1r8ag79AVBBQhJftX9j5zpSnErm0mQY'; // browser key, locked to our sites and to Places/Maps/Geocoding in Google Cloud
+const AC = { t: null, tok: null, list: [], i: -1, input: null, q: '' };
+const acBoxEl = () => document.getElementById('acBox');
+function acClose() { acBoxEl()?.remove(); AC.list = []; AC.i = -1; }
+async function acSearch(input) {
+  const q = input.value.trim(); AC.input = input; AC.q = q;
+  if (q.length < 4 || !/\d/.test(q)) return acClose();
+  AC.tok = AC.tok || crypto.randomUUID();
+  try {
+    const r = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': GKEY },
+      body: JSON.stringify({ input: q, sessionToken: AC.tok, includedRegionCodes: ['us'], includedPrimaryTypes: ['street_address', 'premise', 'subpremise'],
+        locationBias: { circle: { center: { latitude: 35.86, longitude: -83.75 }, radius: 50000 } } }), // Knoxville + the Smokies first
+    });
+    const d = await r.json();
+    if (q !== AC.q || document.activeElement !== input) return;
+    if (!r.ok) { console.warn('address search', d?.error?.message); return acClose(); }
+    AC.list = (d.suggestions || []).map(s => s.placePrediction).filter(Boolean).slice(0, 5); AC.i = -1; acDraw();
+  } catch (e) { console.warn('address search', e); }
+}
+function acDraw() {
+  acBoxEl()?.remove();
+  if (!AC.list.length || !AC.input?.isConnected) return;
+  const r = AC.input.getBoundingClientRect(), box = document.createElement('div');
+  box.id = 'acBox'; box.className = 'ac-box'; box.setAttribute('role', 'listbox');
+  Object.assign(box.style, { left: r.left + scrollX + 'px', top: r.bottom + scrollY + 4 + 'px', width: r.width + 'px' });
+  box.innerHTML = AC.list.map((p, i) => `<div class="ac-opt ${i === AC.i ? 'on' : ''}" role="option" data-ac="${i}"><b>${esc(p.structuredFormat?.mainText?.text || p.text?.text || '')}</b><small>${esc(p.structuredFormat?.secondaryText?.text || '')}</small></div>`).join('')
+    + '<div class="ac-by">powered by Google</div>';
+  box.addEventListener('mousedown', e => { const o = e.target.closest('[data-ac]'); if (o) { e.preventDefault(); acPick(+o.dataset.ac); } });
+  document.body.appendChild(box);
+}
+async function acPick(i) {
+  const p = AC.list[i], input = AC.input, cb = input?._acPick; acClose(); if (!p || !cb) return;
+  try {
+    const r = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(p.placeId)}?sessionToken=${AC.tok}`, { headers: { 'X-Goog-Api-Key': GKEY, 'X-Goog-FieldMask': 'addressComponents,location' } });
+    AC.tok = null; // a pick ends the billing session
+    const d = await r.json(); if (!r.ok) throw new Error(d?.error?.message || 'lookup failed');
+    const c = t => (d.addressComponents || []).find(x => x.types.includes(t));
+    const street = [c('street_number')?.longText, c('route')?.shortText].filter(Boolean).join(' ');
+    cb({ street: street || p.structuredFormat?.mainText?.text || input.value, unit: c('subpremise')?.longText || '',
+      city: (c('locality') || c('postal_town') || c('administrative_area_level_3') || c('sublocality'))?.longText || '',
+      state: c('administrative_area_level_1')?.shortText || '', zip: c('postal_code')?.longText || '',
+      lat: d.location?.latitude ?? null, lng: d.location?.longitude ?? null });
+  } catch (e) { console.warn('address lookup', e); AC.tok = null; cb({ street: p.structuredFormat?.mainText?.text || input.value }); }
+}
+function acAttach(input, onPick) {
+  if (!input) return; const fresh = !input._acPick; input._acPick = onPick; if (!fresh) return;
+  input.setAttribute('autocomplete', 'off');
+  input.addEventListener('input', () => { clearTimeout(AC.t); AC.t = setTimeout(() => acSearch(input), 250); });
+  input.addEventListener('keydown', e => {
+    if (!acBoxEl()) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); AC.i = (AC.i + (e.key === 'ArrowDown' ? 1 : -1) + AC.list.length) % AC.list.length; acDraw(); }
+    else if (e.key === 'Enter' && AC.i >= 0) { e.preventDefault(); acPick(AC.i); }
+    else if (e.key === 'Escape') acClose();
+  });
+  input.addEventListener('blur', () => setTimeout(acClose, 150));
+}
+addEventListener('resize', () => acClose());
+// After every render: hook the order form's street field
+{ const base = render; render = function () { base(); acHookOrderForm(); }; }
+function acHookOrderForm() {
+  acAttach(document.querySelector('[data-o="addr"][data-k="street"]'), a => {
+    const states = ['TN', 'NC', 'GA', 'KY', 'VA'];
+    S.addr.street = a.street;
+    if (a.unit) S.addr.unit = a.unit;
+    if (a.city) S.addr.city = a.city;
+    if (states.includes(a.state)) S.addr.state = a.state;
+    if (a.zip) S.addr.zip = a.zip;
+    ['street', 'city', 'state', 'zip'].forEach(k => delete S.errors[k]);
+    render();
+  });
+}

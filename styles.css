@@ -506,3 +506,11 @@ img{max-width:100%}
 @media(min-width:768px) and (max-width:900px){.t-mid{display:none}}
 @media(max-width:640px){.dl-bar .btn{flex:1 1 calc(50% - 5px);min-width:0}.dl-bar .btn:nth-child(3){flex-basis:100%}.dl-bar.locked .btn{flex:0 0 auto}}
 .sheet-x{float:right;border:0;background:var(--pale);color:var(--primary);font:600 13px var(--bf);padding:8px 14px;border-radius:999px;cursor:pointer}
+
+/* Google address suggestions */
+.ac-box{position:absolute;z-index:200;background:#fff;border:1px solid #d9dfe7;border-radius:10px;box-shadow:0 10px 30px rgba(13,23,38,.16);overflow:hidden;font-size:14px}
+.ac-opt{padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:1px;border-bottom:1px solid #f0f2f5}
+.ac-opt b{font-weight:600;color:#1d3250}
+.ac-opt small{color:#6b7c93;font-size:12px}
+.ac-opt:hover,.ac-opt.on{background:#eef2f7}
+.ac-by{padding:6px 12px;text-align:right;font-size:11px;color:#8a97a8}
