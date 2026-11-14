@@ -195,6 +195,8 @@ function alertModal(text) {
 }
 
 /* ================= views ================= */
+// Upsell pop-ups (e.g. Zillow 3D, Real Twilight) are off until Chris picks which ones to show.
+const SHOW_UPSELLS = false;
 function vServices() {
   const cov = covered();
   const pk = packages().map(p => `
@@ -230,7 +232,7 @@ function vServices() {
   return `
     <section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Listing Media Packages</h2></div>
       <div class="grid">${pk}</div></section>
-    ${ups ? `<section class="sec">${ups}</section>` : ''}
+    ${SHOW_UPSELLS && ups ? `<section class="sec">${ups}</section>` : ''}
     <section class="sec"><div class="sec-h"><i style="background:#1f3c66"></i><h2>À La Carte Services</h2></div>
       <p class="d">Need just one thing, or want to add to a package? Book any service on its own. A basic floor plan is included with every photo shoot.</p>
       <div class="list">${alacarte().map(row).join('')}</div></section>
