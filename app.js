@@ -64,7 +64,7 @@ function cleanup() {
 
 /* ================= actions ================= */
 window.kv = {
-  pickPkg(id) { S.pkg = S.pkg === id ? null : id; cleanup(); render(); },
+  pickPkg(id) { if (S.pkg && S.pkg !== id) return; S.pkg = S.pkg === id ? null : id; cleanup(); render(); },
   toggle(id) { if (covered().has(id)) return; S.items.has(id) ? S.items.delete(id) : S.items.add(id); cleanup(); render(); },
   toggleAdu() { S.adu = !S.adu; resetSchedule(); render(); },
   go, pickSlot(start, label) { S.start = start; S.startLabel = label; S.checkout = null; render(); },
@@ -200,7 +200,7 @@ const SHOW_UPSELLS = false;
 function vServices() {
   const cov = covered();
   const pk = packages().map(p => `
-    <button class="card round pkg ${S.pkg === p.id ? 'sel' : ''}" onclick="kv.pickPkg('${p.id}')" aria-pressed="${S.pkg === p.id}">
+    <button class="card round pkg ${S.pkg === p.id ? 'sel' : S.pkg ? 'dim' : ''}" onclick="kv.pickPkg('${p.id}')" aria-pressed="${S.pkg === p.id}" ${S.pkg && S.pkg !== p.id ? 'aria-disabled="true"' : ''}>
       <span class="tick">${CHECK}</span>
       <div class="pkg-h"><div class="pkg-nm"><h3>${esc(p.name)}</h3>${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}</div>
         <span class="pkg-p">${money(p.price)}<small>starting</small></span></div>
@@ -210,10 +210,10 @@ function vServices() {
       <button class="btn lt" onclick="kv.toggle('${u.service_id}')">+ ${money(svc(u.service_id).price)}</button></div>`).join('');
   const row = s => {
     const inc = cov.has(s.id), sel = S.items.has(s.id);
-    return `<button class="row ${sel ? 'sel' : ''} ${inc ? 'incl' : ''}" onclick="kv.toggle('${s.id}')" aria-pressed="${sel || inc}">
+    return `<button class="row ${sel ? 'sel' : ''} ${inc ? 'incl' : ''}" onclick="kv.toggle('${s.id}')" aria-pressed="${sel || inc}" ${inc ? 'aria-disabled="true"' : ''}>
       <span class="box">${CHECK}</span>
       <span class="row-t"><span class="row-n">${esc(s.name)}</span>${s.description ? `<span class="row-d">${esc(s.description)}</span>` : ''}</span>
-      <span class="row-p">${inc ? `<span class="inc">Included</span>` : money(s.price)}</span></button>`;
+      <span class="row-p">${inc ? `<span class="inc">Included in ${esc(svc(S.pkg).name)}</span>` : money(s.price)}</span></button>`;
   };
   const card = s => {
     const inc = cov.has(s.id), sel = S.items.has(s.id);
@@ -230,7 +230,7 @@ function vServices() {
       <h3>${esc(st.large_label)}</h3><div class="price">${money(st.large_fee)}</div><div class="meta">Over ${Number(st.large_sqft).toLocaleString()} sq ft, or an ADU / guest house / extra structure</div></button></div></section>` : '';
   return `
     <section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Listing Media Packages</h2></div>
-      <div class="pkgs">${pk}</div></section>
+      ${S.pkg ? `<p class="pkg-note">${esc(svc(S.pkg).name)} selected. Tap it again to choose a different package.</p>` : ''}<div class="pkgs">${pk}</div></section>
     ${SHOW_UPSELLS && ups ? `<section class="sec">${ups}</section>` : ''}
     <section class="sec"><div class="sec-h"><i style="background:#1f3c66"></i><h2>À La Carte Services</h2></div>
       <p class="d">Need just one thing, or want to add to a package? Book any service on its own. A basic floor plan is included with every photo shoot.</p>
