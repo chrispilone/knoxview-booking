@@ -72,7 +72,7 @@ window.kv = {
   go, pickSlot(start, label) { S.start = start; S.startLabel = label; S.checkout = null; render(); },
   moreSlots() { loadSlots(S.slots.days[S.slots.days.length - 1].date, true); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
-  startCheckout, confirmPay, signIn, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, closeModal() { $('modal').innerHTML = ''; },
+  startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, closeModal() { $('modal').innerHTML = ''; },
 };
 
 function go(n) {
@@ -157,7 +157,7 @@ async function finishBooking(id, token) {
 
 /* ---------- auth + portal ---------- */
 // Sign in with a one-time code: by email, or by text to a mobile number that matches a client record.
-const LP = () => (S.portal && S.portal.method ? S.portal : (S.portal = { stage: 'enter', method: 'email', email: '', phone: '' }));
+const LP = () => (S.portal && S.portal.method ? S.portal : (S.portal = { stage: 'enter', mode: 'signin', method: 'email', email: '', phone: '', su: { name: '', phone: '', email: '', company: '' } }));
 function keepInput() { const p = LP(), v = $('loginId')?.value; if (v != null) p[p.method === 'sms' ? 'phone' : 'email'] = v.trim(); }
 function setMethod(m) {
   keepInput(); const p = LP();
@@ -179,7 +179,32 @@ async function signIn(ev) { // send a code to the email or phone they entered
   S.busy = false; render();
   setTimeout(() => $('loginCode')?.focus(), 50);
 }
-function sendCode() { return signIn(); }
+function sendCode() { return LP().mode === 'signup' ? signUp() : signIn(); }
+// New clients: name, mobile, email and brokerage. We email a code to confirm the email; the client record is created once it's verified.
+const SU_FIELDS = ['name', 'phone', 'email', 'company'];
+function keepSignup() { const su = LP().su; SU_FIELDS.forEach(k => { const v = $('su_' + k)?.value; if (v != null) su[k] = v.trim(); }); }
+function setMode(m) {
+  if (LP().mode === 'signup') keepSignup(); else keepInput();
+  const p = LP(); p.mode = m === 'signup' ? 'signup' : 'signin'; p.stage = 'enter'; S.error = '';
+  if (p.mode === 'signup' && !p.su.email && p.email) p.su.email = p.email; // carry over what they already typed
+  if (p.mode === 'signin' && !p.email && p.su.email) { p.email = p.su.email; p.method = 'email'; }
+  render(); setTimeout(() => $(p.mode === 'signup' ? 'su_name' : 'loginId')?.focus(), 30);
+}
+async function signUp(ev) {
+  ev?.preventDefault(); keepSignup();
+  const p = LP(), su = p.su;
+  const bad = su.name.split(/\s+/).filter(Boolean).length < 2 ? 'Enter your first and last name.'
+    : su.phone.replace(/\D/g, '').replace(/^1(?=\d{10})/, '').length !== 10 ? 'Enter your 10-digit mobile number.'
+    : !/\S+@\S+\.\S+/.test(su.email) ? 'Enter your email.' : '';
+  if (bad) { S.error = bad; render(); return; }
+  S.busy = true; S.error = ''; render();
+  try {
+    const r = await api('signup', { name: su.name, phone: su.phone, email: su.email.toLowerCase(), company: su.company }, 'auth-code');
+    Object.assign(p, { stage: 'code', ref: r.ref, to: r.to, expiresMin: r.expiresMin || 60, method: 'email', email: su.email });
+  } catch (e) { S.error = e.message; }
+  S.busy = false; render();
+  setTimeout(() => $('loginCode')?.focus(), 50);
+}
 async function verifyCode(ev) {
   ev?.preventDefault();
   const code = ($('loginCode')?.value || '').replace(/\D/g, '');
@@ -366,7 +391,7 @@ function vDone() {
       <button class="btn o" onclick="location.href='/'">Book another</button></div></div>`;
 }
 function vLogin() {
-  const p = LP(), sms = p.method === 'sms';
+  const p = LP(), sms = p.method === 'sms', signup = p.mode === 'signup';
   const err = S.error ? `<div class="msg err">${esc(S.error)}</div>` : '';
   const spin = '<span class="spin"></span>';
   const toggle = `<div class="seg" role="tablist" aria-label="Sign in with">
@@ -379,8 +404,22 @@ function vLogin() {
       ${err}
       <button class="btn" style="width:100%;margin-top:14px" ${S.busy ? 'disabled' : ''}>${S.busy ? spin : 'Sign in'}</button></form>
       <p class="hint" style="margin-top:14px"><a href="javascript:kv.sendCode()">Send a new code</a>
-        · <a href="javascript:kv.setMethod('${sms ? 'email' : 'sms'}')">${sms ? 'Use email instead' : 'Use phone number instead'}</a>
-        · <a href="javascript:kv.loginBack()">Change ${sms ? 'number' : 'email'}</a></p>`;
+        ${signup ? '' : `· <a href="javascript:kv.setMethod('${sms ? 'email' : 'sms'}')">${sms ? 'Use email instead' : 'Use phone number instead'}</a>`}
+        · <a href="javascript:kv.loginBack()">${signup ? 'Edit my details' : `Change ${sms ? 'number' : 'email'}`}</a></p>`;
+  if (signup) {
+    const f = (k, label, attrs) => `<label for="su_${k}" style="margin-top:12px">${label}</label><input id="su_${k}" value="${esc(p.su[k])}" ${attrs}>`;
+    return `
+      <p class="d" style="margin:6px 0 4px">New to Knox View? Enter your details to get started.</p>
+      <form onsubmit="kv.signUp(event)" novalidate>
+      ${f('name', 'Full name', 'autocomplete="name" placeholder="First and last name"')}
+      ${f('phone', 'Mobile number', 'type="tel" inputmode="tel" autocomplete="tel-national" placeholder="(865) 555-1234" oninput="this.value=kv.fmtPhone(this.value)"')}
+      ${f('email', 'Email', 'type="email" autocomplete="email" placeholder="you@brokerage.com"')}
+      ${f('company', 'Brokerage / team <span style="text-transform:none;font-weight:400;color:var(--slate)">(optional)</span>', 'autocomplete="organization" placeholder="e.g. Prime Mountain Properties"')}
+      <p class="hint" style="margin:8px 0 0">We'll email you a code to confirm it's you. After that you can sign in with your email or mobile number. No password needed.</p>
+      ${err}
+      <button class="btn" style="width:100%;margin-top:14px" ${S.busy ? 'disabled' : ''}>${S.busy ? spin : 'Create account'}</button></form>
+      <p class="hint" style="margin-top:16px;text-align:center">Already have an account? <a href="javascript:kv.setMode('signin')"><b>Sign in</b></a></p>`;
+  }
   return `
       <p class="d" style="margin:6px 0 14px">Get a one-time code to sign in. No password needed.</p>
       ${toggle}
@@ -391,12 +430,15 @@ function vLogin() {
         : `<label for="loginId">Email</label><input id="loginId" type="email" autocomplete="email" placeholder="you@brokerage.com" value="${esc(p.email)}">
            <p class="hint" style="margin:6px 0 0">Use the email you book with. We'll email your code to it.</p>`}
       ${err}
-      <button class="btn" style="width:100%;margin-top:14px" ${S.busy ? 'disabled' : ''}>${S.busy ? spin : sms ? 'Text me a code' : 'Email me a code'}</button></form>`;
+      <button class="btn" style="width:100%;margin-top:14px" ${S.busy ? 'disabled' : ''}>${S.busy ? spin : sms ? 'Text me a code' : 'Email me a code'}</button></form>
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e3e8ef;text-align:center">
+        <p class="hint" style="margin:0 0 10px">New to Knox View? Create an account to book and track your orders.</p>
+        <button type="button" class="btn o" style="width:100%" onclick="kv.setMode('signup')">Create an account</button></div>`;
 }
 function vAccount() {
   if (!S.session) {
     const p = S.portal || {};
-    return `<div class="panel" style="max-width:460px;margin:0 auto"><h2 style="font-size:26px">Client sign in</h2>
+    return `<div class="panel" style="max-width:460px;margin:0 auto"><h2 style="font-size:26px">${LP().mode === 'signup' ? 'Create account' : 'Client sign in'}</h2>
       ${vLogin()}
       <p class="hint" style="margin-top:16px"><a href="/">← Book a shoot</a></p></div>`;
   }

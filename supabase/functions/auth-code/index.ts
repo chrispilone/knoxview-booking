@@ -2,7 +2,9 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
 // One-time sign-in codes for the Knox View client portal.
 //   send   { channel: 'email', email } | { channel: 'sms', phone } -> sends a one-time code, returns { ref, to }
-//   verify { ref, code }  -> checks the code and returns a Supabase session for the browser (setSession)
+//   signup { name, phone, email, company } -> emails a code to confirm the email; same reply as send
+//   verify { ref, code }  -> checks the code and returns a Supabase session for the browser (setSession).
+//                            For a sign-up, the client record (agents) is created or filled in here, once the email is proven.
 // A phone number only works if it matches a client record; the code is texted to that number on file
 // by Twilio Verify (Twilio creates and checks the code), or by Quo if Twilio isn't set up.
 // The client's email is never sent back to the browser for phone sign-ins.
@@ -152,6 +154,22 @@ async function sendEmail(to: string, code: string) {
   throw new Bad("We couldn't send the email right now. Please try again or call 865-855-5669.", 502);
 }
 
+/* ---------- sign-up ---------- */
+async function saveClient(email: string, userId: string, s: { name?: string; phone?: string; company?: string }) {
+  const { data: agent } = await admin.from('agents').select('id, phone, brokerage, auth_user_id').ilike('email', email).order('created_at').limit(1).maybeSingle();
+  if (agent) { // already a client: fill in only what's missing, never overwrite
+    const fill: Record<string, unknown> = {};
+    if (!agent.phone && s.phone) fill.phone = s.phone;
+    if (!agent.brokerage && s.company) fill.brokerage = s.company;
+    if (!agent.auth_user_id) fill.auth_user_id = userId;
+    if (Object.keys(fill).length) await admin.from('agents').update(fill).eq('id', agent.id);
+    return;
+  }
+  const { error } = await admin.from('agents').insert({ full_name: s.name || email, email, phone: s.phone || null, brokerage: s.company || null,
+    auth_user_id: userId, preferences: 'Created by portal sign-up' });
+  if (error) console.error('signup insert failed', error.message);
+}
+
 /* ---------- limits ---------- */
 async function checkIp(ipHash: string | null) {
   if (!ipHash) return;
@@ -210,10 +228,28 @@ Deno.serve(async (req) => {
       return json(req, { sent: true, channel, ref: row.ref, expiresMin: provider === 'twilio' ? 10 : 60, to: channel === 'sms' ? maskPhone(phone!) : email });
     }
 
+    if (b.action === 'signup') {
+      const clean = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+      const name = clean(b.name, 120), company = clean(b.company, 160);
+      const email = clean(b.email, 200).toLowerCase(), phone = e164(String(b.phone ?? ''));
+      if (name.split(' ').filter(Boolean).length < 2) throw new Bad('Enter your first and last name.');
+      if (!phone) throw new Bad('Enter a 10-digit mobile number.');
+      if (!EMAIL_RE.test(email)) throw new Bad('Enter a valid email.');
+      await checkIp(ipHash);
+      await checkLimits(email, 'email');
+      const d = phone.slice(2), pretty = `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+      const { data: row, error: insErr } = await admin.from('auth_code_sends').insert({ email, channel: 'email', provider: 'supabase', ip_hash: ipHash, ok: false,
+        signup: { name, phone: pretty, company } }).select('id, ref').single();
+      if (insErr) throw insErr;
+      await sendEmail(email, await makeCode(email));
+      await admin.from('auth_code_sends').update({ ok: true }).eq('id', row.id);
+      return json(req, { sent: true, channel: 'email', ref: row.ref, expiresMin: 60, to: email });
+    }
+
     if (b.action === 'verify') {
       const ref = String(b.ref ?? ''), code = String(b.code ?? '').replace(/\D/g, '');
       if (!/^[0-9a-f-]{36}$/i.test(ref) || code.length < 6) throw new Bad('Enter the code we sent you.');
-      const { data: row } = await admin.from('auth_code_sends').select('id, email, phone, provider, ok, attempts, created_at').eq('ref', ref).maybeSingle();
+      const { data: row } = await admin.from('auth_code_sends').select('id, email, phone, provider, ok, attempts, created_at, signup').eq('ref', ref).maybeSingle();
       if (!row || !row.ok || !row.email || Date.parse(row.created_at) < Date.now() - 3600_000) throw new Bad('That code has expired. Send a new one.');
       if (row.attempts >= 5) throw new Bad('Too many tries. Send a new code.', 429);
       await admin.from('auth_code_sends').update({ attempts: row.attempts + 1 }).eq('id', row.id);
@@ -226,6 +262,7 @@ Deno.serve(async (req) => {
         if (error || !data.session) throw new Bad('That code is wrong or has expired. Check it or send a new one.');
         session = data.session;
       }
+      if (row.signup && session.user?.id) await saveClient(row.email, session.user.id, row.signup);
       return json(req, { session: { access_token: session.access_token, refresh_token: session.refresh_token } });
     }
 
