@@ -61,7 +61,7 @@ const svcPrice = s => +s.price + (!S.pkg && largeOn() && /^photography$/i.test(s
 const sizeAdj = () => largeOn() ? +S.config.settings.large_fee : 0; // shown inside package prices
 function lines() {
   const out = [];
-  if (S.pkg) { const p = svc(S.pkg); out.push({ name: p.name + ' Package', price: +p.price + sizeAdj(), subs: (p.includes || []).map(incLabel) }); }
+  if (S.pkg) { const p = svc(S.pkg); out.push({ name: p.name + ' Package', price: +p.price + sizeAdj() }); }
   for (const id of S.items) { const s = svc(id); if (s) out.push({ name: s.name, price: svcPrice(s) }); }
   // photos-only orders over 3,500 sq ft: Photography is $250 instead of $225 (no separate large-home fee)
   return out;
