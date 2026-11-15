@@ -784,6 +784,7 @@ const I = {
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   filter: '<path d="M3 4h18l-7 8.5V19l-4 2v-8.5z"/>',
+  xc: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
   out: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
@@ -830,8 +831,8 @@ function acts(l) {
   return [go('photos', I.dl, 'Photos', !!ph || (has && l.media.some(m => m.media === 'photo'))),
     `<a class="act" href="${dl}" title="Media & delivery" aria-label="Media & delivery">${ic(I.eye)}<span class="al">All media</span></a>`,
     l.b ? b(`kv.invoiceFor(${l.b.number})`, I.inv, 'Order details, invoice and appointment', 'Order') : '',
-    l.b && apptRules(l.b).canChange ? b(`kv.resched(${l.b.number})`, I.cal, 'Reschedule this shoot', 'Reschedule')
-      : b(`kv.orderAgain('${l.key}')`, I.again, 'Book this address again', 'Rebook')].join('');
+    l.b ? b(`kv.resched(${l.b.number})`, I.cal, 'Reschedule this shoot', 'Reschedule') : b(`kv.orderAgain('${l.key}')`, I.again, 'Book this address again', 'Rebook'),
+    l.b ? `<button class="act act-x" onclick="kv.cancelAppt(${l.b.number})" title="Cancel appointment" aria-label="Cancel appointment">${ic(I.xc)}<span class="al">Cancel</span></button>` : ''].join('');
 }
 function cover(l) {
   return l.cover ? `<img src="${esc(l.cover)}" alt="" loading="lazy">`
@@ -1821,14 +1822,42 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ================= appointment: reschedule / cancel (appointment function) ================= */
-const APPT_CUTOFF_H = 24; // same as the server; within this, clients call or text
+// Same rule as the server: online changes close at 5:00 PM (Knoxville time) the day before the shoot
+const BIZ_TZ = 'America/New_York';
+function tzWall(date, time) { // local wall time in BIZ_TZ → Date
+  const [y, m, d] = date.split('-').map(Number), [hh, mm] = time.split(':').map(Number), g = new Date(Date.UTC(y, m - 1, d, hh, mm));
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: BIZ_TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(g).map(x => [x.type, x.value]));
+  return new Date(g.getTime() - (Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - g.getTime()));
+}
+function apptCutoff(shootIso) {
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: BIZ_TZ }).format(new Date(shootIso));
+  return tzWall(new Date(Date.parse(day + 'T12:00:00Z') - 864e5).toISOString().slice(0, 10), '17:00').getTime();
+}
 function apptRules(b) {
   if (!b) return { canChange: false, canCancel: false, reason: '' };
-  const hrs = b.shoot_start ? (Date.parse(b.shoot_start) - Date.now()) / 36e5 : -1;
-  if (b.status === 'cancelled') return { canChange: false, canCancel: false, reason: 'This appointment is cancelled.' };
-  if (!['scheduled', 'requested'].includes(b.status) || b.hasDelivery || hrs < 0) return { canChange: false, canCancel: false, reason: '' };
-  if (hrs < APPT_CUTOFF_H) return { canChange: false, canCancel: false, reason: `Your shoot is less than ${APPT_CUTOFF_H} hours away. To change it, please call or text ${CFG.phone}.` };
-  return { canChange: true, canCancel: !b.paid, reason: b.paid ? `To cancel a paid order, call or text ${CFG.phone} and we'll take care of your refund.` : '' };
+  const past = !b.shoot_start || Date.parse(b.shoot_start) < Date.now();
+  if (b.status === 'cancelled') return { canChange: false, canCancel: false, kind: 'cancelled', reason: 'This appointment is cancelled.' };
+  if (!['scheduled', 'requested'].includes(b.status) || b.hasDelivery || past) return { canChange: false, canCancel: false, kind: 'past', reason: 'This shoot already happened.' };
+  if (Date.now() >= apptCutoff(b.shoot_start)) return { canChange: false, canCancel: false, kind: 'closed', reason: 'Rescheduling online is unavailable at this time. Please call or text our business phone.' };
+  return { canChange: true, canCancel: !b.paid, kind: b.paid ? 'paid' : '', reason: b.paid ? "This order is paid, so to cancel it please call or text us and we'll take care of your refund." : '' };
+}
+// "Call or text us" pop-up (after the online cutoff, or to cancel a paid order)
+function callTextModal(title, text, extra = '') {
+  const tel = 'tel:+1' + CFG.phone.replace(/\D/g, '');
+  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">${esc(title)}</h2>
+    <p>${esc(text)}</p>${extra}
+    <div class="ct-btns"><a class="btn" href="${tel}">${ic('<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>', 16)} Call ${esc(CFG.phone)}</a>
+      <a class="btn o" href="${SMS_LINK}">${svg(IC_CHAT, 16)} Text us</a></div>
+    <div class="ph-nav"><span></span><button class="btn o" onclick="kv.closeModal()">Close</button></div></div></div>`;
+}
+function apptBlocked(n, what) { // returns true if a pop-up explained why it can't be done online
+  const b = (S.pdata?.bookings || []).find(x => x.number === n), r = apptRules(b);
+  if (!b) return false;
+  if (r.kind === 'closed') { callTextModal(`${what === 'cancel' ? 'Cancel' : 'Reschedule'} by phone`, `${what === 'cancel' ? 'Cancelling' : 'Rescheduling'} online is unavailable at this time. Please call or text our business phone.`); return true; }
+  if (r.kind === 'past') { callTextModal('This shoot already happened', 'Need more media for this property? Book it again, or call or text us.', `<p><button class="btn o" onclick="kv.closeModal();kv.orderAgain('${b.id}')">Book this address again</button></p>`); return true; }
+  if (r.kind === 'cancelled') { alertModal('This appointment is cancelled.'); return true; }
+  if (what === 'cancel' && r.kind === 'paid') { callTextModal('Cancel a paid order', "This order is already paid, so please call or text us to cancel and we'll take care of your refund."); return true; }
+  return false;
 }
 const fmtShoot = d => d ? new Date(d).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
 function vApptPanel(i) {
@@ -1837,8 +1866,8 @@ function vApptPanel(i) {
   if (!b || !b.shoot_start) return '';
   const r = apptRules(b), upcoming = Date.parse(b.shoot_start) > Date.now() && !b.hasDelivery;
   return `<div class="panel iappt"><div class="iappt-h">${ic(I.cal, 20)}<div><small>${upcoming ? 'Your shoot' : 'Shoot date'}</small><b>${esc(fmtShoot(b.shoot_start))}</b></div></div>
-    ${r.canChange ? `<div class="iappt-b"><button class="btn o sm" onclick="kv.resched(${i.number})">${ic(I.cal, 15)} Reschedule</button>${r.canCancel ? `<button class="btn sm danger-o" onclick="kv.cancelAppt(${i.number})">Cancel appointment</button>` : ''}</div>` : ''}
-    ${r.reason && upcoming ? `<p class="hint" style="margin:8px 0 0">${esc(r.reason)}</p>` : ''}</div>`;
+    ${upcoming ? `<div class="iappt-b"><button class="btn o sm" onclick="kv.resched(${i.number})">${ic(I.cal, 15)} Reschedule</button><button class="btn sm danger-o" onclick="kv.cancelAppt(${i.number})">${ic(I.xc, 15)} Cancel appointment</button></div>` : ''}
+    ${r.kind === 'closed' && upcoming ? `<p class="hint" style="margin:8px 0 0">Changes online close at 5:00 PM the day before your shoot. After that, call or text ${esc(CFG.phone)}.</p>` : ''}</div>`;
 }
 const RS = { n: null, from: null, days: [], day: null, pick: null, loading: false, err: '', current: null };
 const ymd = d => d.toLocaleDateString('en-CA');
@@ -1864,18 +1893,22 @@ function rsPaint() {
     ${sel ? `<p class="rs-lbl">${esc(new Date(sel.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }))}</p>
       <div class="rs-times">${sel.times.map(t => `<button class="rs-t ${RS.pick === t.start ? 'on' : ''}" onclick="kv.rsPick('${t.start}')">${esc(t.label)}</button>`).join('')}</div>`
       : !RS.loading && !RS.err ? '<p class="hint">No open times in these dates. Tap "Later dates".</p>' : ''}`;
-  const go = $('rsGo'); if (go) { go.disabled = !RS.pick; go.textContent = RS.pick ? `Move to ${new Date(RS.pick).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'Pick a new time'; }
+  const go = $('rsGo'); if (go) { go.disabled = !RS.pick || ($('rsWhy')?.value || '').trim().length < 3; go.textContent = RS.pick ? `Move to ${new Date(RS.pick).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'Pick a new time'; }
 }
 function resched(n) {
+  if (apptBlocked(n, 'resched')) return;
   Object.assign(RS, { n, from: ymd(new Date()), days: [], day: null, pick: null, err: '', current: null });
   $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel rs-panel"><h2 style="font-size:22px">Reschedule your shoot</h2>
     <div id="rsBox"></div>
+    <label for="rsWhy" style="margin-top:14px">Reason for rescheduling <span class="req">*</span></label>
+    <textarea id="rsWhy" rows="2" maxlength="500" placeholder="Seller needs another day, weather, listing date moved…" oninput="kv.rsCheck()"></textarea>
     <div class="ph-nav"><button class="btn o" onclick="kv.closeModal()">Never mind</button><button class="btn" id="rsGo" disabled>Pick a new time</button></div></div></div>`;
   $('rsGo').onclick = async () => {
     if (!RS.pick) return;
+    if (($('rsWhy').value || '').trim().length < 3) { $('rsWhy').focus(); return; }
     $('rsGo').disabled = true; $('rsGo').innerHTML = '<span class="spin"></span>';
     try {
-      const r = await api('reschedule', { number: RS.n, start: RS.pick }, 'appointment');
+      const r = await api('reschedule', { number: RS.n, start: RS.pick, reason: $('rsWhy').value }, 'appointment');
       freshAfterOrder(); refreshView();
       $('modal').querySelector('.panel').innerHTML = `<h2 style="font-size:22px">You're all set</h2><p>Your shoot is now <b>${esc(r.label)}</b>.</p><div class="ph-nav"><span></span><button class="btn" onclick="kv.closeModal()">Done</button></div>`;
     } catch (e) { RS.err = e.message; RS.pick = null; if (e.status === 409) { RS.days = []; RS.day = null; rsLoad(); } else rsPaint(); }
@@ -1883,14 +1916,15 @@ function resched(n) {
   rsLoad();
 }
 function cancelAppt(n) {
+  if (apptBlocked(n, 'cancel')) return;
   const b = (S.pdata?.bookings || []).find(x => x.number === n);
   $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">Cancel this appointment?</h2>
     <p>${esc(b?.address || '')}${b?.shoot_start ? `<br><span class="hint">${esc(fmtShoot(b.shoot_start))}</span>` : ''}</p>
-    <label for="caWhy" style="margin-top:6px">Reason <span class="hint" style="text-transform:none;letter-spacing:0">(optional)</span></label>
-    <textarea id="caWhy" rows="2" maxlength="500" placeholder="Listing delayed, seller not ready…"></textarea>
+    <label for="caWhy" style="margin-top:6px">Reason for cancelling <span class="req">*</span></label>
+    <textarea id="caWhy" rows="2" maxlength="500" placeholder="Listing delayed, seller not ready…" oninput="document.getElementById('caGo').disabled = this.value.trim().length < 3"></textarea>
     <p class="hint" style="margin:8px 0 0">Need a different day instead? <a href="javascript:kv.resched(${n})">Reschedule</a>.</p>
     <div id="caMsg"></div>
-    <div class="ph-nav"><button class="btn o" onclick="kv.closeModal()">Keep appointment</button><button class="btn danger" id="caGo">Cancel appointment</button></div></div></div>`;
+    <div class="ph-nav"><button class="btn o" onclick="kv.closeModal()">Keep appointment</button><button class="btn danger" id="caGo" disabled>Cancel appointment</button></div></div></div>`;
   $('caGo').onclick = async () => {
     $('caGo').disabled = true; $('caGo').innerHTML = '<span class="spin"></span>';
     try {
@@ -1904,5 +1938,6 @@ Object.assign(window.kv, {
   resched, cancelAppt,
   rsDay(d) { RS.day = d; RS.pick = null; rsPaint(); },
   rsPick(t) { RS.pick = t; rsPaint(); },
+  rsCheck() { const go = $('rsGo'); if (go) go.disabled = !RS.pick || $('rsWhy').value.trim().length < 3; },
   rsMore() { const last = RS.days[RS.days.length - 1]?.date; if (!last) return; RS.from = ymd(new Date(Date.parse(last + 'T12:00:00') + 864e5)); rsLoad(true); },
 });

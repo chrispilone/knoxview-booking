@@ -941,3 +941,7 @@ html{overscroll-behavior-y:contain}
 .rs-times{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;max-height:240px;overflow:auto}
 .rs-t{padding:11px 6px;border:1.5px solid var(--line);border-radius:8px;background:#fff;font:inherit;font-weight:600;color:var(--primary);cursor:pointer}
 .rs-t.on{background:var(--primary);border-color:var(--primary);color:#fff}
+.ct-btns{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 4px}
+.ct-btns .btn{flex:1;min-width:140px;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none}
+.act-x{color:#b0413e!important}
+.req{color:#b0413e}

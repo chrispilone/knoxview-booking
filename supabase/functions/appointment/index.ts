@@ -5,10 +5,11 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 //   slots  { number, from }     → open times for this shoot's length (same rules + calendar as new bookings)
 //   reschedule { number, start } → moves the shoot, updates the Google Calendar event, emails Chris
 //   cancel { number, reason }    → cancels (unpaid only; any credit used goes back to the client), removes the calendar event, emails Chris
-// Online changes close CUTOFF_HOURS before the shoot; after that the client calls or texts.
+// Online changes close at 5:00 PM (business time zone) the day before the shoot; after that the client calls or texts.
+// A reason is required to reschedule or cancel online; it goes in the order notes and the email to Chris.
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 const env = (k: string) => (Deno.env.get(k) ?? '').trim();
-const CUTOFF_HOURS = 24;
+const CUTOFF_TIME = '17:00'; // the day before the shoot
 const PHONE = '865-855-5669';
 const OWNER_EMAIL = env('DELIVERY_BCC') || 'chris@knoxview.com';
 const RESEND_KEY = env('RESEND_API_KEY'), MAIL_FROM = env('DELIVERY_MAIL_FROM') || 'Knox View <bookings@mail.knoxview.com>';
@@ -35,6 +36,8 @@ function zoned(date: string, time: string, tz: string) {
 }
 const localDate = (d: Date, tz: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 const weekday = (date: string) => new Date(date + 'T12:00:00Z').getUTCDay();
+// Online changes for a shoot on `date` (YYYY-MM-DD, local) close at 5 PM the day before
+const cutoffFor = (date: string, tz: string) => zoned(new Date(Date.parse(date + 'T12:00:00Z') - 86400_000).toISOString().slice(0, 10), CUTOFF_TIME, tz).getTime();
 const when = (iso: string, tz: string) => new Date(iso).toLocaleString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 async function ownerGoogleToken() {
@@ -77,7 +80,7 @@ async function busy(from: Date, to: Date, skipBooking: string, skipEvent: string
 }
 async function slots(st: any, minutes: number, b: any, fromDate?: string, days = 14) {
   const tz = st.timezone || 'America/New_York';
-  const earliest = Math.max(Date.now() + st.min_notice_hours * 3600_000, Date.now() + CUTOFF_HOURS * 3600_000);
+  const earliest = Date.now() + st.min_notice_hours * 3600_000;
   const start = fromDate && /^\d{4}-\d{2}-\d{2}$/.test(fromDate) ? fromDate : localDate(new Date(), tz);
   const horizonEnd = Date.now() + st.horizon_days * 86400_000;
   const dates: string[] = [];
@@ -90,7 +93,7 @@ async function slots(st: any, minutes: number, b: any, fromDate?: string, days =
   const intervals = await busy(zoned(dates[0], '00:00', tz), zoned(dates[dates.length - 1], '23:59', tz), b.id, b.gcal_event_id);
   const buf = st.buffer_min * 60000, dur = minutes * 60000, step = st.slot_step * 60000;
   return { tz, days: dates.map(date => {
-    const open = (st.work_days as number[]).includes(weekday(date)), times: { start: string; label: string }[] = [];
+    const open = (st.work_days as number[]).includes(weekday(date)) && Date.now() < cutoffFor(date, tz), times: { start: string; label: string }[] = [];
     if (open) {
       const dayEnd = zoned(date, String(st.day_end).slice(0, 5), tz).getTime();
       for (let t = zoned(date, String(st.day_start).slice(0, 5), tz).getTime(); t + dur <= dayEnd; t += step) {
@@ -103,11 +106,12 @@ async function slots(st: any, minutes: number, b: any, fromDate?: string, days =
 }
 
 /* ---------- rules ---------- */
-function rules(b: any) {
+function rules(b: any, tz: string) {
   const hrs = b.shoot_start ? (Date.parse(b.shoot_start) - Date.now()) / 3600_000 : -1;
+  const closed = b.shoot_start ? Date.now() >= cutoffFor(localDate(new Date(b.shoot_start), tz), tz) : true;
   if (b.status === 'cancelled') return { canChange: false, canCancel: false, reason: 'This appointment is cancelled.' };
   if (!['scheduled', 'requested'].includes(b.status) || b.delivered_at || hrs < 0) return { canChange: false, canCancel: false, reason: 'This shoot already happened.' };
-  if (hrs < CUTOFF_HOURS) return { canChange: false, canCancel: false, reason: `Your shoot is less than ${CUTOFF_HOURS} hours away. To change it, please call or text ${PHONE}.` };
+  if (closed) return { canChange: false, canCancel: false, reason: `Rescheduling online is unavailable at this time. Please call or text ${PHONE}.`, callText: true };
   return { canChange: true, canCancel: !b.paid, reason: b.paid ? `This order is paid, so to cancel it please call or text ${PHONE} and we'll take care of your refund.` : '' };
 }
 
@@ -145,10 +149,10 @@ Deno.serve(async (req) => {
     if (!b) throw new UserError('Order not found', 404);
     const { data: st } = await admin.from('booking_settings').select('*').eq('id', 1).single();
     const tz = st?.timezone || 'America/New_York', minutes = b.duration_min || Math.round((Date.parse(b.shoot_end) - Date.parse(b.shoot_start)) / 60000) || 60;
-    const r = rules(b), action = String(body.action || '');
+    const r = rules(b, tz), action = String(body.action || '');
     const where = [b.address, b.city].filter(Boolean).join(', ');
 
-    if (action === 'rules') return json(req, { ...r, start: b.shoot_start, minutes, cutoffHours: CUTOFF_HOURS });
+    if (action === 'rules') return json(req, { ...r, start: b.shoot_start, minutes });
 
     if (action === 'slots') {
       if (!r.canChange) throw new UserError(r.reason);
@@ -157,12 +161,15 @@ Deno.serve(async (req) => {
 
     if (action === 'reschedule') {
       if (!r.canChange) throw new UserError(r.reason);
+      const why = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+      if (why.length < 3) throw new UserError('Please add a reason for rescheduling.');
       const start = new Date(String(body.start || ''));
       if (isNaN(+start)) throw new UserError('Pick a new time.');
       const day = localDate(start, tz), avail = await slots(st, minutes, b, day, 1);
       if (!avail.days[0]?.times.some(t => t.start === start.toISOString())) throw new UserError('That time was just taken. Please pick another.', 409);
       const end = new Date(+start + minutes * 60000);
-      const { error } = await admin.from('bookings').update({ shoot_start: start.toISOString(), shoot_end: end.toISOString(), updated_at: new Date().toISOString() }).eq('id', b.id);
+      const { error } = await admin.from('bookings').update({ shoot_start: start.toISOString(), shoot_end: end.toISOString(), updated_at: new Date().toISOString(),
+        notes: [b.notes, `Rescheduled by client in portal (${when(b.shoot_start, tz)} → ${when(start.toISOString(), tz)}): ${why}`].filter(Boolean).join('\n') }).eq('id', b.id);
       if (error) throw error;
       if (b.gcal_event_id) {
         const tok = await ownerGoogleToken();
@@ -171,13 +178,14 @@ Deno.serve(async (req) => {
           body: JSON.stringify({ start: { dateTime: start.toISOString(), timeZone: tz }, end: { dateTime: end.toISOString(), timeZone: tz } }) }).catch(e => console.error('gcal', String(e)));
       }
       await notifyChris(`Rescheduled: #${b.number} ${b.address}`, [`${agent.full_name || b.client_name} rescheduled their shoot in the portal.`, '', `Order #${b.number} · ${where}`,
-        `Was: ${when(b.shoot_start, tz)}`, `Now: ${when(start.toISOString(), tz)}`, b.gcal_event_id ? 'Your Google Calendar event was moved.' : 'This order has no Google Calendar event.', '', `HQ: https://hq.knoxview.com/#/bookings/${b.id}`]);
+        `Was: ${when(b.shoot_start, tz)}`, `Now: ${when(start.toISOString(), tz)}`, `Reason: ${why}`, b.gcal_event_id ? 'Your Google Calendar event was moved.' : 'This order has no Google Calendar event.', '', `HQ: https://hq.knoxview.com/#/bookings/${b.id}`]);
       return json(req, { start: start.toISOString(), label: when(start.toISOString(), tz) });
     }
 
     if (action === 'cancel') {
       if (!r.canCancel) throw new UserError(r.reason || "This appointment can't be cancelled online.");
       const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+      if (reason.length < 3) throw new UserError('Please add a reason for cancelling.');
       const credit = +(b.credit_applied || 0);
       if (credit > 0) await admin.from('client_credits').insert({ agent_id: agent.id, amount: credit, kind: 'returned', booking_id: b.id, note: `Returned: order #${b.number} cancelled` });
       const { error } = await admin.from('bookings').update({ status: 'cancelled', cancelled_at: new Date().toISOString(), credit_applied: 0, gcal_event_id: null,
