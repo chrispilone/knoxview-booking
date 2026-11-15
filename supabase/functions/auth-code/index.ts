@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
 // One-time sign-in codes for the Knox View client portal.
 //   send   { channel: 'email', email } | { channel: 'sms', phone } -> sends a one-time code, returns { ref, to }
-//   signup { name, phone, email, company } -> emails a code to confirm the email; same reply as send
+//   signup { first_name, last_name (or name), phone, email, company } -> emails a code to confirm the email; same reply as send
 //   test_session (HQ super admins only) -> a session for the portal's TEST client account, for previewing the portal
 //   verify { ref, code }  -> checks the code and returns a Supabase session for the browser (setSession).
 //                            For a sign-up, the client record (agents) is created or filled in here, once the email is proven.
@@ -157,7 +157,7 @@ async function sendEmail(to: string, code: string) {
 }
 
 /* ---------- sign-up ---------- */
-async function saveClient(email: string, userId: string, s: { name?: string; phone?: string; company?: string }) {
+async function saveClient(email: string, userId: string, s: { name?: string; first?: string; last?: string; phone?: string; company?: string }) {
   const { data: agent } = await admin.from('agents').select('id, phone, brokerage, auth_user_id').ilike('email', email).order('created_at').limit(1).maybeSingle();
   if (agent) { // already a client: fill in only what's missing, never overwrite
     const fill: Record<string, unknown> = {};
@@ -167,7 +167,7 @@ async function saveClient(email: string, userId: string, s: { name?: string; pho
     if (Object.keys(fill).length) await admin.from('agents').update(fill).eq('id', agent.id);
     return;
   }
-  const { error } = await admin.from('agents').insert({ full_name: s.name || email, email, phone: s.phone || null, brokerage: s.company || null,
+  const { error } = await admin.from('agents').insert({ full_name: s.name || email, ...(s.first && s.last ? { first_name: s.first, last_name: s.last } : {}), email, phone: s.phone || null, brokerage: s.company || null,
     auth_user_id: userId, preferences: 'Created by portal sign-up' });
   if (error) console.error('signup insert failed', error.message);
 }
@@ -243,7 +243,8 @@ Deno.serve(async (req) => {
 
     if (b.action === 'signup') {
       const clean = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
-      const name = clean(b.name, 120), company = clean(b.company, 160);
+      const first = clean(b.first_name, 60), last = clean(b.last_name, 60); // sent separately by the sign-up form
+      const name = first && last ? `${first} ${last}` : clean(b.name, 120), company = clean(b.company, 160);
       const email = clean(b.email, 200).toLowerCase(), phone = e164(String(b.phone ?? ''));
       if (name.split(' ').filter(Boolean).length < 2) throw new Bad('Enter your first and last name.');
       if (!phone) throw new Bad('Enter a 10-digit mobile number.');
@@ -252,7 +253,7 @@ Deno.serve(async (req) => {
       await checkLimits(email, 'email');
       const d = phone.slice(2), pretty = `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
       const { data: row, error: insErr } = await admin.from('auth_code_sends').insert({ email, channel: 'email', provider: 'supabase', ip_hash: ipHash, ok: false,
-        signup: { name, phone: pretty, company } }).select('id, ref').single();
+        signup: { name, first, last, phone: pretty, company } }).select('id, ref').single();
       if (insErr) throw insErr;
       await sendEmail(email, await makeCode(email));
       await admin.from('auth_code_sends').update({ ok: true }).eq('id', row.id);

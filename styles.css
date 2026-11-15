@@ -787,3 +787,4 @@ a.lp-book:hover{color:#fff}
 .lp-photo-book svg{width:16px;height:16px}
 @media (min-width:961px){a.lp-book{display:none}}
 @media (min-width:961px){.lp-hero h1{margin-bottom:24px}}
+.su-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.su-row>div{min-width:0}.su-row input{width:100%}

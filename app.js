@@ -193,7 +193,7 @@ async function finishBooking(id, token) {
 
 /* ---------- auth + portal ---------- */
 // Sign in with a one-time code: by email, or by text to a mobile number that matches a client record.
-const LP = () => (S.login || (S.login = { stage: 'enter', mode: 'signin', method: 'email', email: '', phone: '', su: { name: '', phone: '', email: '', company: '' } }));
+const LP = () => (S.login || (S.login = { stage: 'enter', mode: 'signin', method: 'email', email: '', phone: '', su: { first: '', last: '', phone: '', email: '', company: '' } }));
 function keepInput() { const p = LP(), v = $('loginId')?.value; if (v != null) p[p.method === 'sms' ? 'phone' : 'email'] = v.trim(); }
 function setMethod(m) {
   keepInput(); const p = LP();
@@ -217,25 +217,25 @@ async function signIn(ev) { // send a code to the email or phone they entered
 }
 function sendCode() { return LP().mode === 'signup' ? signUp() : signIn(); }
 // New clients: name, mobile, email and brokerage. We email a code to confirm the email; the client record is created once it's verified.
-const SU_FIELDS = ['name', 'phone', 'email', 'company'];
+const SU_FIELDS = ['first', 'last', 'phone', 'email', 'company'];
 function keepSignup() { const su = LP().su; SU_FIELDS.forEach(k => { const v = $('su_' + k)?.value; if (v != null) su[k] = v.trim(); }); }
 function setMode(m) {
   if (LP().mode === 'signup') keepSignup(); else keepInput();
   const p = LP(); p.mode = m === 'signup' ? 'signup' : 'signin'; p.stage = 'enter'; S.error = '';
   if (p.mode === 'signup' && !p.su.email && p.email) p.su.email = p.email; // carry over what they already typed
   if (p.mode === 'signin' && !p.email && p.su.email) { p.email = p.su.email; p.method = 'email'; }
-  render(); setTimeout(() => $(p.mode === 'signup' ? 'su_name' : 'loginId')?.focus(), 30);
+  render(); setTimeout(() => $(p.mode === 'signup' ? 'su_first' : 'loginId')?.focus(), 30);
 }
 async function signUp(ev) {
   ev?.preventDefault(); keepSignup();
   const p = LP(), su = p.su;
-  const bad = su.name.split(/\s+/).filter(Boolean).length < 2 ? 'Enter your first and last name.'
+  const bad = !su.first ? 'Enter your first name.' : !su.last ? 'Enter your last name.'
     : su.phone.replace(/\D/g, '').replace(/^1(?=\d{10})/, '').length !== 10 ? 'Enter your 10-digit mobile number.'
-    : !/\S+@\S+\.\S+/.test(su.email) ? 'Enter your email.' : '';
+    : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(su.email) ? 'Enter a valid email.' : '';
   if (bad) { S.error = bad; render(); return; }
   S.busy = true; S.error = ''; render();
   try {
-    const r = await api('signup', { name: su.name, phone: su.phone, email: su.email.toLowerCase(), company: su.company }, 'auth-code');
+    const r = await api('signup', { name: `${su.first} ${su.last}`, first_name: su.first, last_name: su.last, phone: su.phone, email: su.email.toLowerCase(), company: su.company }, 'auth-code');
     Object.assign(p, { stage: 'code', ref: r.ref, to: r.to, expiresMin: r.expiresMin || 60, method: 'email', email: su.email });
   } catch (e) { S.error = e.message; }
   S.busy = false; render();
@@ -565,12 +565,12 @@ function vLogin() {
   if (signup) {
     const f = (k, label, attrs) => `<label for="su_${k}" style="margin-top:12px">${label}</label><input id="su_${k}" value="${esc(p.su[k])}" ${attrs}>`;
     return `
-      <p class="d" style="margin:6px 0 4px">New to Knox View? Enter your details to get started.</p>
+      <p class="d" style="margin:6px 0 4px">Enter your details to get started.</p>
       <form onsubmit="kv.signUp(event)" novalidate>
-      ${f('name', 'Full name', 'autocomplete="name" placeholder="First and last name"')}
-      ${f('phone', 'Mobile number', 'type="tel" inputmode="tel" autocomplete="tel-national" placeholder="(865) 555-1234" oninput="this.value=kv.fmtPhone(this.value)"')}
-      ${f('email', 'Email', 'type="email" autocomplete="email" placeholder="you@brokerage.com"')}
-      ${f('company', 'Brokerage / team <span style="text-transform:none;font-weight:400;color:var(--slate)">(optional)</span>', 'autocomplete="organization" placeholder="e.g. Prime Mountain Properties"')}
+      <div class="su-row"><div>${f('first', 'First name', 'autocomplete="given-name" required')}</div><div>${f('last', 'Last name', 'autocomplete="family-name" required')}</div></div>
+      ${f('phone', 'Mobile number', 'type="tel" inputmode="tel" autocomplete="tel-national" required placeholder="(865) 555-1234" oninput="this.value=kv.fmtPhone(this.value)"')}
+      ${f('email', 'Email', 'type="email" autocomplete="email" required placeholder="you@brokerage.com"')}
+      ${f('company', 'Brokerage / team <span style="text-transform:none;font-weight:400;color:var(--slate)">(optional)</span>', 'autocomplete="organization" placeholder="Brokerage / team"')}
       <p class="hint" style="margin:8px 0 0">We'll email you a code to confirm it's you. After that you can sign in with your email or mobile number. No password needed.</p>
       ${err}
       <button class="btn" style="width:100%;margin-top:14px" ${S.busy ? 'disabled' : ''}>${S.busy ? spin : 'Create account'}</button></form>
