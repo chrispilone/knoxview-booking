@@ -711,3 +711,18 @@ body.landing #ptr{display:flex}
 html:has(body.landing),body.landing{background:#1d3250}
 body.landing #landing{background:var(--bg)}
 #ptr .ptr-t{white-space:nowrap}
+/* What are we shooting? picture cards */
+.tcards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tcard{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:0 0 12px;background:#fff;border:1px solid var(--line);font:inherit;color:inherit;text-align:left;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.tcard:hover{border-color:#8ca6cc}
+.tcard.sel{border-color:#1d3250;box-shadow:0 0 0 1px #1d3250}
+.tc-img{position:relative;display:block;width:100%;aspect-ratio:4/3;overflow:hidden;background:#e8edf3;margin-bottom:8px}
+.tc-img img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .4s ease}
+.tcard:hover .tc-img img{transform:scale(1.03)}
+.tc-img .tick{position:absolute;top:8px;right:8px;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.85);color:transparent}
+.tc-img .tick svg{width:14px;height:14px}
+.tcard.sel .tc-img .tick{background:#1d3250;color:#fff}
+.tc-n{padding:0 12px;font-weight:700;font-size:15px;color:var(--headline)}
+.tc-d{padding:0 12px;font-size:12px;color:var(--muted,#6b7a8d);line-height:1.35}
+@media (min-width:761px){.tcards{max-width:640px}}
+.tcard.sel .tc-img .tick svg,.tcard.sel .tc-img .tick svg *{stroke:#fff!important;opacity:1!important;visibility:visible!important}.tc-img .tick{border:0!important}

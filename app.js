@@ -1115,10 +1115,11 @@ function checkAll() { // before submitting: flag what's missing and jump to it
 const oh = (id, n, title, sub = '') => `<div class="o-h" id="${id}"><span class="o-n">${n}</span><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div></div>`;
 function vOne() {
   const a = S.addr, st = S.config.settings, land = isLand(), opts = land ? ACRE_OPTIONS : (st.sqft_options || []);
-  const tRow = (t, name, sub) => `<button class="row ${S.ptype === t ? 'sel' : ''}" onclick="kv.ptype('${t}')" aria-pressed="${S.ptype === t}">
-      <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${name}</span><span class="row-d">${sub}</span></span></button>`;
+  const tRow = (t, name, sub) => `<button class="tcard ${S.ptype === t ? 'sel' : ''}" onclick="kv.ptype('${t}')" aria-pressed="${S.ptype === t}">
+      <span class="tc-img"><img src="/img/type-${t === 'land' ? 'land' : 'listing'}.jpg" alt="" decoding="async"><span class="tick">${CHECK}</span></span>
+      <span class="tc-n">${name}</span><span class="tc-d">${sub}</span></button>`;
   const type = `<section class="o-sec">${oh('o-type', 1, 'What are we shooting?')}
-    <div class="list">${tRow('home', 'Listing Media', 'Houses, condos, cabins and townhomes')}${tRow('land', 'Land Media', 'Lots and acreage')}</div></section>`;
+    <div class="tcards">${tRow('home', 'Listing Media', 'Houses, condos, cabins and townhomes')}${tRow('land', 'Land Media', 'Lots and acreage')}</div></section>`;
   const haveSvc = inCart().size > 0, aOk = addrOk();
   const size = !S.ptype ? '' : `<section class="o-sec">${oh('o-size', 2, land ? 'Land size' : 'Home size', land ? 'Total acreage' : 'Heated square feet')}
     <div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
