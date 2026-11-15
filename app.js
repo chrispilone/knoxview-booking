@@ -43,7 +43,9 @@ const ADDON_IMG = { 'e8cab6b1-3742-49a3-9f85-e888d886fd0d': 'interactive-floor-p
 const ACRE_OPTIONS = [{ label: 'Up to 50 acres' }, { label: 'Over 50 acres' }];
 // Photo count shown in packages: 30+ photos, or 40+ for homes over 3,500 sq ft
 const photoCount = () => largeOn() ? '40+' : '30+';
-const incLabel = i => /^photography$/i.test(i) ? `${photoCount()} photos` : /^premium photography$/i.test(i) ? `Premium photography (${photoCount()} photos)` : i;
+const incLabel = i => /^photography$/i.test(i) ? `${photoCount()} photos` : i; // Luxury's "Premium photography" shows no count
+// À la carte Photography: 25+ photos, or 30+ for homes over 3,500 sq ft
+const alcPhotoCount = () => largeOn() ? '30+' : '25+';
 const covered = () => new Set(S.pkg ? svc(S.pkg)?.covers ?? [] : []);
 const inCart = () => { const c = new Set(S.items); if (S.pkg) c.add(S.pkg); return c; };
 const anyOf = (list, set) => (list || []).some(x => set.has(x));
@@ -355,7 +357,7 @@ function vServices(inline) {
     const inc = cov.has(s.id), sel = S.items.has(s.id);
     return `<button class="row ${sel ? 'sel' : ''} ${inc ? 'incl' : ''}" onclick="kv.toggle('${s.id}')" aria-pressed="${sel || inc}" ${inc ? 'aria-disabled="true"' : ''}>
       <span class="box">${CHECK}</span>
-      <span class="row-t"><span class="row-n">${esc(s.name)}</span>${/^photography$/i.test(s.name) && !isLand() ? `<span class="row-d">${photoCount()} photos</span>` : s.description ? `<span class="row-d">${esc(s.description)}</span>` : ''}</span>
+      <span class="row-t"><span class="row-n">${esc(s.name)}</span>${/^photography$/i.test(s.name) && !isLand() ? `<span class="row-d">${alcPhotoCount()} photos</span>` : s.description ? `<span class="row-d">${esc(s.description)}</span>` : ''}</span>
       <span class="row-p">${inc ? `<span class="inc">Included in ${esc(svc(S.pkg).name)}</span>` : money(s.price)}</span></button>`;
   };
   const card = s => {
