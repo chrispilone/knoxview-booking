@@ -1060,14 +1060,18 @@ Object.assign(window.kv, {
 });
 
 // Account → Notification Preferences: text messages the client wants (HQ shows and edits the same switches)
+const NT_KEYS = ['sms_appointment_reminders', 'sms_media_delivered', 'sms_news'];
+const NT_NOTE = 'Message and data rates may apply. Reply STOP to any text to opt out, or turn these off here anytime.';
 function vNotify() {
-  const n = S.notify || {}, ph = n.phone || (S.pdata?.agent || S.agent || {}).phone;
-  const row = (k, title, sub) => `<label class="nt-row"><span><b>${title}</b><small>${sub}</small></span>
-    <span class="sw"><input type="checkbox" ${n[k] ? 'checked' : ''} onchange="kv.setNotify('${k}', this.checked, this)"><i aria-hidden="true"></i></span></label>`;
+  const n = S.notify || {}, ph = n.phone || (S.pdata?.agent || S.agent || {}).phone, all = NT_KEYS.every(k => n[k]);
+  const row = (k, title, sub, cls = '') => `<label class="nt-row ${cls}"><span><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</span>
+    <span class="sw"><input type="checkbox" data-nt="${k}" ${k === 'all' ? (all ? 'checked' : '') : n[k] ? 'checked' : ''} onchange="kv.setNotify('${k}', this.checked)"><i aria-hidden="true"></i></span></label>`;
   return `<p class="nt-h">Text messages${ph ? ` to <b>${esc(kv.fmtPhone(ph))}</b>` : ''}</p>
-    ${row('sms_appointment_reminders', 'Appointment reminders', 'A text before each scheduled shoot')}
-    ${row('sms_media_delivered', 'Media delivered', 'A text when your photos, videos and media are ready')}
-    <p class="hint nt-msg" id="ntMsg">${ph ? 'Message and data rates may apply. Reply STOP to any text to opt out, or turn these off here anytime.' : 'Add your mobile phone in My Profile to turn on text messages.'}</p>`;
+    ${row('all', 'All notifications', '', 'nt-all')}
+    ${row('sms_appointment_reminders', 'Appointment reminders', 'Before each scheduled shoot')}
+    ${row('sms_media_delivered', 'Media delivered', 'When your photos, videos and media are ready')}
+    ${row('sms_news', 'News &amp; offers', 'Occasional texts about new services, specials and open dates')}
+    <p class="hint nt-msg" id="ntMsg">${ph ? NT_NOTE : 'Add your mobile phone in My Profile to turn on text messages.'}</p>`;
 }
 function vSettings() {
   const a = S.pdata?.agent || S.agent || {}, x = S.extras || {};
@@ -1548,13 +1552,15 @@ Object.assign(window.kv, {
       <div class="nav"><button class="btn o" onclick="kv.closeModal()">Close</button>${b && !b.paid ? `<button class="btn" onclick="kv.closeModal();kv.payBooking('${b.id}')">Pay ${money(b.total)}</button>` : ''}</div></div></div>`;
   },
   // open / close a profile section in place (no re-render, so unsaved typing stays)
-  async setNotify(k, on, el) {
+  async setNotify(k, on) {
     const prev = { ...(S.notify || {}) }, msg = $('ntMsg');
-    S.notify = { ...prev, [k]: on };
+    const sync = n => { document.querySelectorAll('[data-nt]').forEach(el => { el.checked = el.dataset.nt === 'all' ? NT_KEYS.every(x => n[x]) : !!n[el.dataset.nt]; }); };
+    S.notify = { ...prev, ...(k === 'all' ? Object.fromEntries(NT_KEYS.map(x => [x, on])) : { [k]: on }) }; sync(S.notify);
     try {
-      const r = await api('notify', { sms_appointment_reminders: !!S.notify.sms_appointment_reminders, sms_media_delivered: !!S.notify.sms_media_delivered }, 'client-photo');
-      S.notify = r.notify; if (msg) { msg.textContent = 'Saved.'; msg.classList.add('ok'); setTimeout(() => { msg.classList.remove('ok'); msg.textContent = 'Message and data rates may apply. Reply STOP to any text to opt out, or turn these off here anytime.'; }, 2200); }
-    } catch (e) { S.notify = prev; if (el) el.checked = !on; if (msg) { msg.textContent = e.message; msg.classList.remove('ok'); } }
+      const r = await api('notify', Object.fromEntries(NT_KEYS.map(x => [x, !!S.notify[x]])), 'client-photo');
+      S.notify = r.notify; sync(S.notify);
+      if (msg) { msg.textContent = 'Saved.'; msg.classList.add('ok'); clearTimeout(UI.ntT); UI.ntT = setTimeout(() => { msg.classList.remove('ok'); msg.textContent = NT_NOTE; }, 2200); }
+    } catch (e) { S.notify = prev; sync(prev); if (msg) { msg.textContent = e.message; msg.classList.remove('ok'); } }
   },
   acc(k, on) {
     UI.sec = { ...(UI.sec || {}), [k]: on };
