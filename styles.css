@@ -657,3 +657,14 @@ body.landing .top,body.landing #main,body.landing .bar,body.landing .sheet{displ
 .svc-tabs i{font-style:normal;letter-spacing:0;font-size:11px;min-width:18px;height:18px;border-radius:9px;background:var(--primary);color:#fff;display:inline-grid;place-items:center;padding:0 5px}
 .svc-switch{text-align:center;margin:18px 0 0;font-size:14px;color:var(--body)}
 .svc-switch a{color:var(--primary);font-weight:600}
+
+/* ===== One-page order form ===== */
+.o-sec{margin:0 0 30px}
+.o-h{display:flex;align-items:flex-start;gap:12px;margin:0 0 14px;scroll-margin-top:90px}
+.o-n{flex:none;width:28px;height:28px;border-radius:50%;background:var(--primary);color:#fff;font-weight:700;font-size:14px;display:grid;place-items:center;margin-top:2px}
+.o-h h2{margin:0;font-family:'Cormorant Garamond',Georgia,serif;font-size:28px;font-weight:600;line-height:1.1;color:var(--primary);text-transform:none;letter-spacing:0}
+.o-h p{margin:3px 0 0;color:var(--body);font-size:14px}
+#o-you{scroll-margin-top:90px}
+.box.rad{border-radius:50%}
+.o-sec .sec{margin-bottom:0}
+.o-sec .svc-tabs{margin-top:0}

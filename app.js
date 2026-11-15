@@ -76,6 +76,7 @@ window.kv = {
   calShift(n) { const first = calFirst(); S.calFrom = dAdd(S.calFrom || first, n); if (S.calFrom < first) S.calFrom = first; S.pickDate = null; render(); calEnsure(); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
   svcTab(t) { S.svcTab = t === 'alc' ? 'alc' : 'pkg'; render(); document.querySelector('.svc-tabs')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); },
+  size(label) { S.addr.sqftLabel = label; resetSchedule(); render(); if (!inCart().size) setTimeout(() => document.getElementById('o-svc')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
   startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
 
@@ -125,21 +126,21 @@ const appearance = { theme: 'stripe', variables: { colorPrimary: '#1d3250', colo
 
 // "Submit Order": no card now, payment upon delivery (the `order` function books it and adds it to the calendar)
 async function submitOrder() {
-  if (!validate(3)) { render(); return; }
+  if (!checkAll()) return;
   S.busy = true; S.error = ''; S.payOpt = 'pay_later'; render();
   try {
     S.done = await api('submit', { ...selection(), start: S.start, address: S.addr, contact: S.contact }, 'order');
     S.view = 'done'; S.checkout = null; history.replaceState(null, '', '/');
   } catch (e) {
     S.error = e.message;
-    if (e.status === 409) { resetSchedule(); S.step = 2; loadSlots(); }
+    if (e.status === 409) { resetSchedule(); S.slotsKey = null; setTimeout(() => document.getElementById('o-time')?.scrollIntoView({ behavior: 'smooth' }), 50); }
   }
   S.busy = false; render(); window.scrollTo({ top: 0 });
 }
 // "Pay Now and Submit Order": card payment through Stripe
 async function startCheckout() {
   S.payOpt = 'pay_now';
-  if (!validate(3)) { render(); return; }
+  if (!checkAll()) return;
   if (!stripeReady()) { S.error = 'Online payments are not switched on yet. Please call ' + CFG.phone + ' to book.'; render(); return; }
   S.busy = true; S.error = ''; render();
   try {
@@ -152,7 +153,7 @@ async function startCheckout() {
     S.checkout.elements = elements;
   } catch (e) {
     S.error = e.message;
-    if (e.status === 409) { resetSchedule(); S.step = 2; loadSlots(); }
+    if (e.status === 409) { resetSchedule(); S.slotsKey = null; setTimeout(() => document.getElementById('o-time')?.scrollIntoView({ behavior: 'smooth' }), 50); }
   }
   S.busy = false; render();
 }
@@ -273,7 +274,7 @@ function alertModal(text) {
 // Upsell pop-ups are switched on and off per upsell in HQ (Bookings → Portal settings → Upsells).
 // Only active upsells are readable by the public, so this stays true; set false to hide them all.
 const SHOW_UPSELLS = true;
-function vServices() {
+function vServices(inline) {
   const cov = covered();
   const pk = packages().map(p => `
     <button class="card round pkg ${S.pkg === p.id ? 'sel' : S.pkg ? 'dim' : ''}" onclick="kv.pickPkg('${p.id}')" aria-pressed="${S.pkg === p.id}" ${S.pkg && S.pkg !== p.id ? 'aria-disabled="true"' : ''}>
@@ -318,7 +319,7 @@ function vServices() {
       <div class="list">${alacarte().map(row).join('')}</div>
       <p class="svc-switch"><a href="javascript:kv.svcTab('pkg')">← Back to packages</a></p></section>`}
     ${large}
-    <div class="nav"><button class="btn o" onclick="kv.go(0)">Back</button><button class="btn" onclick="kv.go(2)" ${inCart().size ? '' : 'disabled'}>Continue to schedule</button></div>`;
+    ${inline ? '' : `<div class="nav"><button class="btn o" onclick="kv.go(0)">Back</button><button class="btn" onclick="kv.go(2)" ${inCart().size ? '' : 'disabled'}>Continue to schedule</button></div>`}`;
 }
 function field(key, label, obj, opt = {}) {
   const v = S[obj][key] || '', req = opt.req !== false, err = S.errors[key] ? 'err' : '';
@@ -374,7 +375,7 @@ function calEnsure() { // make sure the visible two weeks are loaded
   const last = days[days.length - 1].date, end = dAdd(S.calFrom || calFirst(), 13);
   if (end > last) loadSlots(last, true);
 }
-function vSchedule() {
+function vSchedule(inline) {
   if (!S.slots) return `<div class="panel loading"><span class="spin"></span> Checking the calendar…</div>${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}`;
   const days = S.slots.days, sel = S.start ? new Date(S.start) : null;
   const mins = Math.round(S.slots.minutes / 15) * 15, dur = mins >= 60 ? `${Math.floor(mins / 60)} hr${mins % 60 ? ` ${mins % 60} min` : ''}` : `${mins} min`;
@@ -407,7 +408,7 @@ function vSchedule() {
         : !S.slotsLoading ? '<div class="hint" style="margin-top:12px">No open times these two weeks. Try the next two weeks.</div>' : ''}
     </div>`;
   }
-  return `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Schedule</h2></div>
+  return `<section class="sec">${inline ? '' : '<div class="sec-h"><i style="background:#1d3250"></i><h2>Schedule</h2></div>'}
     <p class="d">Estimated time on site: <b>${dur}</b>.</p>
     <div class="panel">
       <p class="sg-q">Will any of these times work for you?</p>
@@ -417,11 +418,11 @@ function vSchedule() {
       ${sel ? `<div class="callout"><span>✓ ${sel.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} at ${esc(S.startLabel)}</span></div>` : ''}
       ${(svc(S.pkg)?.name === 'Luxury' || [...S.items].some(id => /twilight photos/i.test(svc(id)?.name || ''))) ? '<div class="hint" style="margin-top:10px">Twilight photos are captured at sunset. We\'ll confirm the twilight time with you.</div>' : ''}
     </div></section>
-    <div class="nav"><button class="btn o" onclick="kv.go(1)">Back</button><button class="btn" onclick="kv.go(3)" ${S.start ? '' : 'disabled'}>Continue to review</button></div>`;
+    ${inline ? '' : `<div class="nav"><button class="btn o" onclick="kv.go(1)">Back</button><button class="btn" onclick="kv.go(3)" ${S.start ? '' : 'disabled'}>Continue to review</button></div>`}`;
 }
 window.S_pickDate = d => { S.pickDate = d; render(); };
 
-function vReview() {
+function vReview(inline) {
   const a = S.addr, when = S.start ? new Date(S.start).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) + ' · ' + S.startLabel : '';
   const locked = !!S.checkout;
   const payLabels = { save_card: ['Save card now, charge on delivery', 'Your card is charged when your media is delivered.'], pay_now: ['Pay in full now', ''] };
@@ -449,7 +450,7 @@ function vReview() {
       ${locked
         ? `<button class="btn o" onclick="kv.cancelPay()" ${S.busy ? 'disabled' : ''}>Back</button>
            <button class="btn" onclick="kv.confirmPay()" ${S.busy ? 'disabled' : ''}>${S.busy ? '<span class="spin"></span>' : 'Pay ' + money(S.checkout.booking.total) + ' &amp; Submit Order'}</button>`
-        : `<button class="btn o" onclick="kv.go(2)" ${S.busy ? 'disabled' : ''}>Back</button>
+        : `${inline ? '<span></span>' : `<button class="btn o" onclick="kv.go(2)" ${S.busy ? 'disabled' : ''}>Back</button>`}
            <div class="submit-opts">
              <div class="submit-main"><button class="btn" onclick="kv.submitOrder()" ${S.busy ? 'disabled' : ''}>${S.busy && S.payOpt === 'pay_later' ? '<span class="spin"></span>' : 'Submit Order'}</button>
                <small>Payment upon delivery</small></div>
@@ -547,7 +548,7 @@ function ldSend(prefer) { // "Continue" (no prefer) or "Login via SMS" / "Login 
   p.method = kind; p[kind === 'sms' ? 'phone' : 'email'] = v;
   return signIn();
 }
-function ltab(t) { S.ltab = t === 'signin' ? 'signin' : 'price'; S.error = ''; render(); setTimeout(() => $(S.ltab === 'signin' ? 'loginId' : 'lpStreet')?.focus(), 30); }
+function ltab(t) { if (t !== 'signin') { location.hash = '#order'; return; } S.ltab = 'signin'; S.error = ''; render(); setTimeout(() => $(S.ltab === 'signin' ? 'loginId' : 'lpStreet')?.focus(), 30); }
 function lsize(label) { S.addr.sqftLabel = label; resetSchedule(); S.error = ''; render(); }
 function locc(v) { S.addr.occupancy = v; S.error = ''; render(); }
 function ldPricing() { // "View pricing": straight to the packages (Services step)
@@ -603,7 +604,7 @@ function vLandingPrice() {
     ${hasAddr && a.sqftLabel ? `<button class="lp-go" onclick="kv.ldPricing()" ${a.occupancy ? '' : 'disabled'}>View pricing ${svg(IC_ARROW, 18)}</button>` : ''}`;
 }
 function vLanding() {
-  const tab = S.ltab || 'price';
+  const tab = 'signin';
   return `<div class="lp">
     <div class="lp-main">
       <header class="lp-top"><div class="lp-in lp-bar">
@@ -1065,6 +1066,56 @@ function vSummary(btn) {
 }
 
 /* ================= render ================= */
+// ================= One-page order form =================
+// Home size → check services → property address → pick a time → your details → Submit. All on one page;
+// each part appears once the one above it is filled in.
+const addrOk = () => { const a = S.addr; return !!(a.street && a.city && a.state && /^\d{5}$/.test(a.zip || '')); };
+const detailsOk = () => isValid(3);
+function nextMissing() { // first section still needing an answer
+  if (!S.addr.sqftLabel) return 'o-size';
+  if (!inCart().size) return 'o-svc';
+  if (!addrOk()) return 'o-addr';
+  if (!S.start) return 'o-time';
+  if (!detailsOk()) return 'o-you';
+  return null;
+}
+function checkAll() { // before submitting: flag what's missing and jump to it
+  validate(0); const e0 = { ...S.errors }; validate(3); S.errors = { ...e0, ...S.errors };
+  const miss = nextMissing();
+  if (miss) { S.error = ''; render(); document.getElementById(miss)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return false; }
+  return true;
+}
+const oh = (id, n, title, sub = '') => `<div class="o-h" id="${id}"><span class="o-n">${n}</span><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div></div>`;
+function vOne() {
+  const a = S.addr, st = S.config.settings, opts = st.sqft_options || [];
+  const haveSvc = inCart().size > 0, aOk = addrOk();
+  const size = `<section class="o-sec">${oh('o-size', 1, 'Home size', 'Heated square feet')}
+    <div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
+      <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${esc(o.label)}</span></span></button>`).join('')}</div></section>`;
+  const svcs = a.sqftLabel ? `<section class="o-sec">${oh('o-svc', 2, 'Services', 'Check a package, or pick individual services')}${vServices(true)}</section>` : '';
+  const addr = a.sqftLabel && haveSvc ? `<section class="o-sec">${oh('o-addr', 3, 'Property address')}
+    <div class="panel"><div class="fg pairs">
+      ${field('street', 'Street address', 'addr', { full: true, ph: 'Start typing the address', ac: 'off' })}
+      ${field('unit', 'Unit / Lot', 'addr', { req: false, ph: 'Optional', ac: 'address-line2' })}
+      ${field('city', 'City', 'addr', { ph: 'Knoxville', ac: 'address-level2' })}
+      ${field('state', 'State', 'addr', { pair: true, options: ['TN', 'NC', 'GA', 'KY', 'VA'] })}
+      ${field('zip', 'ZIP', 'addr', { pair: true, ph: '37902', im: 'numeric', ac: 'postal-code' })}
+      ${field('occupancy', 'Occupancy', 'addr', { req: false, options: ['Vacant', 'Owner occupied', 'Tenant occupied'], ph: 'Select (optional)' })}
+      ${field('access', 'Access notes', 'addr', { full: true, req: false, area: true, ph: 'Lockbox code, gate code, pets, who will be there…' })}
+    </div></div></section>` : '';
+  const time = a.sqftLabel && haveSvc && aOk ? `<section class="o-sec">${oh('o-time', 4, 'Pick a time')}${vSchedule(true)}</section>` : '';
+  const you = a.sqftLabel && haveSvc && aOk && S.start ? `<section class="o-sec" id="o-you">${vReview(true)}</section>` : '';
+  return size + svcs + addr + time + you + (S.error && !S.start ? `<div class="msg err">${esc(S.error)}</div>` : '');
+}
+function oneAfterRender() { // load open times once services + address are in; keep the order form and bar in sync
+  if (S.view !== 'book') return;
+  const key = JSON.stringify(selection());
+  if (inCart().size && S.addr.sqftLabel && addrOk() && !S.slots && !S.slotsLoading && S.slotsKey !== key) { S.slotsKey = key; loadSlots(); }
+}
+document.addEventListener('change', e => { // re-render after an address field is finished so the calendar can appear
+  if (S.view === 'book' && e.target.dataset?.o === 'addr' && ['street', 'city', 'state', 'zip'].includes(e.target.dataset.k)) render();
+});
+
 function render() {
   const portal = PORTAL_VIEWS.includes(S.view), acct = S.view === 'account' || portal, done = S.view === 'done';
   const landing = S.view === 'account' && !S.loading;
@@ -1083,22 +1134,25 @@ function render() {
   if (acct) { $('view').innerHTML = vAccount(); return; }
   if (done) { $('view').innerHTML = vDone(); return; }
   $('steps').innerHTML = STEPS.map((s, i) => `<button class="step ${S.step === i ? 'on' : ''} ${S.step > i ? 'done' : ''}" ${canReach(i) && !S.busy ? '' : 'disabled'} onclick="kv.go(${i})"><b>${S.step > i ? '✓' : i + 1}</b><span class="lbl">${s}</span></button>`).join('');
-  if (S.step === 3 && S.checkout?.elements && $('pay-el')?.childElementCount) {
+  S.step = 3; $('steps').style.display = 'none';
+  if (S.checkout?.elements && $('pay-el')?.childElementCount) {
     // Stripe's card form is mounted: patch only the error and buttons so the iframe isn't reloaded
-    const tmp = document.createElement('div'); tmp.innerHTML = vReview();
+    const tmp = document.createElement('div'); tmp.innerHTML = vReview(true);
     $('revErr').innerHTML = tmp.querySelector('#revErr').innerHTML;
     $('revNav').innerHTML = tmp.querySelector('#revNav').innerHTML;
   } else {
-    $('view').innerHTML = [vProperty, vServices, vSchedule, vReview][S.step]() + (S.step < 3 && S.error ? `<div class="msg err">${esc(S.error)}</div>` : '');
+    $('view').innerHTML = vOne();
   }
   $('sumDesk').innerHTML = vSummary(true);
   $('sumMob').innerHTML = vSummary(false);
   $('barTot').textContent = money(total());
   $('barSub').textContent = lines().length ? lines().map(l => l.name).join(' · ') : 'Nothing selected';
   const nb = $('barNext');
-  nb.textContent = S.step < 3 ? 'Continue' : S.checkout ? 'Pay & Submit' : 'Submit Order';
-  nb.disabled = S.busy || (S.step === 1 ? !inCart().size : S.step === 2 ? !S.start : false);
-  nb.onclick = () => S.step < 3 ? go(S.step + 1) : S.checkout ? confirmPay() : submitOrder();
+  const miss = nextMissing();
+  nb.textContent = S.checkout ? 'Pay & Submit' : { 'o-size': 'Choose home size', 'o-svc': 'Choose services', 'o-addr': 'Enter address', 'o-time': 'Pick a time', 'o-you': 'Your details' }[miss] || 'Submit Order';
+  nb.disabled = !!S.busy;
+  nb.onclick = () => S.checkout ? confirmPay() : miss ? document.getElementById(miss)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : submitOrder();
+  oneAfterRender();
 }
 document.addEventListener('input', e => {
   const o = e.target.dataset?.o, k = e.target.dataset?.k; if (!o) return;
@@ -1120,7 +1174,7 @@ function route() {
       S.view = h; if (!S.pdata && h !== 'delivery') loadPortal();
       if (h === 'delivery') { if (hKey && (hKey !== S.dl.key || !S.dl.data)) loadDelivery(hKey); S.dl.tab = hTab || S.dl.tab; if (hKey !== S.dl.key) S.dl.tab = hTab || null; }
     }
-  } else S.view = h === 'account' || (!h && !S.session && S.view !== 'done') ? 'account' : S.view === 'done' && !h ? 'done' : 'book';
+  } else S.view = h === 'account' ? 'account' : S.view === 'done' && !h ? 'done' : 'book';
   render(); if (PORTAL_VIEWS.includes(S.view) || S.view === 'account') window.scrollTo({ top: 0 });
 }
 window.addEventListener('hashchange', route);
