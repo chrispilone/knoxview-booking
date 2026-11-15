@@ -146,6 +146,7 @@ async function submitOrder() {
   S.busy = true; S.error = ''; S.payOpt = 'pay_later'; render();
   try {
     S.done = await api('submit', { ...selection(), start: S.start, address: addrOut(), contact: S.contact }, 'order');
+    freshAfterOrder();
     if (S.useCredit && myCredit()) { // "use my credit" ticked: put their account credit on this order now
       const c = await api('apply_credit', { numbers: [S.done.number] }, 'invoices').catch(() => null);
       const inv = c?.invoices?.[0];
@@ -167,6 +168,7 @@ async function startCheckout() {
     S.busy = true; S.error = ''; render();
     try {
       S.done = await api('submit', { ...selection(), start: S.start, address: addrOut(), contact: S.contact }, 'order');
+      freshAfterOrder();
       S.view = 'done'; S.checkout = null; history.replaceState(null, '', '/');
       S.busy = false; render(); window.scrollTo({ top: 0 });
       await loadInvoices(true);
@@ -205,6 +207,7 @@ async function confirmPay() {
 async function finishBooking(id, token) {
   try {
     S.done = await api('confirm', { bookingId: id, token });
+    freshAfterOrder();
     S.view = 'done'; S.checkout = null;
     history.replaceState(null, '', '/');
   } catch (e) { S.error = e.message; }
@@ -1770,3 +1773,45 @@ function acHookOrderForm() {
     d = 0;
   });
 })();
+
+/* ================= keeping portal data fresh ================= */
+// After an order or payment, forget what was loaded so Listings and Invoices show it right away.
+function freshAfterOrder() { S.pdata = null; if (typeof INV !== 'undefined') { INV.data = null; INV.pdf = {}; INV.dmedia = {}; } }
+// Reload whatever the current page shows (used by pull-to-refresh and when the app comes back to the front).
+async function refreshView() {
+  if (!S.session) return;
+  const v = S.view, jobs = [loadPhoto()];
+  if (v === 'delivery' && S.dl.key) jobs.push(loadDelivery(S.dl.key));
+  else if (v === 'invoices') { INV.dmedia = {}; jobs.push(loadInvoices(true)); }
+  else if (PORTAL_VIEWS.includes(v)) { jobs.push(loadPortal()); INV.data = null; }
+  await Promise.all(jobs.map(j => Promise.resolve(j).catch(() => {})));
+}
+// Pull down from the top of the page to refresh (phones / home-screen app)
+(function pullToRefresh() {
+  if (!('ontouchstart' in window)) return;
+  const ind = document.createElement('div'); ind.className = 'ptr'; ind.innerHTML = '<span class="ptr-i"></span>'; document.body.appendChild(ind);
+  const MAX = 90, GO = 64;
+  let y0 = null, d = 0, busy = false;
+  const can = () => S.session && (PORTAL_VIEWS.includes(S.view)) && !$('modal').innerHTML && !document.querySelector('.lb') && window.scrollY <= 0;
+  const set = (h, spin) => { ind.style.transform = `translate(-50%, ${Math.min(h, MAX) - 46}px)`; ind.style.opacity = Math.min(1, h / GO); ind.classList.toggle('spin', !!spin); ind.querySelector('.ptr-i').style.transform = spin ? '' : `rotate(${h * 4}deg)`; };
+  window.addEventListener('touchstart', e => { if (busy || e.touches.length !== 1 || !can()) { y0 = null; return; } y0 = e.touches[0].clientY; d = 0; }, { passive: true });
+  window.addEventListener('touchmove', e => {
+    if (y0 == null) return;
+    d = (e.touches[0].clientY - y0) * 0.55;
+    if (d <= 0 || window.scrollY > 0) { set(0); return; }
+    if (e.cancelable) e.preventDefault(); // stop the page bouncing while pulling
+    set(d);
+  }, { passive: false });
+  window.addEventListener('touchend', async () => {
+    if (y0 == null) return; y0 = null;
+    if (d < GO) { ind.classList.add('back'); set(0); setTimeout(() => ind.classList.remove('back'), 250); return; }
+    busy = true; ind.classList.add('back'); set(GO, true);
+    try { await refreshView(); } finally { setTimeout(() => { set(0); busy = false; setTimeout(() => ind.classList.remove('back'), 250); }, 300); }
+  });
+})();
+// Coming back to the app (switching apps, unlocking the phone): refresh if it's been a minute
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) hiddenAt = Date.now();
+  else if (hiddenAt && Date.now() - hiddenAt > 60000 && !$('modal').innerHTML) refreshView();
+});
