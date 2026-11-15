@@ -839,7 +839,7 @@ function empty(text, cta) {
    when the client pays. Detail page: #invoices/<number> (media preview, download page, PDF, email). */
 const INV = (S.inv = { data: null, loading: false, error: '', range: 'all', pdf: {}, dmedia: {} });
 const money2 = n => (n < 0 ? '-' : '') + '$' + Math.abs(+n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtInv = d => d ? new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: '2-digit', year: 'numeric' }) : '—';
+const fmtInv = d => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
 async function loadInvoices(quiet) {
   if (!quiet) { INV.loading = true; INV.error = ''; render(); }
   try { INV.data = await api('list', {}, 'invoices'); INV.error = ''; INV.pdf = {}; } catch (e) { INV.error = e.message; } // PDFs are rebuilt from live data, so drop cached copies
