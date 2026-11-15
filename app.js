@@ -800,14 +800,12 @@ const PORTAL_VIEWS = ['listings', 'invoices', 'profile', 'delivery'];
 function listingsAll() {
   const d = S.pdata; if (!d || !d.agent) return [];
   const st = (media, b) => {
-    const any = media.some(m => m.delivered), all = media.length && media.every(m => m.delivered);
-    if (b?.locked) return ['Ready · pay to unlock', 'w'];
-    if (all) return ['Delivered', 'g'];
-    if (any) return ['Partly delivered', 'g'];
-    if (!b) return ['In progress', ''];
-    if (b.status === 'completed') return ['Editing', ''];
-    if (b.status === 'scheduled') return [new Date(b.shoot_start) > new Date() ? 'Scheduled' : 'Editing', ''];
-    return ['Pending', 'w'];
+    const any = media.some(m => m.delivered);
+    if (b?.locked || b?.hasDelivery || any) return ['Delivered', 'g'];
+    if (!b) return ['In progress', 'c'];
+    if (b.status === 'completed' || (b.status === 'scheduled' && new Date(b.shoot_start) <= new Date())) return ['Completed', 'c'];
+    if (b.status === 'scheduled') return ['Scheduled', 'y'];
+    return ['Pending', 'y'];
   };
   const out = (d.bookings || []).map(b => ({
     key: b.id, line1: b.address + (b.unit ? ', ' + b.unit : ''),
@@ -851,9 +849,9 @@ function vListings() {
     ${all.map(l => `<tr><td><b>${esc(l.line1)}</b><div class="hint">${esc(l.line2)}</div></td><td>${esc(fmtShort(l.date))}</td>
       <td><span class="pill ${l.status[1]}">${esc(l.status[0])}</span></td><td class="r"><div class="acts">${acts(l)}</div></td></tr>`).join('')}</tbody></table></div>`;
   return tools + `<div class="lgrid">${all.map(l => `<article class="lcard">
-    <a class="lcov" href="#delivery/${l.key}" aria-label="Media for ${esc(l.line1)}">${cover(l)}</a>
+    <a class="lcov" href="#delivery/${l.key}" aria-label="Media for ${esc(l.line1)}">${cover(l)}<span class="lstat ${l.status[1]}">${esc(l.status[0])}</span></a>
     <div class="lbody"><div class="laddr">${esc(l.line1)}<br><span>${esc(l.line2)}</span></div>
-      <div class="lmeta"><div>${ic(I.tag)}<span class="pill ${l.status[1]}">${esc(l.status[0])}</span></div><div>${ic(I.cal)}${esc(fmtDate(l.date))}</div></div>
+      <div class="lmeta2"><span>${ic(I.cal)}${esc(fmtDate(l.date))}</span>${l.b && upcomingShoot(l.b) ? `<button class="btn o sm addcal" onclick="kv.addCal(${l.b.number})">${ic(I.cal, 15)} Add to my calendar</button>` : ''}</div>
       ${l.b?.locked ? `<button class="btn" style="width:100%;margin-top:10px" onclick="kv.payBooking('${l.b.id}')">${ic(I.lock, 15)} Pay to download</button>` : ''}
       <div class="acts">${acts(l)}</div></div></article>`).join('')}</div>`;
 }
@@ -1866,7 +1864,7 @@ function vApptPanel(i) {
   if (!b || !b.shoot_start) return '';
   const r = apptRules(b), upcoming = Date.parse(b.shoot_start) > Date.now() && !b.hasDelivery;
   return `<div class="panel iappt"><div class="iappt-h">${ic(I.cal, 20)}<div><small>${upcoming ? 'Your shoot' : 'Shoot date'}</small><b>${esc(fmtShoot(b.shoot_start))}</b></div></div>
-    ${upcoming ? `<div class="iappt-b"><button class="btn o sm" onclick="kv.resched(${i.number})">${ic(I.cal, 15)} Reschedule</button><button class="btn sm danger-o" onclick="kv.cancelAppt(${i.number})">${ic(I.xc, 15)} Cancel appointment</button></div>` : ''}
+    ${upcoming ? `<div class="iappt-b"><button class="btn o sm" onclick="kv.addCal(${i.number})">${ic(I.cal, 15)} Add to my calendar</button><button class="btn o sm" onclick="kv.resched(${i.number})">${ic(I.cal, 15)} Reschedule</button><button class="btn sm danger-o" onclick="kv.cancelAppt(${i.number})">${ic(I.xc, 15)} Cancel appointment</button></div>` : ''}
     ${r.kind === 'closed' && upcoming ? `<p class="hint" style="margin:8px 0 0">Changes online close at 5:00 PM the day before your shoot. After that, call or text ${esc(CFG.phone)}.</p>` : ''}</div>`;
 }
 const RS = { n: null, from: null, days: [], day: null, pick: null, loading: false, err: '', current: null };
@@ -1941,3 +1939,37 @@ Object.assign(window.kv, {
   rsCheck() { const go = $('rsGo'); if (go) go.disabled = !RS.pick || $('rsWhy').value.trim().length < 3; },
   rsMore() { const last = RS.days[RS.days.length - 1]?.date; if (!last) return; RS.from = ymd(new Date(Date.parse(last + 'T12:00:00') + 864e5)); rsLoad(true); },
 });
+
+/* ================= Add to my calendar ================= */
+// Apple (iPhone/iPad/Mac) gets an .ics file; Google and Outlook get their "add event" pages.
+// The event has a fixed ID per order, so adding it again after a reschedule updates it in Apple Calendar / Outlook.
+const upcomingShoot = b => b && ['scheduled', 'requested'].includes(b.status) && !b.hasDelivery && b.shoot_start && Date.parse(b.shoot_start) > Date.now();
+async function addCal(n) {
+  const b = (S.pdata?.bookings || []).find(x => x.number === n); if (!b) return;
+  $('modal').innerHTML = '<div class="modal"><div class="panel loading"><span class="spin"></span> Getting your appointment…</div></div>';
+  let minutes = 90;
+  try { minutes = (await api('rules', { number: n }, 'appointment')).minutes || 90; } catch (_) { /* default length */ }
+  const start = new Date(b.shoot_start), end = new Date(+start + minutes * 60000);
+  const title = `Knox View shoot · ${b.address}`;
+  const where = [b.address + (b.unit ? ', ' + b.unit : ''), b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  const link = `${location.origin}/#invoices/${n}`;
+  const details = `Knox View Real Estate Media photo shoot for order #${n}.\nReschedule, cancel or view your order: ${link}\nQuestions? Call or text ${CFG.phone}.`;
+  const z = d => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const icsEsc = t => String(t).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/([,;])/g, '\\$1');
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Knox View//Client Portal//EN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
+    `UID:order-${b.id}@knoxview.com`, `SEQUENCE:${Math.floor(Date.now() / 1000)}`, `DTSTAMP:${z(new Date())}`, `DTSTART:${z(start)}`, `DTEND:${z(end)}`,
+    `SUMMARY:${icsEsc(title)}`, `LOCATION:${icsEsc(where)}`, `DESCRIPTION:${icsEsc(details)}`, `URL:${link}`,
+    'BEGIN:VALARM', 'TRIGGER:-PT1H', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(title)}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  const icsHref = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
+  const g = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${z(start)}/${z(end)}&location=${encodeURIComponent(where)}&details=${encodeURIComponent(details)}`;
+  const o = `https://outlook.live.com/calendar/0/action/compose?subject=${encodeURIComponent(title)}&startdt=${start.toISOString()}&enddt=${end.toISOString()}&location=${encodeURIComponent(where)}&body=${encodeURIComponent(details)}`;
+  const apple = /iPhone|iPad|Macintosh/.test(navigator.userAgent);
+  const opt = (href, label, sub, attrs = '') => `<a class="cal-opt" href="${href}" ${attrs}><b>${label}</b><small>${sub}</small></a>`;
+  const appleOpt = opt(icsHref, 'Apple Calendar', 'iPhone, iPad and Mac', `download="Knox View shoot ${n}.ics"`);
+  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">Add to my calendar</h2>
+    <p class="hint" style="margin:0 0 12px">${esc(fmtShoot(b.shoot_start))}<br>${esc(where)}</p>
+    <div class="cal-opts">${apple ? appleOpt : ''}${opt(g, 'Google Calendar', 'Android, Gmail, any browser', 'target="_blank" rel="noopener"')}${opt(o, 'Outlook', 'Outlook.com and Microsoft 365', 'target="_blank" rel="noopener"')}${apple ? '' : opt(icsHref, 'Other calendar (.ics file)', 'Apple Calendar, Outlook desktop and others', `download="Knox View shoot ${n}.ics"`)}</div>
+    <p class="hint" style="margin:12px 0 0">If you reschedule, tap Add to my calendar again to update it.</p>
+    <div class="ph-nav"><span></span><button class="btn o" onclick="kv.closeModal()">Close</button></div></div></div>`;
+}
+Object.assign(window.kv, { addCal });

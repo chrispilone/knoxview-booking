@@ -945,3 +945,18 @@ html{overscroll-behavior-y:contain}
 .ct-btns .btn{flex:1;min-width:140px;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none}
 .act-x{color:#b0413e!important}
 .req{color:#b0413e}
+/* listing card: status on the photo, date + add to calendar below */
+.lcov{position:relative}
+.lstat{position:absolute;left:10px;bottom:10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;padding:5px 11px;border-radius:999px;background:#fff;color:var(--primary);box-shadow:0 2px 8px rgba(15,25,40,.18)}
+.lstat.y{background:#fff6d6;color:#7a5a00}
+.lstat.c{background:#e7edf6;color:var(--primary)}
+.lstat.g{background:#e3f1ea;color:var(--ok)}
+.pill.y{background:#fff6d6;color:#7a5a00}.pill.c{background:#e7edf6;color:var(--primary)}
+.lmeta2{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px 0;font-size:14px;color:var(--body)}
+.lmeta2>span{display:flex;align-items:center;gap:10px}
+.lmeta2 .ic{color:var(--slate)}
+.addcal{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;font-size:11.5px}
+.cal-opts{display:flex;flex-direction:column;gap:8px}
+.cal-opt{display:block;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;text-decoration:none;color:var(--primary);background:#fff}
+.cal-opt:hover{border-color:var(--primary)}
+.cal-opt b{display:block}.cal-opt small{color:var(--slate);font-size:13px}
