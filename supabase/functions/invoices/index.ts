@@ -4,6 +4,7 @@ import { PDFDocument, PDFString, StandardFonts, rgb } from 'npm:pdf-lib@1.17.1';
 // Client invoices for the booking portal (each booking is an invoice). Signed-in client actions:
 //   list                     → { client, credits, invoices[] }   (also settles any online payment Stripe finished)
 //   pay     { numbers[] }    → uses account credits first, then ONE card payment for the rest → { clientSecret, amount } or { paidByCredit }
+//   apply_credit { numbers[] }  → uses account credit only (no card), for "Submit Order" with credit ticked
 //   confirm { pi }           → after the card payment succeeds in the browser, marks those invoices paid
 //   pdf     { number }       → { filename, base64 }   the invoice PDF (same template as the email attachment)
 //   email   { number, to[] } → emails the invoice (PDF attached) to the email on file + up to 3 more people
@@ -87,6 +88,21 @@ async function oneInvoice(agentId: string, number: unknown) {
   const { data: b } = await admin.from('bookings').select(COLS).eq('agent_id', agentId).eq('number', Number(number) || -1).maybeSingle();
   if (!b || !isInvoice(b)) throw new UserError('Invoice not found', 404);
   return b;
+}
+// Use the client's account credit on these invoices, oldest first. Fully covered invoices are marked paid.
+async function applyCredits(agentId: string, list: any[]) {
+  let bal = await creditBalance(agentId);
+  for (const b of list) {
+    const use = r2(Math.min(bal, dueOf(b)));
+    if (use <= 0) continue;
+    const { data: row } = await admin.from('client_credits').insert({ agent_id: agentId, amount: -use, kind: 'applied', booking_id: b.id, note: `Used on invoice #${b.number}`, created_by: null }).select('id').single();
+    if (await creditBalance(agentId) < 0) { await admin.from('client_credits').delete().eq('id', row!.id); break; } // another payment used it first
+    b.credit_applied = r2(+(b.credit_applied || 0) + use); bal = r2(bal - use);
+    const patch: Record<string, unknown> = { credit_applied: b.credit_applied, updated_at: new Date().toISOString() };
+    if (dueOf(b) <= 0) Object.assign(patch, { paid: true, paid_at: new Date().toISOString(), paid_method: 'credit', payment_status: 'paid', ...(b.status === 'requested' ? { status: 'scheduled' } : {}) });
+    await admin.from('bookings').update(patch).eq('id', b.id);
+    if (patch.paid) Object.assign(b, { paid: true, paid_at: patch.paid_at, paid_method: 'credit', payment_status: 'paid' });
+  }
 }
 // Card payments Stripe finished that we haven't recorded yet (e.g. the browser closed before confirming)
 async function settle(bks: any[]) {
@@ -311,19 +327,8 @@ Deno.serve(async (req) => {
       const { data } = await admin.from('bookings').select(COLS).eq('agent_id', agent.id).eq('paid', false).order('created_at').limit(100);
       let list = (data ?? []).filter(isInvoice).filter(b => b.payment_status !== 'processing' && (!want.length || want.includes(b.number)));
       if (!list.length) return json(req, { alreadyPaid: true });
-      // 1) account credits, oldest invoice first
-      let bal = await creditBalance(agent.id);
-      for (const b of list) {
-        const use = r2(Math.min(bal, dueOf(b)));
-        if (use <= 0) continue;
-        const { data: row } = await admin.from('client_credits').insert({ agent_id: agent.id, amount: -use, kind: 'applied', booking_id: b.id, note: `Used on invoice #${b.number}`, created_by: null }).select('id').single();
-        if (await creditBalance(agent.id) < 0) { await admin.from('client_credits').delete().eq('id', row!.id); break; } // another payment used it first
-        b.credit_applied = r2(+(b.credit_applied || 0) + use); bal = r2(bal - use);
-        const patch: Record<string, unknown> = { credit_applied: b.credit_applied, updated_at: new Date().toISOString() };
-        if (dueOf(b) <= 0) Object.assign(patch, { paid: true, paid_at: new Date().toISOString(), paid_method: 'credit', payment_status: 'paid', ...(b.status === 'requested' ? { status: 'scheduled' } : {}) });
-        await admin.from('bookings').update(patch).eq('id', b.id);
-        if (patch.paid) b.paid = true;
-      }
+      // 1) account credits (only if the client ticked "use my credit"), oldest invoice first
+      if (body.useCredits !== false) await applyCredits(agent.id, list);
       list = list.filter(b => !b.paid && dueOf(b) > 0).slice(0, 12);
       if (!list.length) return json(req, { paidByCredit: true });
       // 2) one card payment for the rest
@@ -340,6 +345,15 @@ Deno.serve(async (req) => {
       });
       await admin.from('bookings').update({ stripe_payment_intent_id: pi.id, updated_at: new Date().toISOString() }).in('id', list.map(b => b.id));
       return json(req, { clientSecret: pi.client_secret, pi: pi.id, amount, numbers: list.map(b => b.number) });
+    }
+
+    if (action === 'apply_credit') { // "Submit Order" (pay on delivery) with "use my credit" ticked: credit only, no card
+      const want = Array.isArray(body.numbers) ? body.numbers.map(Number).filter(Boolean) : [];
+      if (!want.length) throw new UserError('Invoice not found', 404);
+      const { data } = await admin.from('bookings').select(COLS).eq('agent_id', agent.id).eq('paid', false).in('number', want);
+      const list = (data ?? []).filter(b => b.status !== 'cancelled');
+      await applyCredits(agent.id, list);
+      return json(req, { credits: await creditBalance(agent.id), invoices: list.map(shape) });
     }
 
     if (action === 'confirm') {

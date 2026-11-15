@@ -26,7 +26,7 @@ const S = {
   addr: { street: '', unit: '', city: '', state: 'TN', zip: '', sqftLabel: '', occupancy: '', access: '', files: [] },
   slots: null, slotsFrom: null, slotsLoading: false, start: null, startLabel: '',
   contact: { first: '', last: '', email: '', phone: '', brokerage: '', notes: '' },
-  payOpt: 'save_card', errors: {}, busy: false,
+  payOpt: 'save_card', errors: {}, busy: false, useCredit: true,
   checkout: null, // { booking, clientSecret, intentType, elements }
   done: null, login: null, pdata: null, after: '',
 };
@@ -146,6 +146,12 @@ async function submitOrder() {
   S.busy = true; S.error = ''; S.payOpt = 'pay_later'; render();
   try {
     S.done = await api('submit', { ...selection(), start: S.start, address: addrOut(), contact: S.contact }, 'order');
+    if (S.useCredit && myCredit()) { // "use my credit" ticked: put their account credit on this order now
+      const c = await api('apply_credit', { numbers: [S.done.number] }, 'invoices').catch(() => null);
+      const inv = c?.invoices?.[0];
+      if (inv) { S.done.creditUsed = inv.credit; if (inv.paid) S.done.paymentStatus = 'paid'; S.done.due = inv.due; }
+      loadInvoices(true);
+    }
     S.view = 'done'; S.checkout = null; history.replaceState(null, '', '/');
   } catch (e) {
     S.error = e.message;
@@ -157,6 +163,20 @@ async function submitOrder() {
 async function startCheckout() {
   S.payOpt = 'pay_now';
   if (!checkAll()) return;
+  if (S.useCredit && myCredit()) { // with credit: book it, use the credit, then card for whatever is left
+    S.busy = true; S.error = ''; render();
+    try {
+      S.done = await api('submit', { ...selection(), start: S.start, address: addrOut(), contact: S.contact }, 'order');
+      S.view = 'done'; S.checkout = null; history.replaceState(null, '', '/');
+      S.busy = false; render(); window.scrollTo({ top: 0 });
+      await loadInvoices(true);
+      invPay([S.done.number], { useCredits: true, onPaid: () => { S.done.paymentStatus = 'paid'; render(); } });
+    } catch (e) {
+      S.error = e.message; S.busy = false; render();
+      if (e.status === 409) { resetSchedule(); S.slotsKey = null; setTimeout(() => document.getElementById('o-time')?.scrollIntoView({ behavior: 'smooth' }), 50); }
+    }
+    return;
+  }
   if (!stripeReady()) { S.error = 'Online payments are not switched on yet. Please call ' + CFG.phone + ' to book.'; render(); return; }
   S.busy = true; S.error = ''; render();
   try {
@@ -552,6 +572,8 @@ function vReview(inline) {
       <dt>Services</dt><dd>${lines().map(l => esc(l.name)).join(', ')}</dd>
       <dt>Total</dt><dd><b style="color:var(--primary)">${money(total())}</b></dd>
     </dl>
+    ${myCredit() && !locked ? `<label class="cr-box" style="margin-top:14px"><input type="checkbox" ${S.useCredit ? 'checked' : ''} onchange="kv.useCredit(this.checked)">
+      <span><b>Use my account credit</b><small>You have ${money2(myCredit())} available.${S.useCredit ? ` ${money2(Math.min(myCredit(), total()))} comes off this order, so ${Math.max(0, total() - myCredit()) > 0 ? `you pay ${money2(Math.max(0, total() - myCredit()))}` : "there's nothing left to pay"}.` : ''}</small></span></label>` : ''}
     ${locked ? `<div class="pay"><b style="color:var(--primary)">Pay now · ${money(S.checkout.booking.total)}</b><div id="pay-el"></div></div>` : ''}
     </div></section>
     <div id="revErr">${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}</div>
@@ -575,7 +597,7 @@ function vDone() {
   return `<div class="panel done-box"><div class="big" style="${ok ? '' : 'background:#c08a1e'}">${CHECK}</div>
     <h2 style="font-size:28px">${ok ? "You're booked" : 'Almost done'}</h2>
     <p>${ok ? `Order #${esc(d.number)} · ${esc(when)}` : 'We received your order but the payment is still processing. We\'ll confirm by email.'}</p>
-    <p class="hint">${d.paymentStatus === 'paid' ? 'Paid in full. ' : d.paymentStatus === 'card_saved' ? 'Your card is saved and will be charged when your media is delivered. ' : 'Payment is due when your media is delivered. '}A confirmation is on its way.</p>
+    <p class="hint">${d.creditUsed ? `${money2(d.creditUsed)} of your account credit was used. ` : ''}${d.paymentStatus === 'paid' ? 'Paid in full. ' : d.paymentStatus === 'card_saved' ? 'Your card is saved and will be charged when your media is delivered. ' : 'Payment is due when your media is delivered. '}A confirmation is on its way.</p>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px">
       <a class="btn" href="#listings" style="text-decoration:none">View my listings</a>
       <button class="btn o" onclick="location.href='/'">Book another</button></div></div>`;
@@ -840,10 +862,12 @@ function empty(text, cta) {
 const INV = (S.inv = { data: null, loading: false, error: '', range: 'all', pdf: {}, dmedia: {} });
 const money2 = n => (n < 0 ? '-' : '') + '$' + Math.abs(+n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtInv = d => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+const myCredit = () => S.session ? Math.max(0, +(INV.data?.credits || 0)) : 0;
 async function loadInvoices(quiet) {
+  if (INV.fetching) return; INV.fetching = true;
   if (!quiet) { INV.loading = true; INV.error = ''; render(); }
   try { INV.data = await api('list', {}, 'invoices'); INV.error = ''; INV.pdf = {}; } catch (e) { INV.error = e.message; } // PDFs are rebuilt from live data, so drop cached copies
-  INV.loading = false; render();
+  INV.loading = false; INV.fetching = false; render();
 }
 const invAll = () => INV.data?.invoices || [];
 const invFind = n => invAll().find(i => String(i.number) === String(n));
@@ -959,13 +983,32 @@ function invEmail(n) {
     } catch (e) { $('ieMsg').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; $('ieGo').disabled = false; $('ieGo').textContent = 'Send'; }
   };
 }
-async function invPay(numbers) {
-  if (!stripeReady()) { alertModal('Online payments are not switched on yet. Please call ' + CFG.phone + '.'); return; }
+// Before the card form: if they have account credit, let them choose to use it (ticked by default)
+function invPay(numbers, opts = {}) {
+  const cr = myCredit();
+  if (!cr || opts.useCredits !== undefined) return invPayGo(numbers, { ...opts, useCredits: cr ? opts.useCredits !== false : false });
+  const list = invAll().filter(i => !i.paid && i.due > 0 && (!numbers?.length || numbers.map(String).includes(String(i.number))));
+  const due = Math.round(list.reduce((a, i) => a + i.due, 0) * 100) / 100;
+  const label = list.length === 1 ? `invoice #${list[0].number}` : `${list.length} invoices`;
+  const paint = () => {
+    const use = $('icrUse')?.checked !== false, credit = use ? Math.min(cr, due) : 0, left = Math.round((due - credit) * 100) / 100;
+    $('icrSum').innerHTML = `<div class="iline"><span>Amount due</span><span>${money2(due)}</span></div>${credit ? `<div class="iline"><span>Account credit</span><span class="cr-txt">-${money2(credit)}</span></div>` : ''}<div class="iline big"><span>You pay</span><span>${money2(left)}</span></div>`;
+    $('icrGo').textContent = left > 0 ? `Continue to pay ${money2(left)}` : 'Pay with my credit';
+  };
+  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">Pay ${esc(label)}</h2>
+    <label class="cr-box"><input type="checkbox" id="icrUse" checked> <span><b>Use my account credit</b><small>You have ${money2(cr)} available.</small></span></label>
+    <div id="icrSum" style="margin-top:12px"></div>
+    <div class="ph-nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" id="icrGo">Continue</button></div></div></div>`;
+  $('icrUse').onchange = paint; paint();
+  $('icrGo').onclick = () => invPayGo(numbers, { ...opts, useCredits: $('icrUse').checked });
+}
+async function invPayGo(numbers, opts = {}) {
+  if (!stripeReady() && !(opts.useCredits && myCredit())) { alertModal('Online payments are not switched on yet. Please call ' + CFG.phone + '.'); return; }
   $('modal').innerHTML = '<div class="modal"><div class="panel loading"><span class="spin"></span> Getting your invoice ready…</div></div>';
   try {
-    const r = await api('pay', { numbers: numbers || [] }, 'invoices');
+    const r = await api('pay', { numbers: numbers || [], useCredits: !!opts.useCredits }, 'invoices');
     if (r.alreadyPaid || r.paidByCredit) {
-      INV.pdf = {}; await loadInvoices(true); S.pdata = null;
+      INV.pdf = {}; await loadInvoices(true); S.pdata = null; opts.onPaid?.();
       $('modal').innerHTML = `<div class="modal"><div class="panel"><h2 style="font-size:22px">${r.paidByCredit ? 'Paid with your credit' : 'Already paid'}</h2><p>${r.paidByCredit ? 'Your account credit covered this. Thank you!' : 'This invoice is already paid.'}</p><div class="ph-nav"><span></span><button class="btn" onclick="kv.closeModal()">Done</button></div></div></div>`;
       return;
     }
@@ -982,7 +1025,7 @@ async function invPay(numbers) {
       const { error } = await stripe.confirmPayment({ elements, confirmParams: { return_url: ret }, redirect: 'if_required' });
       if (error) { $('payErr').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; $('payGo').disabled = false; $('payGo').textContent = `Pay ${money2(r.amount)}`; return; }
       await api('confirm', { pi: r.pi }, 'invoices').catch(() => {});
-      INV.pdf = {}; S.pdata = null; await loadInvoices(true);
+      INV.pdf = {}; S.pdata = null; await loadInvoices(true); opts.onPaid?.();
       if (S.view === 'delivery') loadDelivery(S.dl.key);
       $('modal').innerHTML = `<div class="modal"><div class="panel"><h2 style="font-size:22px">Payment received</h2><p>Thank you! A receipt is on its way to your email.</p><div class="ph-nav"><span></span><button class="btn" onclick="kv.closeModal()">Done</button></div></div></div>`;
     };
@@ -991,6 +1034,7 @@ async function invPay(numbers) {
 Object.assign(window.kv, {
   invPdf, invEmail, invPay, reloadInvoices: () => loadInvoices(),
   invRange(v) { INV.range = v; render(); },
+  useCredit(v) { S.useCredit = !!v; render(); },
 });
 
 function vSettings() {
@@ -1553,6 +1597,7 @@ function route() {
   UI.menu = false; UI.saved = false;
   if (h === 'account' && S.session) { location.replace('#listings'); return; }
   if (h === 'settings') { location.replace('#profile'); return; }
+  if (S.session && !INV.data && h !== 'invoices') loadInvoices(true);
   // Signed-in clients land on their Listings (first sign-in and every time they come back)
   if (!h && S.session && S.view !== 'done' && !S.busy) { location.replace('#listings'); return; }
   if (PORTAL_VIEWS.includes(h)) {
