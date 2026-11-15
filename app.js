@@ -754,6 +754,7 @@ const I = {
   table: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>',
   again: '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
   out: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
@@ -764,7 +765,7 @@ const UI = (S.ui = { lview: 'cards', sort: 'new', q: '', itab: 'pending', iq: ''
 const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit', year: 'numeric' }) : '';
 const fmtShort = d => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
 const initials = n => (n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
-const PORTAL_VIEWS = ['listings', 'invoices', 'settings', 'delivery'];
+const PORTAL_VIEWS = ['listings', 'invoices', 'profile', 'delivery'];
 
 function listingsAll() {
   const d = S.pdata; if (!d || !d.agent) return [];
@@ -857,7 +858,7 @@ function vInvoices() {
 function vSettings() {
   const a = S.pdata?.agent || S.agent || {};
   const f = (k, label, v, attrs = '') => `<div><label for="st_${k}">${label}</label><input id="st_${k}" value="${esc(v || '')}" ${attrs}></div>`;
-  return `<div class="panel" style="max-width:640px"><h2 style="font-size:26px;margin-bottom:4px">Settings</h2>
+  return `<div class="panel" style="max-width:640px"><h2 style="font-size:26px;margin-bottom:4px">Profile</h2>
     <p class="hint" style="margin:0 0 18px">Your contact details. We use these to fill in your bookings and reach you about shoots.</p>
     <form onsubmit="kv.saveProfile(event)" class="fg">
       <div class="full">${f('full_name', 'Full name', a.full_name, 'autocomplete="name"').slice(5, -6)}</div>
@@ -886,7 +887,7 @@ function vPortalBody() {
   const p = S.pdata;
   if (!p || p.loading) return '<div class="panel loading"><span class="spin"></span> Loading…</div>';
   if (p.error) return `<div class="msg err">${esc(p.error)} <a href="javascript:kv.reloadPortal()">Try again</a></div>`;
-  return S.view === 'invoices' ? vInvoices() : S.view === 'settings' ? vSettings() : vListings();
+  return S.view === 'invoices' ? vInvoices() : S.view === 'profile' ? vSettings() : vListings();
 }
 function vPortalOrDelivery() {
   return S.view === 'delivery' ? vDelivery() : vPortal();
@@ -894,7 +895,7 @@ function vPortalOrDelivery() {
 
 function vHeader() {
   const v = S.view, signedIn = !!S.session;
-  const nav = signedIn ? [['#order', I.cart, 'Order now', v === 'book' || v === 'done'], ['#listings', I.home, 'Listings', v === 'listings' || v === 'delivery'], ['#invoices', I.inv, 'Invoices', v === 'invoices']]
+  const nav = signedIn ? [['#order', I.cart, 'Order now', v === 'book' || v === 'done'], ['#listings', I.home, 'Listings', v === 'listings' || v === 'delivery'], ['#profile', I.user, 'Profile', v === 'profile']]
     .map(([h, i, t, on]) => `<a href="${h}" class="${on ? 'on' : ''}">${ic(i)}<span>${t}</span></a>`).join('') : '';
   $('pnav').innerHTML = nav;
   const a = S.pdata?.agent || S.agent, name = a?.full_name || S.session?.user?.email || '';
@@ -902,7 +903,7 @@ function vHeader() {
     : `<button class="me" onclick="kv.menu(event)" aria-expanded="${UI.menu}"><span class="av">${esc(initials(a?.full_name || name))}</span>
         <span class="me-t"><b>${esc(name)}</b>${a?.brokerage ? `<small>${esc(a.brokerage)}</small>` : ''}</span>${ic(I.down, 16)}</button>
       ${UI.menu ? `<div class="menu" onclick="event.stopPropagation()"><div class="menu-h"><span class="av">${esc(initials(a?.full_name || name))}</span><div><b>${esc(name)}</b><small>${esc(a?.email || S.session.user.email || '')}</small></div></div>
-        <a href="#settings" onclick="kv.menu()">${ic(I.gear)}Settings</a><a href="#invoices" onclick="kv.menu()">${ic(I.inv)}Invoices</a><button onclick="kv.signOut()">${ic(I.out)}Log out</button></div>` : ''}`;
+        <a href="#order" onclick="kv.menu()">${ic(I.cart)}Order now</a><a href="#listings" onclick="kv.menu()">${ic(I.home)}Listings</a><a href="#invoices" onclick="kv.menu()">${ic(I.inv)}Invoices</a><a href="#profile" onclick="kv.menu()">${ic(I.user)}Profile</a><button onclick="kv.signOut()">${ic(I.out)}Log out</button></div>` : ''}`;
 }
 
 /* ================= delivery page (#delivery/<listing key>[/<tab>]) ================= */
@@ -1295,6 +1296,9 @@ function route() {
   const [h, hKey, hTab] = location.hash.replace('#', '').split('/');
   UI.menu = false; UI.saved = false;
   if (h === 'account' && S.session) { location.replace('#listings'); return; }
+  if (h === 'settings') { location.replace('#profile'); return; }
+  // Signed-in clients land on their Listings (first sign-in and every time they come back)
+  if (!h && S.session && S.view !== 'done' && !S.busy) { location.replace('#listings'); return; }
   if (PORTAL_VIEWS.includes(h)) {
     if (!S.session) { S.after = location.hash; S.view = 'account'; }
     else {
