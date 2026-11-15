@@ -729,14 +729,13 @@ body.landing #landing{background:var(--bg)}
 /* example tiles are buttons now */
 button.ex-t{padding:0;border:0;font:inherit;cursor:pointer}
 .ex-hint{letter-spacing:.08em;color:#8c98a8}
-/* add-ons: clean checklist; a checked add-on opens to show an example and what you get */
+/* add-ons: clean checklist; a checked add-on shows a one-line description, no picture */
 .ad-w{border-top:1px solid var(--line)}
 .ad-w:first-child{border-top:0}
 .ad-w .row{border-top:0}
-.ad-x{display:flex;gap:12px;align-items:flex-start;padding:0 18px 14px 54px;animation:exIn .25s ease-out}
-.ad-x img{flex:0 0 auto;width:150px;aspect-ratio:3/2;object-fit:cover;background:#eef1f5}
+.ad-x{padding:0 18px 12px 54px;margin-top:-4px;animation:exIn .2s ease-out}
 .ad-x p{margin:0;font-size:12.5px;line-height:1.45;color:var(--muted,#6b7a8d)}
-@media (max-width:480px){.ad-x{flex-direction:column;padding-left:18px}.ad-x img{width:100%;max-width:340px}}
+@media (max-width:480px){.ad-x{padding-left:48px}}
 /* viewer (photos, 3D tour, video) on the same page */
 body.lb-open{overflow:hidden}
 .lb{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s ease}

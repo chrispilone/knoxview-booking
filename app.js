@@ -1163,10 +1163,10 @@ function vOne() {
   // Add-ons: listing media only, once a package is picked (services not already in the package)
   const cov = covered(), adds = !land && S.pkg ? addonList().filter(x => !cov.has(x.id)) : [];
   const addons = adds.length ? `<section class="o-sec">${oh('o-add', 4, 'Add-ons', `Optional extras for your ${esc(svc(S.pkg).name)} package`)}
-    <div class="list">${adds.map(x => { const on = S.items.has(x.id), im = ADDON_IMG[x.id]; return `<div class="ad-w ${on ? 'on' : ''}"><button class="row ad ${on ? 'sel' : ''}" onclick="kv.toggle('${x.id}')" aria-pressed="${on}">
+    <div class="list">${adds.map(x => { const on = S.items.has(x.id); return `<div class="ad-w ${on ? 'on' : ''}"><button class="row ad ${on ? 'sel' : ''}" onclick="kv.toggle('${x.id}')" aria-pressed="${on}">
       <span class="box">${CHECK}</span><span class="row-t"><span class="row-n">${esc(x.name)}</span></span>
       <span class="row-p">+${money(x.price)}</span></button>
-      ${on ? `<div class="ad-x">${im ? `<img src="/img/addons/${im}.jpg" alt="Example: ${esc(x.name)}" loading="lazy">` : ''}${x.description ? `<p>${esc(x.description)}</p>` : ''}</div>` : ''}</div>`; }).join('')}</div></section>` : '';
+      ${on && x.description ? `<div class="ad-x"><p>${esc(x.description)}</p></div>` : ''}</div>`; }).join('')}</div></section>` : '';
   const nA = addons ? 5 : 4;
   const addr = a.sqftLabel && haveSvc ? `<section class="o-sec">${oh('o-addr', nA, 'Property address')}
     <div class="panel"><div class="fg pairs">
