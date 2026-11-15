@@ -693,3 +693,9 @@ body.landing .top,body.landing #main,body.landing .bar,body.landing .sheet{displ
 .ad-i{flex:0 0 auto;width:72px;height:52px;object-fit:cover;margin:0 2px 0 0;background:#eef1f5}
 .row.ad .row-d{font-size:12px;line-height:1.35}
 @media (min-width:761px){.ad-i{width:96px;height:66px}}
+
+/* booking page header: Sign in + Text us */
+.top-acts{display:flex;align-items:center;gap:14px}
+.top-text{display:inline-flex;align-items:center;gap:6px;color:var(--headline);border:1px solid var(--headline);padding:7px 11px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;text-decoration:none}
+.top-text:hover{background:var(--headline);color:#fff}
+a.lp-signin{color:#e7edf6!important}a.lp-signin:hover{color:var(--rule)!important}

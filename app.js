@@ -639,23 +639,18 @@ function vLanding() {
   return `<div class="lp">
     <div class="lp-main">
       <header class="lp-top"><div class="lp-in lp-bar">
-        <a class="lp-logo" href="javascript:kv.ltab('price')" aria-label="Knox View Real Estate Media"></a>
+        <a class="lp-logo" href="#order" aria-label="Knox View Real Estate Media"></a>
         <div class="lp-actions">
-          <button type="button" class="lp-signin" onclick="kv.ltab('signin')">Sign in</button>
+          <a class="lp-signin" href="#order">Book now</a>
           <a class="lp-text" href="${SMS_LINK}">${svg(IC_CHAT, 16)} Text us</a>
         </div>
       </div></header>
       <div class="lp-in">
-        <ol class="lp-steps" aria-label="Booking steps">${STEPS.map((s, i) => `<li class="${i === 0 && tab === 'price' ? 'on' : ''}">${s === 'Review & Pay' ? 'Checkout' : s}</li>`).join('')}</ol>
         <section class="lp-hero">
           <h1>${tab === 'price' ? 'Let’s make your listing <em>shine.</em>' : 'Welcome <em>back.</em>'}</h1>
           <p>${tab === 'price' ? 'Enter the address and home size to see <b>your exact price</b>.' : 'Sign in to book, pay and download your media.'}</p>
         </section>
         <div class="lp-card">
-          <div class="lp-tabs" role="tablist">
-            <button type="button" role="tab" aria-selected="${tab === 'price'}" class="${tab === 'price' ? 'on' : ''}" onclick="kv.ltab('price')">See pricing</button>
-            <button type="button" role="tab" aria-selected="${tab === 'signin'}" class="${tab === 'signin' ? 'on' : ''}" onclick="kv.ltab('signin')">Client sign in</button>
-          </div>
           <div class="lp-body">${tab === 'price' ? vLandingPrice() : vLandingSignin()}</div>
         </div>
         <p class="lp-foot">Questions? Call or text <a href="tel:+18658555669">865-855-5669</a></p>
@@ -826,7 +821,7 @@ function vHeader() {
     .map(([h, i, t, on]) => `<a href="${h}" class="${on ? 'on' : ''}">${ic(i)}<span>${t}</span></a>`).join('') : '';
   $('pnav').innerHTML = nav;
   const a = S.pdata?.agent || S.agent, name = a?.full_name || S.session?.user?.email || '';
-  $('acct').innerHTML = !signedIn ? `<a class="signin" href="#account">${v === 'account' ? 'Book a shoot' : 'Sign in'}</a>`.replace('href="#account">Book', 'href="#order">Book')
+  $('acct').innerHTML = !signedIn ? `<div class="top-acts">${v === 'account' ? '<a class="signin" href="#order">Book now</a>' : '<a class="signin" href="#account">Sign in</a>'}<a class="top-text" href="${SMS_LINK}">${svg(IC_CHAT, 14)} Text us</a></div>`
     : `<button class="me" onclick="kv.menu(event)" aria-expanded="${UI.menu}"><span class="av">${esc(initials(a?.full_name || name))}</span>
         <span class="me-t"><b>${esc(name)}</b>${a?.brokerage ? `<small>${esc(a.brokerage)}</small>` : ''}</span>${ic(I.down, 16)}</button>
       ${UI.menu ? `<div class="menu" onclick="event.stopPropagation()"><div class="menu-h"><span class="av">${esc(initials(a?.full_name || name))}</span><div><b>${esc(name)}</b><small>${esc(a?.email || S.session.user.email || '')}</small></div></div>
