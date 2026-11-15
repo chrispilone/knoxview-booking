@@ -668,3 +668,22 @@ body.landing .top,body.landing #main,body.landing .bar,body.landing .sheet{displ
 .box.rad{border-radius:50%}
 .o-sec .sec{margin-bottom:0}
 .o-sec .svc-tabs{margin-top:0}
+
+/* package example strip (shows under the selected package) */
+.ex{grid-column:1/-1;margin:-2px 0 6px;padding:10px 0 2px;animation:exIn .28s ease-out}
+@keyframes exIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.ex-h{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5b6b80;margin:0 2px 8px}
+.ex-h a{color:#1d3250;font-weight:600;text-decoration:none;letter-spacing:.08em}
+.ex-s{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding-bottom:6px;scrollbar-width:thin}
+.ex-s::-webkit-scrollbar{height:4px}.ex-s::-webkit-scrollbar-thumb{background:#c9d2de}
+.ex-t{position:relative;flex:0 0 auto;width:150px;height:104px;margin:0;scroll-snap-align:start;overflow:hidden;background:#e8edf3;text-decoration:none}
+.ex-t img{width:100%;height:100%;object-fit:cover;display:block}
+.ex-t.fp img{object-fit:contain;background:#fff;padding:4px}
+.ex-t figcaption{position:absolute;left:0;right:0;bottom:0;padding:14px 7px 5px;font-size:11px;font-weight:600;color:#fff;background:linear-gradient(transparent,rgba(10,20,35,.75))}
+.ex-t.fp figcaption{color:#1d3250;background:none;padding:0 6px 3px}
+.ex-lead img{filter:brightness(.6)}
+.ex-ic{position:absolute;top:50%;left:50%;transform:translate(-50%,-62%);width:34px;height:34px;border:1.5px solid #fff;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700}
+.ex-more{display:grid;place-items:center;background:#1d3250;color:#fff;font-size:12px;font-weight:600;text-align:center;letter-spacing:.04em;width:110px}
+@media (min-width:761px){.ex-t{width:180px;height:122px}}
+.ex{min-width:0;max-width:100%}.ex-s{max-width:100%}
+@media (max-width:760px){.pkgs{grid-template-columns:minmax(0,1fr)}}

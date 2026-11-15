@@ -282,6 +282,25 @@ function alertModal(text) {
 // Upsell pop-ups are switched on and off per upsell in HQ (Bookings → Portal settings → Upsells).
 // Only active upsells are readable by the public, so this stays true; set false to hide them all.
 const SHOW_UPSELLS = true;
+
+// ===== Package examples: a small swipe strip under the selected package (photos from knoxview.com/examples) =====
+const EX_SITE = 'https://knoxview.com/examples/';
+const EX = {
+  '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5': { page: 'base', dir: 'essentials', imgs: [['front','Photos'],['kitchen','Photos'],['living','Photos'],['primary','Photos'],['aerial-house','Drone photos'],['aerial-wide','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
+  '2af4fccb-2e5e-40e0-9413-5a5f2a711e9d': { page: 'zillow-3d', dir: 'zillow', lead: ['living', 'Zillow 3D tour', '3d'], imgs: [['front-angle','Photos'],['kitchen-living','Photos'],['primary','Photos'],['aerial-pin','Drone photos'],['aerial-street','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
+  '5d0329ed-225f-4ccf-aed9-8307780de1b4': { page: 'pro', dir: 'social', lead: ['aerial-wide', 'Social media video', 'play'], imgs: [['front-yard','Photos'],['kitchen','Photos'],['living','Photos'],['bedroom','Photos'],['aerial-pin','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
+  '271ce816-6215-4ead-b063-d4ae920276bc': { page: 'premium', dir: 'premium', lead: ['aerial-yard', 'Premium video', 'play'], imgs: [['front','Photos'],['kitchen-island','Photos'],['living','Photos'],['primary','Photos'],['aerial-pin','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
+};
+function vExample(id) {
+  const e = EX[id]; if (!e) return '';
+  const url = EX_SITE + e.page, src = n => `/img/ex/${e.dir}/${n}.jpg`;
+  const tile = (n, cap, fp) => `<figure class="ex-t${fp ? ' fp' : ''}"><img src="${src(n)}" alt="${esc(cap)}" loading="lazy" decoding="async"><figcaption>${esc(cap)}</figcaption></figure>`;
+  const lead = e.lead ? `<a class="ex-t ex-lead" href="${url}" target="_blank" rel="noopener"><img src="${src(e.lead[0])}" alt="" loading="lazy"><span class="ex-ic">${e.lead[2] === 'play' ? '&#9654;' : '3D'}</span><figcaption>${esc(e.lead[1])} ↗</figcaption></a>` : '';
+  return `<div class="ex" role="region" aria-label="Example of what's included">
+    <div class="ex-h"><span>Example of what you get</span><a href="${url}" target="_blank" rel="noopener">Full example ↗</a></div>
+    <div class="ex-s">${lead}${e.imgs.map(([n, c]) => tile(n, c, /floor/i.test(c))).join('')}
+      <a class="ex-t ex-more" href="${url}" target="_blank" rel="noopener"><span>See the full<br>example ↗</span></a></div></div>`;
+}
 function vServices(inline) {
   const cov = covered();
   const pk = packages().map(p => `
@@ -290,7 +309,7 @@ function vServices(inline) {
       <div class="pkg-h"><div class="pkg-nm"><h3>${esc(p.name)}</h3>${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}</div>
         <span class="pkg-p">${money(+p.price + sizeAdj())}${sizeAdj() ? `<small>for ${esc(S.addr.sqftLabel || 'large property')}</small>` : ''}</span></div>
       <ul class="chk two">${(p.includes || []).map(i => `<li>${CHECK}<span>${esc(incLabel(i))}</span></li>`).join('')}</ul>
-    </button>`).join('');
+    </button>${S.pkg === p.id ? vExample(p.id) : ''}`).join('');
   const ups = upsells().map(u => `<div class="up"><div style="flex:1"><h3>${esc(u.title)}</h3><p>${esc(u.description)}</p></div>
       <button class="btn lt" onclick="kv.toggle('${u.service_id}')">+ ${money(svc(u.service_id).price)}</button></div>`).join('');
   const row = s => {
