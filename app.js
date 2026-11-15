@@ -57,7 +57,7 @@ function upsells() {
   const c = inCart(), cov = covered();
   return S.upsells.filter(u => anyOf(u.show_when_any, c) && !anyOf(u.hide_when_any, c) && !cov.has(u.service_id) && svc(u.service_id));
 }
-function resetSchedule() { S.slots = null; S.start = null; S.startLabel = ''; S.pickDate = null; S.checkout = null; }
+function resetSchedule() { S.slots = null; S.start = null; S.startLabel = ''; S.pickDate = null; S.checkout = null; S.calFrom = null; }
 function cleanup() {
   const cov = covered();
   for (const id of [...S.items]) if (cov.has(id)) S.items.delete(id);
@@ -71,6 +71,9 @@ window.kv = {
   toggleAdu() { S.adu = !S.adu; resetSchedule(); render(); },
   go, pickSlot(start, label) { S.start = start; S.startLabel = label; S.checkout = null; render(); },
   moreSlots() { loadSlots(S.slots.days[S.slots.days.length - 1].date, true); },
+  pickSugg(date, start, label) { S.pickDate = date; S.calFrom = dSun(date); S.start = start; S.startLabel = label; S.checkout = null; render(); },
+  calToggle() { S.calOpen = !S.calOpen; if (S.calOpen && !S.calFrom && S.slots?.days?.length) S.calFrom = dSun(S.pickDate || S.slots.days[0].date); render(); if (S.calOpen) calEnsure(); },
+  calShift(n) { const first = dSun(S.slots.days[0].date); S.calFrom = dAdd(S.calFrom || first, n); if (S.calFrom < first) S.calFrom = first; S.pickDate = null; render(); calEnsure(); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
   startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
@@ -325,23 +328,71 @@ function vProperty() {
     </div></section>
     <div class="nav"><span></span><button class="btn" onclick="kv.go(1)">Continue to services</button></div>`;
 }
+// ---- Schedule: three suggested times, plus a full two-week calendar on request ----
+const dAdd = (d, n) => new Date(Date.parse(d + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+const dSun = d => dAdd(d, -new Date(d + 'T12:00:00Z').getUTCDay());
+const dFmt = (d, o) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', ...o });
+const slotHour = t => { const m = String(t.label).match(/(\d+):\d+\s*(AM|PM)/i); if (!m) return 9; let h = +m[1] % 12; if (/pm/i.test(m[2])) h += 12; return h; };
+function suggestSlots(days) { // soonest, the next open day, and one about a week out — spread across different days
+  const open = days.filter(d => d.times.length); if (!open.length) return [];
+  const out = [{ d: open[0], t: open[0].times[0] }];
+  if (open[1]) out.push({ d: open[1], t: open[1].times[Math.floor(open[1].times.length / 2)] });
+  const later = open.find(d => d.date >= dAdd(open[0].date, 5) && !out.some(p => p.d === d)) || open.find(d => !out.some(p => p.d === d));
+  if (later) out.push({ d: later, t: later.times[Math.min(1, later.times.length - 1)] });
+  return out;
+}
+function relDay(date) {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: S.slots?.tz || 'America/New_York' });
+  const n = Math.round((Date.parse(date) - Date.parse(today)) / 864e5);
+  return n <= 0 ? 'Today' : n === 1 ? 'Tomorrow' : n < 7 ? `In ${n} days` : n < 14 ? 'Next week' : `In ${Math.round(n / 7)} weeks`;
+}
+function calEnsure() { // make sure the visible two weeks are loaded
+  const days = S.slots?.days || []; if (!days.length || S.slotsLoading) return;
+  const last = days[days.length - 1].date, end = dAdd(S.calFrom || dSun(days[0].date), 13);
+  if (end > last) loadSlots(last, true);
+}
 function vSchedule() {
   if (!S.slots) return `<div class="panel loading"><span class="spin"></span> Checking the calendar…</div>${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}`;
-  const days = S.slots.days;
-  const sel = S.start ? new Date(S.start) : null;
-  const activeDate = S.pickDate || days.find(d => d.times.length)?.date;
-  const dayBtns = days.map(d => {
-    const x = new Date(d.date + 'T12:00:00');
-    return `<button class="day ${activeDate === d.date ? 'sel' : ''}" ${d.times.length ? '' : 'disabled'} onclick="S_pickDate('${d.date}')">
-      <small>${x.toLocaleDateString('en-US', { weekday: 'short' })}</small><b>${x.getDate()}</b><small>${d.times.length ? x.toLocaleDateString('en-US', { month: 'short' }) : 'Full'}</small></button>`;
-  }).join('');
-  const day = days.find(d => d.date === activeDate);
-  const times = day ? `<div class="slots">${day.times.map(t => `<button class="slot ${S.start === t.start ? 'sel' : ''}" onclick="kv.pickSlot('${t.start}','${esc(t.label)}')">${esc(t.label)}</button>`).join('')}</div>` : '<div class="hint" style="margin-top:14px">No open times in this range.</div>';
+  const days = S.slots.days, sel = S.start ? new Date(S.start) : null;
+  const mins = Math.round(S.slots.minutes / 15) * 15, dur = mins >= 60 ? `${Math.floor(mins / 60)} hr${mins % 60 ? ` ${mins % 60} min` : ''}` : `${mins} min`;
+  const sugg = suggestSlots(days);
+  const cards = sugg.length ? `<div class="sg-row">${sugg.map(({ d, t }) => `
+      <button class="sg ${S.start === t.start ? 'sel' : ''}" onclick="kv.pickSugg('${d.date}','${t.start}','${esc(t.label)}')">
+        <span class="sg-h">${relDay(d.date)}</span>
+        <span class="sg-b"><b>${dFmt(d.date, { month: 'short', day: 'numeric' })}</b><small>${dFmt(d.date, { weekday: 'long' })}</small><small>${esc(t.label)}</small></span>
+      </button>`).join('')}</div>`
+    : `<div class="hint">No open times in the next two weeks. Open the full calendar or call ${esc(CFG.phone)}.</div>`;
+  let cal = '';
+  if (S.calOpen) {
+    const first = dSun(days[0].date), start = S.calFrom || first, grid = Array.from({ length: 14 }, (_, i) => dAdd(start, i));
+    const byDate = new Map(days.map(d => [d.date, d]));
+    const active = S.pickDate && byDate.get(S.pickDate)?.times.length && grid.includes(S.pickDate) ? S.pickDate : grid.find(g => byDate.get(g)?.times.length);
+    const day = active && byDate.get(active);
+    const groups = day ? [['Morning', h => h < 12], ['Afternoon', h => h >= 12 && h < 17], ['Evening', h => h >= 17]]
+      .map(([name, f]) => [name, day.times.filter(t => f(slotHour(t)))]).filter(([, ts]) => ts.length) : [];
+    cal = `<div class="cal">
+      <div class="cal-nav">
+        <button class="link" onclick="kv.calShift(-14)" ${start <= first ? 'disabled' : ''}>‹ Previous 2 weeks</button>
+        <b>${dFmt(grid[0], { month: 'short', day: 'numeric' })} – ${dFmt(grid[13], grid[0].slice(5, 7) === grid[13].slice(5, 7) ? { day: 'numeric' } : { month: 'short', day: 'numeric' })}</b>
+        <button class="link" onclick="kv.calShift(14)" ${S.slotsLoading ? 'disabled' : ''}>Next 2 weeks ›</button>
+      </div>
+      <div class="cal-grid">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(w => `<span class="cal-w">${w}</span>`).join('')}
+        ${grid.map(g => { const ok = byDate.get(g)?.times.length; return `<button class="cal-d ${g === active ? 'sel' : ''}" ${ok ? '' : 'disabled'} onclick="S_pickDate('${g}')" aria-label="${dFmt(g, { weekday: 'long', month: 'long', day: 'numeric' })}${ok ? '' : ', no openings'}">${+g.slice(8)}</button>`; }).join('')}</div>
+      ${S.slotsLoading ? '<div class="hint" style="margin-top:12px"><span class="spin"></span> Loading more dates…</div>' : ''}
+      ${day ? `<p class="cal-t">${dFmt(active, { month: 'long', day: 'numeric' })} · available times (ET)</p>
+        ${groups.map(([name, ts]) => `<div class="cal-g"><small>${name}</small><div class="pills">${ts.map(t => `<button class="pill ${S.start === t.start ? 'sel' : ''}" onclick="kv.pickSlot('${t.start}','${esc(t.label)}')">${esc(t.label)}</button>`).join('')}</div></div>`).join('')}`
+        : !S.slotsLoading ? '<div class="hint" style="margin-top:12px">No open times these two weeks. Try the next two weeks.</div>' : ''}
+    </div>`;
+  }
   return `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Schedule</h2></div>
-    <p class="d">Pick a day and arrival time. About ${Math.round(S.slots.minutes / 15) * 15} minutes on site for what you've selected.</p>
-    <div class="panel"><div class="days">${dayBtns}<button class="day" onclick="kv.moreSlots()" ${S.slotsLoading ? 'disabled' : ''}><small>More</small><b>›</b><small>dates</small></button></div>${times}
-    ${sel ? `<div class="callout"><span>✓ ${sel.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} at ${esc(S.startLabel)}</span></div>` : ''}
-    ${(svc(S.pkg)?.name === 'Luxury' || [...S.items].some(id => /twilight photos/i.test(svc(id)?.name || ''))) ? '<div class="hint" style="margin-top:10px">Twilight photos are captured at sunset. We\'ll confirm the twilight time with you.</div>' : ''}
+    <p class="d">Estimated time on site: <b>${dur}</b>.</p>
+    <div class="panel">
+      <p class="sg-q">Will any of these times work for you?</p>
+      ${cards}
+      <button class="cal-toggle" onclick="kv.calToggle()" aria-expanded="${!!S.calOpen}">${S.calOpen ? 'Hide full calendar ▴' : 'Show full calendar ▾'}</button>
+      ${cal}
+      ${sel ? `<div class="callout"><span>✓ ${sel.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} at ${esc(S.startLabel)}</span></div>` : ''}
+      ${(svc(S.pkg)?.name === 'Luxury' || [...S.items].some(id => /twilight photos/i.test(svc(id)?.name || ''))) ? '<div class="hint" style="margin-top:10px">Twilight photos are captured at sunset. We\'ll confirm the twilight time with you.</div>' : ''}
     </div></section>
     <div class="nav"><button class="btn o" onclick="kv.go(1)">Back</button><button class="btn" onclick="kv.go(3)" ${S.start ? '' : 'disabled'}>Continue to review</button></div>`;
 }
