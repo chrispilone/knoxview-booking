@@ -1725,3 +1725,5 @@ function acHookOrderForm() {
     d = 0;
   });
 })();
+// TEMP layout check (removed after testing)
+if (location.search.includes('kvlayout')) window.__kv = { S, INV, UI, render, route };
