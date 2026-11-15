@@ -4,6 +4,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 //   rules  { number }           → { canChange, canCancel, reason }
 //   slots  { number, from }     → open times for this shoot's length (same rules + calendar as new bookings)
 //   reschedule { number, start } → moves the shoot, updates the Google Calendar event, emails Chris
+//   ics_link { number }          → { url } a signed link to this shoot's calendar file (works without signing in; safe to email/text)
+//   GET ?ics=<id>.<sig>           → the .ics file (always the current time; same UID so re-adding updates it)
 //   cancel { number, reason }    → cancels (unpaid only; any credit used goes back to the client), removes the calendar event, emails Chris
 // Online changes close at 5:00 PM (business time zone) the day before the shoot; after that the client calls or texts.
 // A reason is required to reschedule or cancel online; it goes in the order notes and the email to Chris.
@@ -136,8 +138,40 @@ async function notifyChris(subject: string, lines: string[]) {
   } catch (e) { console.error('notify', String(e)); }
 }
 
+/* ---------- calendar file (.ics) ---------- */
+const SIGN_KEY = env('MEDIA_SIGNING_KEY') || env('SUPABASE_SERVICE_ROLE_KEY');
+async function sig(id: string) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(SIGN_KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode('ics:' + id)));
+  return btoa(String.fromCharCode(...mac)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '').slice(0, 22);
+}
+const icsUrl = async (id: string) => `${env('SUPABASE_URL')}/functions/v1/appointment?ics=${id}.${await sig(id)}`;
+const icsEsc = (t: string) => String(t).replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/([,;])/g, '\\$1');
+const icsFold = (line: string) => { const out: string[] = []; let l = line; while (l.length > 74) { out.push(l.slice(0, 74)); l = ' ' + l.slice(74); } out.push(l); return out.join('\r\n'); };
+const z = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+async function icsFile(req: Request) {
+  const [id, s2] = String(new URL(req.url).searchParams.get('ics') || '').split('.');
+  if (!/^[0-9a-f-]{36}$/.test(id || '') || !s2 || s2 !== await sig(id)) return new Response('Not found', { status: 404 });
+  const { data: b } = await admin.from('bookings').select('id, number, status, address, unit, city, state, zip, shoot_start, shoot_end, duration_min, updated_at').eq('id', id).maybeSingle();
+  if (!b || !b.shoot_start) return new Response('Not found', { status: 404 });
+  const start = new Date(b.shoot_start), end = b.shoot_end ? new Date(b.shoot_end) : new Date(+start + (b.duration_min || 90) * 60000);
+  const where = [b.address + (b.unit ? ', ' + b.unit : ''), b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  const portal = (env('PORTAL_URL') || 'https://knoxview-booking.netlify.app').replace(/\/$/, '');
+  const title = `Your Knox View shoot at ${where}`;
+  const desc = `Knox View Real Estate Media photo shoot (order #${b.number}).\nView, reschedule or cancel: ${portal}/#invoices/${b.number}\nQuestions? Call or text ${PHONE}.`;
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Knox View Real Estate Media//Booking Portal//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
+    `UID:order-${b.id}@knoxview.com`, `SEQUENCE:${Math.floor(Date.parse(b.updated_at || b.shoot_start) / 1000)}`, `DTSTAMP:${z(new Date())}`,
+    `DTSTART:${z(start)}`, `DTEND:${z(end)}`, `SUMMARY:${icsEsc(title)}`, `LOCATION:${icsEsc(where)}`, `DESCRIPTION:${icsEsc(desc)}`, `URL:${portal}/#invoices/${b.number}`,
+    `STATUS:${b.status === 'cancelled' ? 'CANCELLED' : 'CONFIRMED'}`,
+    'BEGIN:VALARM', 'TRIGGER:-PT1H', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(title)}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'];
+  const name = String(b.address || 'Knox View shoot').replace(/[^\w ]+/g, '').trim().replace(/\s+/g, '_').slice(0, 60) || 'Knox_View_shoot';
+  return new Response(lines.map(icsFold).join('\r\n') + '\r\n', { headers: { 'Content-Type': 'text/calendar; charset=utf-8',
+    'Content-Disposition': `attachment; filename="${name}.ics"`, 'Cache-Control': 'no-store' } });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors(req) });
+  if (req.method === 'GET') return icsFile(req);
   try {
     const body = await req.json().catch(() => ({}));
     const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
@@ -153,6 +187,7 @@ Deno.serve(async (req) => {
     const where = [b.address, b.city].filter(Boolean).join(', ');
 
     if (action === 'rules') return json(req, { ...r, start: b.shoot_start, minutes });
+    if (action === 'ics_link') return json(req, { url: await icsUrl(b.id) });
 
     if (action === 'slots') {
       if (!r.canChange) throw new UserError(r.reason);
