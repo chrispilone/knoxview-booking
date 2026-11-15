@@ -75,6 +75,7 @@ window.kv = {
   calToggle() { S.calOpen = !S.calOpen; if (S.calOpen && !S.calFrom && S.slots?.days?.length) S.calFrom = S.pickDate ? dSun(S.pickDate) : calFirst(); render(); if (S.calOpen) calEnsure(); },
   calShift(n) { const first = calFirst(); S.calFrom = dAdd(S.calFrom || first, n); if (S.calFrom < first) S.calFrom = first; S.pickDate = null; render(); calEnsure(); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
+  svcTab(t) { S.svcTab = t === 'alc' ? 'alc' : 'pkg'; render(); document.querySelector('.svc-tabs')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); },
   startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
 
@@ -303,13 +304,19 @@ function vServices() {
       <p class="d">For larger homes and properties with extra structures.</p><div class="grid">
       <button class="card sq small-card ${S.adu ? 'sel' : ''}" onclick="kv.toggleAdu()" aria-pressed="${S.adu}"><span class="tick">${CHECK}</span>
       <h3>${esc(st.large_label)}</h3><div class="price">${money(st.large_fee)}</div><div class="meta">Over ${Number(st.large_sqft).toLocaleString()} sq ft, or an ADU / guest house / extra structure</div></button></div></section>` : '';
-  return `
-    <section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Listing Media Packages</h2></div>
-      ${S.pkg ? `<p class="pkg-note">${esc(svc(S.pkg).name)} selected. Tap it again to choose a different package.</p>` : ''}<div class="pkgs">${pk}</div></section>
-    ${SHOW_UPSELLS && ups ? `<section class="sec">${ups}</section>` : ''}
-    <section class="sec"><div class="sec-h"><i style="background:#1f3c66"></i><h2>À La Carte Services</h2></div>
-      <p class="d">Need just one thing, or want to add to a package? Book any service on its own. A basic floor plan is included with every photo shoot.</p>
-      <div class="list">${alacarte().map(row).join('')}</div></section>
+  const tab = S.svcTab || 'pkg', nAlc = [...S.items].length;
+  const tabs = `<div class="svc-tabs" role="tablist">
+      <button type="button" role="tab" aria-selected="${tab === 'pkg'}" class="${tab === 'pkg' ? 'on' : ''}" onclick="kv.svcTab('pkg')">Packages${S.pkg ? ' <i>1</i>' : ''}</button>
+      <button type="button" role="tab" aria-selected="${tab === 'alc'}" class="${tab === 'alc' ? 'on' : ''}" onclick="kv.svcTab('alc')">À La Carte${nAlc ? ` <i>${nAlc}</i>` : ''}</button></div>`;
+  return `${tabs}
+    ${tab === 'pkg' ? `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Listing Media Packages</h2></div>
+      ${S.pkg ? `<p class="pkg-note">${esc(svc(S.pkg).name)} selected. Tap it again to choose a different package.</p>` : ''}<div class="pkgs">${pk}</div>
+      <p class="svc-switch">Only need one service? <a href="javascript:kv.svcTab('alc')">See à la carte services →</a></p></section>
+    ${SHOW_UPSELLS && ups ? `<section class="sec">${ups}</section>` : ''}`
+    : `<section class="sec"><div class="sec-h"><i style="background:#1f3c66"></i><h2>À La Carte Services</h2></div>
+      <p class="d">${S.pkg ? `Add services to your ${esc(svc(S.pkg).name)} package, or book any service on its own.` : 'Need just one thing? Book any service on its own.'} A basic floor plan is included with every photo shoot.</p>
+      <div class="list">${alacarte().map(row).join('')}</div>
+      <p class="svc-switch"><a href="javascript:kv.svcTab('pkg')">← Back to packages</a></p></section>`}
     ${large}
     <div class="nav"><button class="btn o" onclick="kv.go(0)">Back</button><button class="btn" onclick="kv.go(2)" ${inCart().size ? '' : 'disabled'}>Continue to schedule</button></div>`;
 }
