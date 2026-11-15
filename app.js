@@ -687,7 +687,7 @@ function vLandingSignin() {
       <button type="button" onclick="kv.ldSend('sms')" ${S.busy ? 'disabled' : ''}>${svg(IC_PHONE)} Text me</button>
       <button type="button" onclick="kv.ldSend('email')" ${S.busy ? 'disabled' : ''}>${svg(IC_MAIL)} Email me</button>
     </div>
-    <p class="ld-alt">New to Knox View? <a href="javascript:kv.setMode('signup')">Create an account</a></p>`;
+    <p class="ld-alt">Don't have an account? <a href="javascript:kv.setMode('signup')">Create an account</a></p>`;
 }
 function lpAddr(el) { const v = (el?.value || '').trim(); if (v !== (S.addr.street || '')) S.addr.street = v; if (v.length >= 5 || !v) render(); }
 function vLandingPrice() {
