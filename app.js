@@ -36,7 +36,7 @@ const packages = () => S.services.filter(s => s.kind === 'package' && (s.categor
 const LAND_SKIP = /zillow|3d tour|twilight/i; // home-only services hidden for land
 const alacarte = () => S.services.filter(s => s.kind === 'addon' && !(isLand() && LAND_SKIP.test(s.name))).sort((a, b) => a.sort_order - b.sort_order);
 // Land size tiers (no price change yet; set a price per tier here later if needed)
-const ACRE_OPTIONS = [{ label: 'Under 10 acres' }, { label: '10 to 50 acres' }, { label: 'Over 50 acres' }];
+const ACRE_OPTIONS = [{ label: 'Up to 50 acres' }, { label: 'Over 50 acres' }];
 // Photo count shown in packages: 30+ photos, or 40+ for homes over 3,500 sq ft
 const photoCount = () => largeOn() ? '40+' : '30+';
 const incLabel = i => /^photography$/i.test(i) ? `${photoCount()} photos` : /^premium photography$/i.test(i) ? `Premium photography (${photoCount()} photos)` : i;
@@ -313,14 +313,14 @@ function vServices(inline) {
       <p class="d">For larger homes and properties with extra structures.</p><div class="grid">
       <button class="card sq small-card ${S.adu ? 'sel' : ''}" onclick="kv.toggleAdu()" aria-pressed="${S.adu}"><span class="tick">${CHECK}</span>
       <h3>${esc(st.large_label)}</h3><div class="price">${money(st.large_fee)}</div><div class="meta">Over ${Number(st.large_sqft).toLocaleString()} sq ft, or an ADU / guest house / extra structure</div></button></div></section>` : '';
-  const tab = S.svcTab || 'pkg', nAlc = [...S.items].length;
+  const tab = isLand() ? 'pkg' : (S.svcTab || 'pkg'), nAlc = [...S.items].length;
   const tabs = `<div class="svc-tabs" role="tablist">
       <button type="button" role="tab" aria-selected="${tab === 'pkg'}" class="${tab === 'pkg' ? 'on' : ''}" onclick="kv.svcTab('pkg')">Packages${S.pkg ? ' <i>1</i>' : ''}</button>
       <button type="button" role="tab" aria-selected="${tab === 'alc'}" class="${tab === 'alc' ? 'on' : ''}" onclick="kv.svcTab('alc')">À La Carte${nAlc ? ` <i>${nAlc}</i>` : ''}</button></div>`;
-  return `${tabs}
+  return `${isLand() ? '' : tabs}
     ${tab === 'pkg' ? `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>${isLand() ? 'Land Media Packages' : 'Listing Media Packages'}</h2></div>
       ${S.pkg ? `<p class="pkg-note">${esc(svc(S.pkg).name)} selected. Tap it again to choose a different package.</p>` : ''}<div class="pkgs">${pk}</div>
-      <p class="svc-switch">Only need one service? <a href="javascript:kv.svcTab('alc')">See à la carte services →</a></p></section>
+      ${isLand() ? '' : `<p class="svc-switch">Only need one service? <a href="javascript:kv.svcTab('alc')">See à la carte services →</a></p>`}</section>
     ${SHOW_UPSELLS && ups ? `<section class="sec">${ups}</section>` : ''}`
     : `<section class="sec"><div class="sec-h"><i style="background:#1f3c66"></i><h2>À La Carte Services</h2></div>
       <p class="d">${S.pkg ? `Add services to your ${esc(svc(S.pkg).name)} package, or book any service on its own.` : 'Need just one thing? Book any service on its own.'} A basic floor plan is included with every photo shoot.</p>
@@ -1105,7 +1105,7 @@ function vOne() {
   const size = !S.ptype ? '' : `<section class="o-sec">${oh('o-size', 2, land ? 'Land size' : 'Home size', land ? 'Total acreage' : 'Heated square feet')}
     <div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
       <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${esc(o.label)}</span></span></button>`).join('')}</div></section>`;
-  const svcs = a.sqftLabel ? `<section class="o-sec">${oh('o-svc', 3, 'Services', 'Check a package, or pick individual services')}${vServices(true)}</section>` : '';
+  const svcs = a.sqftLabel ? `<section class="o-sec">${oh('o-svc', 3, 'Services', land ? 'Choose a land package' : 'Check a package, or pick individual services')}${vServices(true)}</section>` : '';
   const addr = a.sqftLabel && haveSvc ? `<section class="o-sec">${oh('o-addr', 4, 'Property address')}
     <div class="panel"><div class="fg pairs">
       ${field('street', 'Street address', 'addr', { full: true, ph: 'Start typing the address', ac: 'off' })}
