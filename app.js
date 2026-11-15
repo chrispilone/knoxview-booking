@@ -1125,7 +1125,14 @@ function vOne() {
     <div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
       <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${esc(o.label)}</span></span></button>`).join('')}</div></section>`;
   const svcs = a.sqftLabel ? `<section class="o-sec">${oh('o-svc', 3, 'Services', land ? 'Choose a land package' : 'Check a package, or pick individual services')}${vServices(true)}</section>` : '';
-  const addr = a.sqftLabel && haveSvc ? `<section class="o-sec">${oh('o-addr', 4, 'Property address')}
+  // Add-ons: listing media only, once a package is picked (services not already in the package)
+  const cov = covered(), adds = !land && S.pkg ? alacarte().filter(x => !cov.has(x.id)) : [];
+  const addons = adds.length ? `<section class="o-sec">${oh('o-add', 4, 'Add-ons', `Optional extras for your ${esc(svc(S.pkg).name)} package`)}
+    <div class="list">${adds.map(x => { const on = S.items.has(x.id); return `<button class="row ${on ? 'sel' : ''}" onclick="kv.toggle('${x.id}')" aria-pressed="${on}">
+      <span class="box">${CHECK}</span><span class="row-t"><span class="row-n">${esc(x.name)}</span>${x.description ? `<span class="row-d">${esc(x.description)}</span>` : ''}</span>
+      <span class="row-p">+${money(x.price)}</span></button>`; }).join('')}</div></section>` : '';
+  const nA = addons ? 5 : 4;
+  const addr = a.sqftLabel && haveSvc ? `<section class="o-sec">${oh('o-addr', nA, 'Property address')}
     <div class="panel"><div class="fg pairs">
       ${field('street', 'Street address', 'addr', { full: true, ph: 'Start typing the address', ac: 'off' })}
       ${field('unit', 'Unit / Lot', 'addr', { req: false, ph: 'Optional', ac: 'address-line2' })}
@@ -1135,9 +1142,9 @@ function vOne() {
       ${land ? '' : field('occupancy', 'Occupancy', 'addr', { req: false, options: ['Vacant', 'Owner occupied', 'Tenant occupied'], ph: 'Select (optional)' })}
       ${field('access', 'Access notes', 'addr', { full: true, req: false, area: true, ph: land ? 'Gate code, where to park, corners or boundary markers, who will be there…' : 'Lockbox code, gate code, pets, who will be there…' })}
     </div></div></section>` : '';
-  const time = a.sqftLabel && haveSvc && aOk ? `<section class="o-sec">${oh('o-time', 5, 'Pick a time')}${vSchedule(true)}</section>` : '';
+  const time = a.sqftLabel && haveSvc && aOk ? `<section class="o-sec">${oh('o-time', nA + 1, 'Pick a time')}${vSchedule(true)}</section>` : '';
   const you = a.sqftLabel && haveSvc && aOk && S.start ? `<section class="o-sec" id="o-you">${vReview(true)}</section>` : '';
-  return type + size + svcs + addr + time + you + (S.error && !S.start ? `<div class="msg err">${esc(S.error)}</div>` : '');
+  return type + size + svcs + addons + addr + time + you + (S.error && !S.start ? `<div class="msg err">${esc(S.error)}</div>` : '');
 }
 function updBar() { // bottom button: names the next thing to do, then "Submit Order"
   const nb = $('barNext'); if (!nb) return;
