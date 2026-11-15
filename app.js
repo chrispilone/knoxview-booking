@@ -1100,7 +1100,7 @@ function vOne() {
   const tRow = (t, name, sub) => `<button class="row ${S.ptype === t ? 'sel' : ''}" onclick="kv.ptype('${t}')" aria-pressed="${S.ptype === t}">
       <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${name}</span><span class="row-d">${sub}</span></span></button>`;
   const type = `<section class="o-sec">${oh('o-type', 1, 'What are we shooting?')}
-    <div class="list">${tRow('home', 'Home listing', 'Houses, condos, cabins and townhomes')}${tRow('land', 'Land listing', 'Lots and acreage')}</div></section>`;
+    <div class="list">${tRow('home', 'Listing Media', 'Houses, condos, cabins and townhomes')}${tRow('land', 'Land Media', 'Lots and acreage')}</div></section>`;
   const haveSvc = inCart().size > 0, aOk = addrOk();
   const size = !S.ptype ? '' : `<section class="o-sec">${oh('o-size', 2, land ? 'Land size' : 'Home size', land ? 'Total acreage' : 'Heated square feet')}
     <div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
@@ -1122,7 +1122,7 @@ function vOne() {
 }
 function updBar() { // bottom button: names the next thing to do, then "Submit Order"
   const nb = $('barNext'); if (!nb) return;
-  nb.textContent = S.checkout ? 'Pay & Submit' : { 'o-type': 'Home or land?', 'o-size': isLand() ? 'Choose land size' : 'Choose home size', 'o-svc': 'Choose services', 'o-addr': 'Enter address', 'o-time': 'Pick a time', 'o-you': 'Your details' }[nextMissing()] || 'Submit Order';
+  nb.textContent = S.checkout ? 'Pay & Submit' : { 'o-type': 'Listing or land?', 'o-size': isLand() ? 'Choose land size' : 'Choose home size', 'o-svc': 'Choose services', 'o-addr': 'Enter address', 'o-time': 'Pick a time', 'o-you': 'Your details' }[nextMissing()] || 'Submit Order';
   nb.disabled = !!S.busy;
 }
 function oneAfterRender() { // load open times once services + address are in; keep the order form and bar in sync
