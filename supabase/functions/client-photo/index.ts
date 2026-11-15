@@ -6,6 +6,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 //   set    → { path, original }  saves photos the browser uploaded to agent-photos/<user id>/ (storage policy only
 //            allows their own folder), then removes the client's previous photo files
 //   remove → clears the photo
+//   extras { first_name, last_name, website_url, birth_month, birth_day } → the rest of their profile (birthday: month + day only)
 //   logo_set { path } / logo_remove → the agent's logo (PNG with transparency, agent-photos/<user id>/logo-*.png)
 // agents.photo_url is a public 1000x1000 square JPEG (show it round with CSS where a circle is needed);
 // agents.photo_original_path is the full photo (max 2400px) so it can be re-cropped later.
@@ -29,10 +30,27 @@ Deno.serve(async (req) => {
     const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
     const user = jwt.split('.').length === 3 ? (await admin.auth.getUser(jwt)).data?.user : null;
     if (!user) return json(req, { error: 'Please sign in.' }, 401);
-    const { data: agent } = await admin.from('agents').select('id, photo_url, photo_path, photo_original_path, brand_logo_url, brand_logo_path').eq('auth_user_id', user.id).maybeSingle();
+    const { data: agent } = await admin.from('agents').select('id, photo_url, photo_path, photo_original_path, brand_logo_url, brand_logo_path, first_name, last_name, website_url, birth_month, birth_day').eq('auth_user_id', user.id).maybeSingle();
     const action = String(body.action || '');
 
-    if (action === 'get') return json(req, { photo_url: agent?.photo_url ?? null, logo_url: agent?.brand_logo_url ?? null });
+    if (action === 'get') return json(req, { photo_url: agent?.photo_url ?? null, logo_url: agent?.brand_logo_url ?? null,
+      extras: agent ? { first_name: agent.first_name, last_name: agent.last_name, website_url: agent.website_url, birth_month: agent.birth_month, birth_day: agent.birth_day } : null });
+
+    if (action === 'extras') {
+      if (!agent) throw new UserError('Save your name on your profile first.');
+      const clean = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+      let site = clean(body.website_url, 300);
+      if (site && !/^https?:\/\//i.test(site)) site = 'https://' + site;
+      if (site && !/^https?:\/\/[^\s/]+\.[^\s]+$/i.test(site)) throw new UserError('Check your website link, e.g. www.yourname.com');
+      const m = Number(body.birth_month) || null, d = Number(body.birth_day) || null;
+      if ((m && !d) || (!m && d)) throw new UserError('Pick both the month and the day for your birthday, or leave both blank.');
+      const days = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+      if (m && (m < 1 || m > 12 || d! < 1 || d! > days[m - 1])) throw new UserError('That birthday date doesn\'t exist.');
+      const patch = { first_name: clean(body.first_name, 60) || null, last_name: clean(body.last_name, 60) || null, website_url: site || null, birth_month: m, birth_day: d };
+      const { error } = await admin.from('agents').update(patch).eq('id', agent.id);
+      if (error) throw error;
+      return json(req, { extras: patch });
+    }
 
     if (action === 'logo_set' || action === 'logo_remove') {
       if (!agent) throw new UserError('Save your name on your profile first, then add your logo.');

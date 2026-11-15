@@ -1060,27 +1060,40 @@ Object.assign(window.kv, {
 });
 
 function vSettings() {
-  const a = S.pdata?.agent || S.agent || {};
+  const a = S.pdata?.agent || S.agent || {}, x = S.extras || {};
+  const [f0, ...l0] = (a.full_name || '').split(' ');
+  const first = x.first_name ?? f0 ?? '', last = x.last_name ?? l0.join(' ');
   const f = (k, label, v, attrs = '') => `<div><label for="st_${k}">${label}</label><input id="st_${k}" value="${esc(v || '')}" ${attrs}></div>`;
-  return `<div class="panel" style="max-width:640px"><h2 style="font-size:26px;margin-bottom:4px">Profile</h2>
-    <p class="hint" style="margin:0 0 18px">Your photo and contact details. We use these on your bookings, your property websites, and to reach you about shoots.</p>
-    ${a.id ? vPhotoCard(a) + vLogoCard() : ''}
-    <form onsubmit="kv.saveProfile(event)" class="fg">
-      <div class="full">${f('full_name', 'Full name', a.full_name, 'autocomplete="name"').slice(5, -6)}</div>
-      ${f('phone', 'Mobile number', a.phone ? kv.fmtPhone(a.phone) : '', 'type="tel" inputmode="tel" autocomplete="tel-national" oninput="this.value=kv.fmtPhone(this.value)"')}
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const bm = x.birth_month ?? '', bd = x.birth_day ?? '';
+  const dmax = bm ? [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][bm - 1] : 31;
+  const sec = (key, title, sub, body, open) => { const on = UI.sec?.[key] ?? open;
+    return `<section class="acc ${on ? 'open' : ''}"><button type="button" class="acc-h" aria-expanded="${on}" onclick="kv.acc('${key}', ${!on})"><span><b>${title}</b><small>${sub}</small></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <div class="acc-b" ${on ? '' : 'hidden'}>${body}</div></section>`; };
+  const profile = `<form onsubmit="kv.saveProfile(event)" class="fg">
+      ${f('first', 'First name', first, 'autocomplete="given-name" required')}
+      ${f('last', 'Last name', last, 'autocomplete="family-name" required')}
+      ${f('phone', 'Mobile phone', a.phone ? kv.fmtPhone(a.phone) : '', 'type="tel" inputmode="tel" autocomplete="tel-national" oninput="this.value=kv.fmtPhone(this.value)"')}
       <div><label>Email</label><input value="${esc(a.email || S.session?.user?.email || '')}" disabled><p class="hint" style="margin:5px 0 0">This is how you sign in. To change it, call ${esc(CFG.phone)}.</p></div>
       ${f('brokerage', 'Brokerage', a.brokerage, 'autocomplete="organization"')}
       ${f('team_name', 'Team', a.team_name)}
+      ${f('website', 'Website', x.website_url, 'type="url" inputmode="url" placeholder="www.yourwebsite.com" autocomplete="url"')}
+      <div><label for="st_bm">Birthday</label><div class="bday">
+        <select id="st_bm" onchange="kv.bdayMonth(this.value)" aria-label="Birthday month"><option value="">Month</option>${MONTHS.map((m, i) => `<option value="${i + 1}" ${+bm === i + 1 ? 'selected' : ''}>${m}</option>`).join('')}</select>
+        <select id="st_bd" aria-label="Birthday day"><option value="">Day</option>${Array.from({ length: dmax }, (_, i) => `<option ${+bd === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></div>
+        <p class="hint" style="margin:5px 0 0">Just the month and day.</p></div>
       <div class="full">${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}${UI.saved ? '<div class="msg info">Saved.</div>' : ''}
         <button class="btn" ${S.busy ? 'disabled' : ''}>${S.busy ? '<span class="spin"></span>' : 'Save changes'}</button></div>
-    </form></div>
-    <div class="panel" style="max-width:640px;margin-top:16px"><h2 style="font-size:22px;margin-bottom:6px">Get the app</h2>
-      <p class="hint" style="margin:0 0 10px">Add Knox View to your home screen to book and check your orders like an app.</p>
+    </form>
+    ${a.id ? `<div class="acc-sub"><b>Photo &amp; logo</b><p class="hint">Used on your account and your property websites.</p>${vPhotoCard(a) + vLogoCard()}</div>` : ''}`;
+  const app = `<p class="hint" style="margin:0 0 10px">Add Knox View to your home screen to book and check your orders like an app.</p>
       <p style="margin:0 0 6px"><b>iPhone:</b> open this page in Safari, tap the Share button, then <b>Add to Home Screen</b>.</p>
       <p style="margin:0"><b>Android:</b> open this page in Chrome, tap the ⋮ menu, then <b>Add to Home screen</b> (or <b>Install app</b>).</p>
-      <p class="hint" style="margin:10px 0 0">The first time you open it from your home screen, sign in once with your email or phone.</p></div>`;
+      <p class="hint" style="margin:10px 0 0">The first time you open it from your home screen, sign in once with your email or phone.</p>`;
+  return `<div class="prof"><h2 class="prof-t">Profile</h2>
+    ${sec('me', 'My profile', 'Name, contact, brokerage, website, birthday, photo and logo', profile, true)}
+    ${sec('app', 'Get the app', 'Add Knox View to your home screen', app, false)}</div>`;
 }
-
 /* ================= profile photo (headshot) =================
    One square photo per client, reused everywhere: the portal header and menu, HQ, and (later) branded property websites.
    Saved as a 1000x1000 JPEG (agents.photo_url). Round spots show it in a circle, so the editor shows the square and the circle.
@@ -1194,7 +1207,7 @@ async function photoRemove() {
   };
 }
 function setAgent(a) { if (!a) return; S.agent = { ...(S.agent || {}), ...a }; if (S.pdata) S.pdata.agent = { ...(S.pdata.agent || {}), ...a }; }
-async function loadPhoto() { if (!S.session) return; try { const r = await api('get', {}, 'client-photo'); S.photo = r.photo_url || ''; S.logo = r.logo_url || ''; render(); } catch (_) { /* initials stay */ } }
+async function loadPhoto() { if (!S.session) return; try { const r = await api('get', {}, 'client-photo'); S.photo = r.photo_url || ''; S.logo = r.logo_url || ''; S.extras = r.extras || {}; render(); } catch (_) { /* initials stay */ } }
 Object.assign(window.kv, { photoPick, photoRemove });
 
 /* ===== Logo (profile): the agent's own logo, PNG with transparency kept; used on property websites ===== */
@@ -1523,12 +1536,28 @@ Object.assign(window.kv, {
         <dt>Media</dt><dd>${media}</dd></dl>
       <div class="nav"><button class="btn o" onclick="kv.closeModal()">Close</button>${b && !b.paid ? `<button class="btn" onclick="kv.closeModal();kv.payBooking('${b.id}')">Pay ${money(b.total)}</button>` : ''}</div></div></div>`;
   },
+  // open / close a profile section in place (no re-render, so unsaved typing stays)
+  acc(k, on) {
+    UI.sec = { ...(UI.sec || {}), [k]: on };
+    const btn = document.querySelector(`.acc-h[onclick*="'${k}'"]`); if (!btn) return render();
+    const sec = btn.closest('.acc'); sec.classList.toggle('open', on); btn.setAttribute('aria-expanded', on);
+    btn.setAttribute('onclick', `kv.acc('${k}', ${!on})`); sec.querySelector('.acc-b').hidden = !on;
+  },
+  // birthday: the day list follows the month (Feb has 29 so Feb 29 birthdays work)
+  bdayMonth(m) {
+    const sel = $('st_bd'); if (!sel) return; const keep = +sel.value || 0;
+    const n = m ? [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] : 31;
+    sel.innerHTML = '<option value="">Day</option>' + Array.from({ length: n }, (_, i) => `<option ${keep === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('');
+  },
   async saveProfile(ev) {
     ev.preventDefault();
     const v = k => ($('st_' + k)?.value || '').trim();
     S.busy = true; S.error = ''; UI.saved = false; render();
     try {
-      const r = await api('profile', { full_name: v('full_name'), phone: v('phone'), brokerage: v('brokerage'), team_name: v('team_name') });
+      if (!v('first') || !v('last')) throw new Error('Enter your first and last name.');
+      const ex = await api('extras', { first_name: v('first'), last_name: v('last'), website_url: v('website'), birth_month: v('bm'), birth_day: v('bd') }, 'client-photo');
+      S.extras = ex.extras;
+      const r = await api('profile', { full_name: `${v('first')} ${v('last')}`, phone: v('phone'), brokerage: v('brokerage'), team_name: v('team_name') });
       setAgent(r.agent); fillContact(); UI.saved = true;
     } catch (e) { S.error = e.message; }
     S.busy = false; render();
