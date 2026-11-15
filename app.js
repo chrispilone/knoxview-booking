@@ -89,7 +89,7 @@ window.kv = {
   svcTab(t) { S.svcTab = t === 'alc' ? 'alc' : 'pkg'; render(); document.querySelector('.svc-tabs')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); },
   ptype(t) { if (S.ptype === t) return; S.ptype = t; S.addr.sqftLabel = ''; S.pkg = null; S.items = new Set(); S.adu = false; S.svcTab = 'pkg'; if (t === 'land') S.addr.occupancy = ''; resetSchedule(); render(); setTimeout(() => document.getElementById('o-size')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
   size(label) { S.addr.sqftLabel = label; resetSchedule(); render(); if (!inCart().size) setTimeout(() => document.getElementById('o-svc')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
-  startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
+  lbPhoto, lbMedia, lbStep, lbClose, startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
 
 function go(n) {
@@ -287,24 +287,59 @@ function alertModal(text) {
 // Only active upsells are readable by the public, so this stays true; set false to hide them all.
 const SHOW_UPSELLS = true;
 
-// ===== Package examples: a small swipe strip under the selected package (photos from knoxview.com/examples) =====
-const EX_SITE = 'https://knoxview.com/examples/';
+// ===== Package examples: a small swipe strip under the selected package. Tapping a photo, the 3D tour or a video
+// opens it in a viewer on this page (dark background, X to close) so nobody leaves the booking flow.
+const TOUR_ZILLOW = 'https://www.zillow.com/view-imx/b55c2ba6-cc6e-47b1-8e2c-6f39e2fa26ef/?utm_source=captureapp';
+const TOUR_PREMIUM = 'https://www.zillow.com/view-imx/387714a0-c187-4298-bad5-51082b18bd8f?setAttribution=mls&wl=true&initialViewType=pano';
+const VIMEO = id => `https://player.vimeo.com/video/${id}?autoplay=1&muted=1&playsinline=1&loop=1&title=0&byline=0&portrait=0&dnt=1`;
 const EX = {
-  '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5': { page: 'base', dir: 'essentials', imgs: [['front','Photos'],['kitchen','Photos'],['living','Photos'],['primary','Photos'],['aerial-house','Drone photos'],['aerial-wide','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
-  '2af4fccb-2e5e-40e0-9413-5a5f2a711e9d': { page: 'zillow-3d', dir: 'zillow', lead: ['living', 'Zillow 3D tour', '3d'], imgs: [['front-angle','Photos'],['kitchen-living','Photos'],['primary','Photos'],['aerial-pin','Drone photos'],['aerial-street','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
-  '5d0329ed-225f-4ccf-aed9-8307780de1b4': { page: 'pro', dir: 'social', lead: ['aerial-wide', 'Social media video', 'play'], imgs: [['front-yard','Photos'],['kitchen','Photos'],['living','Photos'],['bedroom','Photos'],['aerial-pin','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
-  '271ce816-6215-4ead-b063-d4ae920276bc': { page: 'premium', dir: 'premium', lead: ['aerial-yard', 'Premium video', 'play'], imgs: [['front','Photos'],['kitchen-island','Photos'],['living','Photos'],['primary','Photos'],['aerial-pin','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
+  '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5': { dir: 'essentials', imgs: [['front','Photos'],['kitchen','Photos'],['living','Photos'],['primary','Photos'],['aerial-house','Drone photos'],['aerial-wide','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
+  '2af4fccb-2e5e-40e0-9413-5a5f2a711e9d': { dir: 'zillow', leads: [['living', 'Zillow 3D tour', 'tour', TOUR_ZILLOW]], imgs: [['front-angle','Photos'],['kitchen-living','Photos'],['primary','Photos'],['aerial-pin','Drone photos'],['aerial-street','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
+  '5d0329ed-225f-4ccf-aed9-8307780de1b4': { dir: 'social', leads: [['aerial-wide', 'Social media video', 'video', '1229552456']], imgs: [['front-yard','Photos'],['kitchen','Photos'],['living','Photos'],['bedroom','Photos'],['aerial-pin','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
+  '271ce816-6215-4ead-b063-d4ae920276bc': { dir: 'premium', leads: [['aerial-yard', 'Premium video', 'video', '1216825550'], ['living', 'Zillow 3D tour', 'tour', TOUR_PREMIUM]], imgs: [['front','Photos'],['kitchen-island','Photos'],['primary','Photos'],['aerial-pin','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
 };
 function vExample(id) {
   const e = EX[id]; if (!e) return '';
-  const url = EX_SITE + e.page, src = n => `/img/ex/${e.dir}/${n}.jpg`;
-  const tile = (n, cap, fp) => `<figure class="ex-t${fp ? ' fp' : ''}"><img src="${src(n)}" alt="${esc(cap)}" loading="lazy" decoding="async"><figcaption>${esc(cap)}</figcaption></figure>`;
-  const lead = e.lead ? `<a class="ex-t ex-lead" href="${url}" target="_blank" rel="noopener"><img src="${src(e.lead[0])}" alt="" loading="lazy"><span class="ex-ic">${e.lead[2] === 'play' ? '&#9654;' : '3D'}</span><figcaption>${esc(e.lead[1])} ↗</figcaption></a>` : '';
+  const src = n => `/img/ex/${e.dir}/${n}.jpg`;
+  const tile = (n, cap, k) => `<button type="button" class="ex-t${/floor/i.test(cap) ? ' fp' : ''}" onclick="kv.lbPhoto('${id}',${k})"><img src="${src(n)}" alt="${esc(cap)}" loading="lazy" decoding="async"><figcaption>${esc(cap)}</figcaption></button>`;
+  const leads = (e.leads || []).map(([n, cap, kind, ref], k) => `<button type="button" class="ex-t ex-lead" onclick="kv.lbMedia('${id}',${k})"><img src="${src(n)}" alt="" loading="lazy"><span class="ex-ic">${kind === 'video' ? '&#9654;' : '3D'}</span><figcaption>${esc(cap)}</figcaption></button>`).join('');
   return `<div class="ex" role="region" aria-label="Example of what's included">
-    <div class="ex-h"><span>Example of what you get</span><a href="${url}" target="_blank" rel="noopener">Full example ↗</a></div>
-    <div class="ex-s">${lead}${e.imgs.map(([n, c]) => tile(n, c, /floor/i.test(c))).join('')}
-      <a class="ex-t ex-more" href="${url}" target="_blank" rel="noopener"><span>See the full<br>example ↗</span></a></div></div>`;
+    <div class="ex-h"><span>Example of what you get</span><span class="ex-hint">Tap to view</span></div>
+    <div class="ex-s">${leads}${e.imgs.map(([n, c], k) => tile(n, c, k)).join('')}</div></div>`;
 }
+// ----- viewer (lightbox) -----
+const LB = { el: null, list: [], i: 0 };
+function lbOpen(html, cls) {
+  lbClose(true);
+  const el = document.createElement('div'); el.className = 'lb ' + (cls || ''); el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true');
+  el.innerHTML = `<div class="lb-bg" onclick="kv.lbClose()"></div><div class="lb-box">${html}</div><button type="button" class="lb-x" onclick="kv.lbClose()" aria-label="Close">&times;</button>`;
+  document.body.appendChild(el); document.body.classList.add('lb-open'); LB.el = el;
+  requestAnimationFrame(() => el.classList.add('on'));
+}
+function lbClose(now) {
+  const el = LB.el; if (!el) return; LB.el = null; document.body.classList.remove('lb-open');
+  if (now === true) return el.remove();
+  el.classList.remove('on'); setTimeout(() => el.remove(), 220);
+}
+function lbShow() {
+  const [src, cap] = LB.list[LB.i], n = LB.list.length;
+  LB.el.querySelector('.lb-img').src = src; LB.el.querySelector('.lb-cap').textContent = `${cap} · ${LB.i + 1} of ${n}`;
+}
+function lbPhoto(id, k) {
+  const e = EX[id]; LB.list = e.imgs.map(([n, c]) => [`/img/ex/${e.dir}/${n}-lg.jpg`, c]); LB.i = k;
+  lbOpen(`<div class="lb-photo"><img class="lb-img" alt=""><button type="button" class="lb-nav prev" onclick="kv.lbStep(-1)" aria-label="Previous">&#8249;</button><button type="button" class="lb-nav next" onclick="kv.lbStep(1)" aria-label="Next">&#8250;</button></div><div class="lb-cap"></div>`, 'photo');
+  lbShow();
+  let x0 = null; const ph = LB.el.querySelector('.lb-photo');
+  ph.addEventListener('touchstart', ev => { x0 = ev.touches[0].clientX; }, { passive: true });
+  ph.addEventListener('touchend', ev => { if (x0 === null) return; const dx = ev.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 40) lbStep(dx < 0 ? 1 : -1); });
+}
+function lbStep(d) { if (!LB.el || !LB.list.length) return; LB.i = (LB.i + d + LB.list.length) % LB.list.length; lbShow(); }
+function lbMedia(id, k) {
+  const [, cap, kind, ref] = EX[id].leads[k];
+  if (kind === 'video') lbOpen(`<div class="lb-vid"><iframe src="${VIMEO(ref)}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen title="${esc(cap)}"></iframe></div><div class="lb-cap">${esc(cap)} · tap the speaker for sound</div>`, 'video');
+  else lbOpen(`<div class="lb-tour"><iframe src="${ref}" allow="xr-spatial-tracking; gyroscope; accelerometer; fullscreen" allowfullscreen title="${esc(cap)}"></iframe></div><div class="lb-cap">${esc(cap)} · drag to look around, tap the circles to move</div>`, 'tour');
+}
+document.addEventListener('keydown', ev => { if (!LB.el) return; if (ev.key === 'Escape') lbClose(); if (ev.key === 'ArrowRight') lbStep(1); if (ev.key === 'ArrowLeft') lbStep(-1); });
 function vServices(inline) {
   const cov = covered();
   const pk = packages().map(p => `
@@ -1128,9 +1163,10 @@ function vOne() {
   // Add-ons: listing media only, once a package is picked (services not already in the package)
   const cov = covered(), adds = !land && S.pkg ? addonList().filter(x => !cov.has(x.id)) : [];
   const addons = adds.length ? `<section class="o-sec">${oh('o-add', 4, 'Add-ons', `Optional extras for your ${esc(svc(S.pkg).name)} package`)}
-    <div class="list">${adds.map(x => { const on = S.items.has(x.id), im = ADDON_IMG[x.id]; return `<button class="row ad ${on ? 'sel' : ''}" onclick="kv.toggle('${x.id}')" aria-pressed="${on}">
-      <span class="box">${CHECK}</span>${im ? `<img class="ad-i" src="/img/addons/${im}.jpg" alt="" loading="lazy">` : ''}<span class="row-t"><span class="row-n">${esc(x.name)}</span>${x.description ? `<span class="row-d">${esc(x.description)}</span>` : ''}</span>
-      <span class="row-p">+${money(x.price)}</span></button>`; }).join('')}</div></section>` : '';
+    <div class="list">${adds.map(x => { const on = S.items.has(x.id), im = ADDON_IMG[x.id]; return `<div class="ad-w ${on ? 'on' : ''}"><button class="row ad ${on ? 'sel' : ''}" onclick="kv.toggle('${x.id}')" aria-pressed="${on}">
+      <span class="box">${CHECK}</span><span class="row-t"><span class="row-n">${esc(x.name)}</span></span>
+      <span class="row-p">+${money(x.price)}</span></button>
+      ${on ? `<div class="ad-x">${im ? `<img src="/img/addons/${im}.jpg" alt="Example: ${esc(x.name)}" loading="lazy">` : ''}${x.description ? `<p>${esc(x.description)}</p>` : ''}</div>` : ''}</div>`; }).join('')}</div></section>` : '';
   const nA = addons ? 5 : 4;
   const addr = a.sqftLabel && haveSvc ? `<section class="o-sec">${oh('o-addr', nA, 'Property address')}
     <div class="panel"><div class="fg pairs">
