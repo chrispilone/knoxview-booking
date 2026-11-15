@@ -34,8 +34,12 @@ const svc = id => S.services.find(s => s.id === id);
 const isLand = () => S.ptype === 'land';
 const packages = () => S.services.filter(s => s.kind === 'package' && (s.category === 'land') === isLand()).sort((a, b) => a.sort_order - b.sort_order);
 const LAND_SKIP = /zillow|3d tour|twilight/i; // home-only services hidden for land
-const alacarte = () => S.services.filter(s => s.kind === 'addon' && !(isLand() && LAND_SKIP.test(s.name))).sort((a, b) => a.sort_order - b.sort_order);
+const alacarte = () => S.services.filter(s => s.kind === 'addon' && s.category !== 'addon' && !(isLand() && LAND_SKIP.test(s.name))).sort((a, b) => a.sort_order - b.sort_order);
 // Land size tiers (no price change yet; set a price per tier here later if needed)
+// Add-ons: offered only after a listing package is picked (category 'addon'), with an example picture
+const addonList = () => S.services.filter(s => s.kind === 'addon' && s.category === 'addon').sort((a, b) => a.sort_order - b.sort_order);
+const ADDON_IMG = { 'e8cab6b1-3742-49a3-9f85-e888d886fd0d': 'interactive-floor-plan', 'ccbb8503-18b6-4f76-8193-5c7c056c97f0': '3d-floor-plan', 'd7f8797f-5243-4de0-b4d0-28d0ce3c6403': 'community-photos',
+  '9550aba6-e6a5-4072-8633-00b538039a4b': 'virtual-staging', '66929c67-8107-4fb0-b422-d956d261058b': 'location-graphics' };
 const ACRE_OPTIONS = [{ label: 'Up to 50 acres' }, { label: 'Over 50 acres' }];
 // Photo count shown in packages: 30+ photos, or 40+ for homes over 3,500 sq ft
 const photoCount = () => largeOn() ? '40+' : '30+';
@@ -1126,10 +1130,10 @@ function vOne() {
       <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${esc(o.label)}</span></span></button>`).join('')}</div></section>`;
   const svcs = a.sqftLabel ? `<section class="o-sec">${oh('o-svc', 3, 'Services', land ? 'Choose a land package' : 'Check a package, or pick individual services')}${vServices(true)}</section>` : '';
   // Add-ons: listing media only, once a package is picked (services not already in the package)
-  const cov = covered(), adds = !land && S.pkg ? alacarte().filter(x => !cov.has(x.id)) : [];
+  const cov = covered(), adds = !land && S.pkg ? addonList().filter(x => !cov.has(x.id)) : [];
   const addons = adds.length ? `<section class="o-sec">${oh('o-add', 4, 'Add-ons', `Optional extras for your ${esc(svc(S.pkg).name)} package`)}
-    <div class="list">${adds.map(x => { const on = S.items.has(x.id); return `<button class="row ${on ? 'sel' : ''}" onclick="kv.toggle('${x.id}')" aria-pressed="${on}">
-      <span class="box">${CHECK}</span><span class="row-t"><span class="row-n">${esc(x.name)}</span>${x.description ? `<span class="row-d">${esc(x.description)}</span>` : ''}</span>
+    <div class="list">${adds.map(x => { const on = S.items.has(x.id), im = ADDON_IMG[x.id]; return `<button class="row ad ${on ? 'sel' : ''}" onclick="kv.toggle('${x.id}')" aria-pressed="${on}">
+      <span class="box">${CHECK}</span>${im ? `<img class="ad-i" src="/img/addons/${im}.jpg" alt="" loading="lazy">` : ''}<span class="row-t"><span class="row-n">${esc(x.name)}</span>${x.description ? `<span class="row-d">${esc(x.description)}</span>` : ''}</span>
       <span class="row-p">+${money(x.price)}</span></button>`; }).join('')}</div></section>` : '';
   const nA = addons ? 5 : 4;
   const addr = a.sqftLabel && haveSvc ? `<section class="o-sec">${oh('o-addr', nA, 'Property address')}
