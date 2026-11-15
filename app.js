@@ -56,12 +56,14 @@ const largeOn = () => {
   return S.adu || (o ? (o.max === null || o.max >= S.config.settings.large_sqft) : false);
 };
 const largeVisible = () => largeEnabled() && inCart().size > 0;
+// À la carte price shown to the client: Photography is $250 (not $225) for homes over 3,500 sq ft on a photos-only order
+const svcPrice = s => +s.price + (!S.pkg && largeOn() && /^photography$/i.test(s.name) ? 25 : 0);
 const sizeAdj = () => largeOn() ? +S.config.settings.large_fee : 0; // shown inside package prices
 function lines() {
   const out = [];
   if (S.pkg) { const p = svc(S.pkg); out.push({ name: p.name + ' Package', price: +p.price + sizeAdj(), subs: (p.includes || []).map(incLabel) }); }
-  for (const id of S.items) { const s = svc(id); if (s) out.push({ name: s.name, price: +s.price }); }
-  if (!S.pkg && largeOn() && largeVisible()) out.push({ name: S.config.settings.large_label, price: +S.config.settings.large_fee });
+  for (const id of S.items) { const s = svc(id); if (s) out.push({ name: s.name, price: svcPrice(s) }); }
+  // photos-only orders over 3,500 sq ft: Photography is $250 instead of $225 (no separate large-home fee)
   return out;
 }
 const total = () => lines().reduce((a, l) => a + l.price, 0);
@@ -358,7 +360,7 @@ function vServices(inline) {
     return `<button class="row ${sel ? 'sel' : ''} ${inc ? 'incl' : ''}" onclick="kv.toggle('${s.id}')" aria-pressed="${sel || inc}" ${inc ? 'aria-disabled="true"' : ''}>
       <span class="box">${CHECK}</span>
       <span class="row-t"><span class="row-n">${esc(s.name)}</span>${/^photography$/i.test(s.name) && !isLand() ? `<span class="row-d">${alcPhotoCount()} photos</span>` : s.description ? `<span class="row-d">${esc(s.description)}</span>` : ''}</span>
-      <span class="row-p">${inc ? `<span class="inc">Included in ${esc(svc(S.pkg).name)}</span>` : money(s.price)}</span></button>`;
+      <span class="row-p">${inc ? `<span class="inc">Included in ${esc(svc(S.pkg).name)}</span>` : money(svcPrice(s))}</span></button>`;
   };
   const card = s => {
     const inc = cov.has(s.id), sel = S.items.has(s.id);

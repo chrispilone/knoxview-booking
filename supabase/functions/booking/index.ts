@@ -82,6 +82,7 @@ async function loadCatalog() {
   ]);
   return { services: services ?? [], settings: settings! };
 }
+const PHOTO_LARGE_FEE = 25; // à la carte Photography: $225 → $250 over 3,500 sq ft
 type Sel = { packageId?: string | null; serviceIds?: string[]; sqftLabel?: string; adu?: boolean };
 function price(cat: Awaited<ReturnType<typeof loadCatalog>>, sel: Sel) {
   const byId = new Map<string, any>(cat.services.map(s => [s.id, s]));
@@ -98,8 +99,10 @@ function price(cat: Awaited<ReturnType<typeof loadCatalog>>, sel: Sel) {
   }
   if (!items.length) throw new UserError('Choose a package or at least one service.');
   const opt = (cat.settings.sqft_options as { label: string; max: number | null }[]).find(o => o.label === sel.sqftLabel);
-  const large = +cat.settings.large_fee > 0 && (!!sel.adu || (opt ? (opt.max === null || opt.max >= cat.settings.large_sqft) : false));
-  if (large) items.push({ id: 'large', name: cat.settings.large_label, kind: 'fee', price: +cat.settings.large_fee, minutes: cat.settings.large_minutes });
+  const large = !!sel.adu || (opt ? (opt.max === null || opt.max >= cat.settings.large_sqft) : false);
+  // Homes over 3,500 sq ft: packages add the large-home fee ($75); photos-only orders (à la carte Photography, no package) add $25.
+  if (large && pkg && +cat.settings.large_fee > 0) items.push({ id: 'large', name: cat.settings.large_label, kind: 'fee', price: +cat.settings.large_fee, minutes: cat.settings.large_minutes });
+  else if (large && !pkg) { const ph = items.find(i => i.kind === 'service' && /^photography$/i.test(i.name)); if (ph) { ph.price += PHOTO_LARGE_FEE; ph.minutes += 15; } }
   const subtotal = items.reduce((a, i) => a + i.price, 0);
   const minutes = items.reduce((a, i) => a + (i.minutes || 0), 0);
   const twilight = items.some(i => /twilight photos/i.test(i.name)) || (pkg && (pkg.covers ?? []).some((c: string) => /twilight photos/i.test(byId.get(c)?.name ?? '')));
