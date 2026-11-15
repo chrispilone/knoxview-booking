@@ -1060,7 +1060,7 @@ Object.assign(window.kv, {
 });
 
 // Account → Notification Preferences: text messages the client wants (HQ shows and edits the same switches)
-const NT_KEYS = ['sms_appointment_reminders', 'sms_media_delivered', 'sms_news'];
+const NT_KEYS = ['sms_appointment_reminders', 'sms_media_delivered'];
 const NT_NOTE = 'Message and data rates may apply. Reply STOP to any text to opt out, or turn these off here anytime.';
 function vNotify() {
   const n = S.notify || {}, ph = n.phone || (S.pdata?.agent || S.agent || {}).phone, all = NT_KEYS.every(k => n[k]);
@@ -1070,7 +1070,6 @@ function vNotify() {
     ${row('all', 'All notifications', '', 'nt-all')}
     ${row('sms_appointment_reminders', 'Appointment reminders', 'Before each scheduled shoot')}
     ${row('sms_media_delivered', 'Media delivered', 'When your photos, videos and media are ready')}
-    ${row('sms_news', 'News &amp; offers', 'Occasional texts about new services, specials and open dates')}
     <p class="hint nt-msg" id="ntMsg">${ph ? NT_NOTE : 'Add your mobile phone in My Profile to turn on text messages.'}</p>`;
 }
 function vSettings() {
