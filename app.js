@@ -32,7 +32,18 @@ const S = {
 };
 const svc = id => S.services.find(s => s.id === id);
 const isLand = () => S.ptype === 'land';
-const packages = () => S.services.filter(s => s.kind === 'package' && (s.category === 'land') === isLand()).sort((a, b) => a.sort_order - b.sort_order);
+// Custom order page (built in HQ → Order Pages, assigned to this client): its own services and prices, same booking flow
+const isCustom = () => S.ptype === 'custom' && !!S.config?.customPage;
+const PAGE = () => S.config?.customPage || null;
+function useServices() { S.services = isCustom() ? PAGE().services : (S.baseServices || S.services); }
+function applyPage() { // after load / sign-in / sign-out
+  const pg = PAGE();
+  if (!pg && S.ptype === 'custom') { S.ptype = ''; S.pkg = null; S.items = new Set(); S.addr.sqftLabel = ''; }
+  if (pg && !pg.show_default && !S.ptype) S.ptype = 'custom';
+  if (pg && !pg.show_default && ['home', 'land', 'str'].includes(S.ptype)) { S.ptype = 'custom'; S.pkg = null; S.items = new Set(); S.addr.sqftLabel = ''; }
+  useServices();
+}
+const packages = () => S.services.filter(s => s.kind === 'package' && (isCustom() || (s.category === 'land') === isLand())).sort((a, b) => a.sort_order - b.sort_order);
 const LAND_SKIP = /zillow|3d tour|twilight/i; // home-only services hidden for land
 const alacarte = () => S.services.filter(s => s.kind === 'addon' && s.category !== 'addon' && !(isLand() && LAND_SKIP.test(s.name))).sort((a, b) => a.sort_order - b.sort_order);
 // Land size tiers (no price change yet; set a price per tier here later if needed)
@@ -67,7 +78,7 @@ function lines() {
   return out;
 }
 const total = () => lines().reduce((a, l) => a + l.price, 0);
-const selection = () => ({ packageId: S.pkg, serviceIds: [...S.items], sqftLabel: S.addr.sqftLabel, adu: S.adu });
+const selection = () => ({ packageId: S.pkg, serviceIds: [...S.items], sqftLabel: S.addr.sqftLabel, adu: S.adu, pageId: isCustom() ? PAGE().id : null });
 function upsells() {
   const c = inCart(), cov = covered();
   return S.upsells.filter(u => anyOf(u.show_when_any, c) && !anyOf(u.hide_when_any, c) && !cov.has(u.service_id) && svc(u.service_id));
@@ -91,7 +102,7 @@ window.kv = {
   calShift(n) { const first = calFirst(); S.calFrom = dAdd(S.calFrom || first, n); if (S.calFrom < first) S.calFrom = first; S.pickDate = null; render(); calEnsure(); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
   svcTab(t) { S.svcTab = t === 'alc' ? 'alc' : 'pkg'; render(); document.querySelector('.svc-tabs')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); },
-  ptype(t) { if (S.ptype === t) return; S.ptype = t; S.addr.sqftLabel = ''; S.pkg = null; S.items = new Set(); S.adu = false; S.svcTab = 'pkg'; if (t === 'land') S.addr.occupancy = ''; resetSchedule(); render(); setTimeout(() => document.getElementById('o-size')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
+  ptype(t) { if (S.ptype === t) return; S.ptype = t; useServices(); S.addr.sqftLabel = ''; S.pkg = null; S.items = new Set(); S.adu = false; S.svcTab = 'pkg'; if (t === 'land') S.addr.occupancy = ''; resetSchedule(); render(); setTimeout(() => document.getElementById('o-size')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
   size(label) { S.addr.sqftLabel = label; resetSchedule(); render(); if (!inCart().size) setTimeout(() => document.getElementById('o-svc')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
   lbPhoto, lbMedia, lbStep, lbClose, showTerms, upFiles, rmFile, startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
@@ -279,7 +290,8 @@ async function verifyCode(ev) {
   S.busy = false; render();
 }
 function loginBack() { LP().stage = 'enter'; S.error = ''; render(); }
-async function signOut() { await sb.auth.signOut(); S.session = null; S.agent = null; S.pdata = null; S.login = null; S.photo = null; INV.data = null; INV.pdf = {}; INV.dmedia = {}; UI.menu = false; location.hash = '#account'; render(); }
+async function reloadPage() { try { const c = await api('config'); S.config = c; applyPage(); render(); } catch (_) { /* keep what we have */ } }
+async function signOut() { await sb.auth.signOut(); if (S.config) S.config.customPage = null; applyPage(); S.session = null; S.agent = null; S.pdata = null; S.login = null; S.photo = null; INV.data = null; INV.pdf = {}; INV.dmedia = {}; UI.menu = false; location.hash = '#account'; render(); }
 async function loadPortal() {
   S.pdata = { loading: true }; render();
   try { S.pdata = await api('portal'); if (S.pdata.agent) { S.agent = { ...S.agent, ...S.pdata.agent }; fillContact(); } } catch (e) { S.pdata = { error: e.message }; }
@@ -405,19 +417,20 @@ function vServices(inline) {
       <p class="d">For larger homes and properties with extra structures.</p><div class="grid">
       <button class="card sq small-card ${S.adu ? 'sel' : ''}" onclick="kv.toggleAdu()" aria-pressed="${S.adu}"><span class="tick">${CHECK}</span>
       <h3>${esc(st.large_label)}</h3><div class="price">${money(st.large_fee)}</div><div class="meta">Over ${Number(st.large_sqft).toLocaleString()} sq ft, or an ADU / guest house / extra structure</div></button></div></section>` : '';
-  const tab = isLand() ? 'pkg' : (S.svcTab || 'pkg'), nAlc = [...S.items].length;
+  const onlyOne = isCustom() && (!packages().length || !alacarte().length);
+  const tab = isLand() ? 'pkg' : onlyOne ? (packages().length ? 'pkg' : 'alc') : (S.svcTab || 'pkg'), nAlc = [...S.items].length;
   const tabs = `<div class="svc-tabs" role="tablist">
       <button type="button" role="tab" aria-selected="${tab === 'pkg'}" class="${tab === 'pkg' ? 'on' : ''}" onclick="kv.svcTab('pkg')">Packages${S.pkg ? ' <i>1</i>' : ''}</button>
       <button type="button" role="tab" aria-selected="${tab === 'alc'}" class="${tab === 'alc' ? 'on' : ''}" onclick="kv.svcTab('alc')">À La Carte${nAlc ? ` <i>${nAlc}</i>` : ''}</button></div>`;
-  return `${isLand() ? '' : tabs}
-    ${tab === 'pkg' ? `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>${isLand() ? 'Land Media Packages' : 'Listing Media Packages'}</h2></div>
+  return `${isLand() || onlyOne ? '' : tabs}
+    ${tab === 'pkg' ? `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>${isLand() ? 'Land Media Packages' : isCustom() ? esc(PAGE().title) + ' Packages' : 'Listing Media Packages'}</h2></div>
       ${S.pkg ? `<p class="pkg-note">${esc(svc(S.pkg).name)} selected. Tap it again to choose a different package.</p>` : ''}<div class="pkgs">${pk}</div>
-      ${isLand() ? '' : `<p class="svc-switch">Only need one service? <a href="javascript:kv.svcTab('alc')">See à la carte services →</a></p>`}</section>
+      ${isLand() || onlyOne ? '' : `<p class="svc-switch">Only need one service? <a href="javascript:kv.svcTab('alc')">See à la carte services →</a></p>`}</section>
     ${SHOW_UPSELLS && ups ? `<section class="sec">${ups}</section>` : ''}`
     : `<section class="sec"><div class="sec-h"><i style="background:#1f3c66"></i><h2>À La Carte Services</h2></div>
       <p class="d">${S.pkg ? `Add services to your ${esc(svc(S.pkg).name)} package, or book any service on its own.` : 'Need just one thing? Book any service on its own.'} A basic floor plan is included with every photo shoot.</p>
       <div class="list">${alacarte().map(row).join('')}</div>
-      <p class="svc-switch"><a href="javascript:kv.svcTab('pkg')">← Back to packages</a></p></section>`}
+      ${onlyOne ? '' : `<p class="svc-switch"><a href="javascript:kv.svcTab('pkg')">← Back to packages</a></p>`}</section>`}
     ${large}
     ${inline ? '' : `<div class="nav"><button class="btn o" onclick="kv.go(0)">Back</button><button class="btn" onclick="kv.go(2)" ${inCart().size ? '' : 'disabled'}>Continue to schedule</button></div>`}`;
 }
@@ -1499,11 +1512,12 @@ function checkAll() { // before submitting: flag what's missing and jump to it
 const oh = (id, n, title, sub = '') => `<div class="o-h" id="${id}"><span class="o-n">${n}</span><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div></div>`;
 function vOne() {
   const a = S.addr, st = S.config.settings, land = isLand(), opts = land ? ACRE_OPTIONS : (st.sqft_options || []);
+  const pg = PAGE();
   const tRow = (t, name, sub) => `<button class="tcard ${S.ptype === t ? 'sel' : ''}" onclick="kv.ptype('${t}')" aria-pressed="${S.ptype === t}">
-      <span class="tc-img"><img src="/img/type-${t === 'home' ? 'listing' : t}.jpg?v=2" alt="" decoding="async"><span class="tick">${CHECK}</span></span>
+      <span class="tc-img">${t === 'custom' ? (pg.cover_url ? `<img src="${esc(pg.cover_url)}" alt="" decoding="async">` : `<span class="tc-ph">${esc(pg.title)}</span>`) : `<img src="/img/type-${t === 'home' ? 'listing' : t}.jpg?v=2" alt="" decoding="async">`}<span class="tick">${CHECK}</span></span>
       <span class="tc-n">${name}</span></button>`;
   const type = `<section class="o-sec">${oh('o-type', 1, 'Choose your media')}
-    <div class="tcards">${tRow('home', 'Listing Media', '')}${tRow('land', 'Land Media', '')}${tRow('str', 'STR Media', '')}</div>
+    <div class="tcards${pg && pg.show_default ? ' four' : ''}">${pg ? tRow('custom', esc(pg.title), '') : ''}${!pg || pg.show_default ? tRow('home', 'Listing Media', '') + tRow('land', 'Land Media', '') + tRow('str', 'STR Media', '') : ''}</div>
     ${S.ptype === 'str' ? `<div class="soon"><b>Short-term rental media is coming soon.</b> Text us at <a href="${SMS_LINK}">865-855-5669</a> and we'll set up your shoot.</div>` : ''}</section>`;
   if (S.ptype === 'str') return type;
   const haveSvc = inCart().size > 0, aOk = addrOk();
@@ -1646,7 +1660,7 @@ window.addEventListener('hashchange', route);
       [svcs, ups, cfg, sess] = await load();
     }
     if (svcs.error) throw svcs.error;
-    S.services = svcs.data; S.upsells = ups.data || []; S.config = cfg; S.session = sess.data.session;
+    S.services = S.baseServices = svcs.data; S.upsells = ups.data || []; S.config = cfg; S.session = sess.data.session; applyPage();
     if (cfg.stripe?.mode === 'test') $('testbar').hidden = false;
     if (S.session) {
       const l = await api('link').catch(() => ({}));
@@ -1654,7 +1668,7 @@ window.addEventListener('hashchange', route);
     }
     sb.auth.onAuthStateChange((_e, session) => {
       const was = !!S.session; S.session = session;
-      if (session && !was) { api('link').then(l => { S.agent = l.agent; fillContact(); route(); loadPhoto(); }).catch(() => route()); }
+      if (session && !was) { api('link').then(l => { S.agent = l.agent; fillContact(); route(); loadPhoto(); }).catch(() => route()); reloadPage(); }
     });
     S.loading = false;
     // Returning from a bank redirect (3-D Secure etc.)

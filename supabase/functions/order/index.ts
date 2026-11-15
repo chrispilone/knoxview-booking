@@ -25,7 +25,7 @@ const localDate = (d: Date, tz: string) => new Intl.DateTimeFormat('en-CA', { ti
 
 async function booking(req: Request, payload: Record<string, unknown>) { // ask the booking function (same pricing + availability rules)
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/booking`, { method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: `Bearer ${env('SUPABASE_ANON_KEY')}`, Origin: req.headers.get('origin') ?? ORIGINS[0] },
+    headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: /^Bearer\s+\S+\.\S+\.\S+$/i.test(req.headers.get('Authorization') || '') ? req.headers.get('Authorization')! : `Bearer ${env('SUPABASE_ANON_KEY')}`, Origin: req.headers.get('origin') ?? ORIGINS[0] },
     body: JSON.stringify(payload) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Bad(d.error || 'Something went wrong. Please try again or call 865-855-5669.', r.status);
@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors(req) });
   try {
     const body = await req.json().catch(() => ({}));
-    const sel = { packageId: body.packageId ?? null, serviceIds: Array.isArray(body.serviceIds) ? body.serviceIds : [], sqftLabel: body.sqftLabel, adu: !!body.adu };
+    const sel = { packageId: body.packageId ?? null, serviceIds: Array.isArray(body.serviceIds) ? body.serviceIds : [], sqftLabel: body.sqftLabel, adu: !!body.adu, pageId: body.pageId ? String(body.pageId) : null };
     const a = body.address ?? {}, c = body.contact ?? {};
     const need = (v: unknown, label: string) => { if (!String(v ?? '').trim()) throw new Bad(`${label} is required.`); return String(v).trim().slice(0, 300); };
     const street = need(a.street, 'Street address'), city = need(a.city, 'City'), state = need(a.state, 'State'), zip = need(a.zip, 'ZIP');
@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
       occupancy: a.occupancy || null, access_notes: a.access ? String(a.access).slice(0, 2000) : null, notes: c.notes ? String(c.notes).slice(0, 2000) : null, client_files: cleanFiles(a.files),
       items: q.items, subtotal: q.subtotal, tax: q.tax, total: q.total,
       shoot_start: start.toISOString(), shoot_end: new Date(+start + q.minutes * 60000).toISOString(), duration_min: q.minutes,
-      payment_option: 'pay_later', stripe_livemode: live,
+      payment_option: 'pay_later', stripe_livemode: live, order_page_id: sel.pageId,
     }).select('*').single();
     if (error) throw error;
     await addToCalendar(b).catch(e => console.error('calendar', String(e)));

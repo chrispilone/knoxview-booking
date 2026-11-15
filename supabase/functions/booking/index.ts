@@ -80,12 +80,37 @@ const localDate = (d: Date, tz: string) => new Intl.DateTimeFormat('en-CA', { ti
 const weekday = (date: string) => new Date(date + 'T12:00:00Z').getUTCDay();
 
 /* ---------------- Catalog + pricing ---------------- */
-async function loadCatalog() {
+async function loadCatalog(pageId: string | null = null) {
   const [{ data: services }, { data: settings }] = await Promise.all([
-    admin.from('booking_services').select('*').eq('active', true).eq('public', true),
+    pageId ? Promise.resolve({ data: await pageServices(pageId) }) : admin.from('booking_services').select('*').eq('active', true).eq('public', true),
     admin.from('booking_settings').select('*').eq('id', 1).single(),
   ]);
   return { services: services ?? [], settings: settings! };
+}
+// Custom order pages (built in HQ → Order Pages, assigned to agents). A page lists its own services: default ones at
+// their normal price or a custom price, plus services made only for that page (not bookable on the default page).
+async function pageServices(pageId: string) {
+  const { data: items } = await admin.from('custom_order_page_items').select('service_id, price, sort_order').eq('page_id', pageId);
+  const ids = (items ?? []).map(i => i.service_id);
+  if (!ids.length) return [];
+  const { data: svcs } = await admin.from('booking_services').select('*').in('id', ids).eq('active', true);
+  const by = new Map((items ?? []).map(i => [i.service_id, i]));
+  return (svcs ?? []).map(s => { const it = by.get(s.id)!; return { ...s, price: it.price ?? s.price, list_price: s.price, sort_order: it.sort_order ?? s.sort_order }; });
+}
+async function myPage(req: Request) { // the signed-in client's custom order page, if they have one
+  const user = await userFrom(req); if (!user) return null;
+  const { data: agent } = await admin.from('agents').select('custom_order_page_id').eq('auth_user_id', user.id).maybeSingle();
+  if (!agent?.custom_order_page_id) return null;
+  const { data: page } = await admin.from('custom_order_pages').select('id, title, cover_url, show_default').eq('id', agent.custom_order_page_id).eq('active', true).maybeSingle();
+  return page ?? null;
+}
+// Catalog for this request: the default one, or the client's custom page (only if it's really assigned to them)
+async function catalogFor(req: Request, body: any) {
+  const pageId = body?.pageId ? String(body.pageId) : null;
+  if (!pageId) return { cat: await loadCatalog(), pageId: null };
+  const page = await myPage(req);
+  if (!page || page.id !== pageId) throw new UserError('This order page is not available on your account. Please sign in again or call 865-855-5669.', 403);
+  return { cat: await loadCatalog(pageId), pageId };
 }
 const PHOTO_LARGE_FEE = 25; // à la carte Photography: $225 → $250 over 3,500 sq ft
 type Sel = { packageId?: string | null; serviceIds?: string[]; sqftLabel?: string; adu?: boolean };
@@ -297,23 +322,26 @@ async function handle(req: Request) {
       const { data: s } = await admin.from('booking_settings').select('payment_options, sqft_options, large_sqft, large_fee, large_label, timezone').eq('id', 1).single();
       const mode = stripeMode(), pk = LIVE ? KEYS.live.pk : KEYS.test.pk;
       const pkOk = LIVE ? pk.startsWith('pk_live_') : pk.startsWith('pk_test_');
-      return json(req, { stripe: { mode, publishableKey: (mode === 'test' || mode === 'live') && pkOk ? pk : null }, settings: s });
+      const page = await myPage(req).catch(() => null);
+      const customPage = page ? { ...page, services: (await pageServices(page.id)).map(x => ({ id: x.id, kind: x.kind, name: x.name, description: x.description, includes: x.includes, price: +x.price, list_price: +x.list_price,
+        duration_min: x.duration_min, covers: x.covers, badge: x.badge, sort_order: x.sort_order, category: x.category })) } : null;
+      return json(req, { stripe: { mode, publishableKey: (mode === 'test' || mode === 'live') && pkOk ? pk : null }, settings: s, customPage });
     }
 
     if (action === 'quote') {
-      const cat = await loadCatalog();
+      const { cat } = await catalogFor(req, body);
       return json(req, price(cat, body));
     }
 
     if (action === 'slots') {
-      const cat = await loadCatalog();
+      const { cat } = await catalogFor(req, body);
       const q = price(cat, body);
       return json(req, { minutes: q.minutes, ...(await slots(cat, q.minutes, body.from, Number(body.days) || 14)) });
     }
 
     if (action === 'create') {
       if (!['test', 'live'].includes(stripeMode())) throw new UserError('Online payments are not switched on yet. Please call 865-855-5669 to book.', 503);
-      const cat = await loadCatalog();
+      const { cat, pageId } = await catalogFor(req, body);
       const q = price(cat, body);
       const a = body.address ?? {}, c = body.contact ?? {};
       const need = (v: unknown, label: string) => { if (!String(v ?? '').trim()) throw new UserError(`${label} is required.`); return String(v).trim().slice(0, 300); };
@@ -350,7 +378,7 @@ async function handle(req: Request) {
         occupancy: a.occupancy || null, access_notes: a.access ? String(a.access).slice(0, 2000) : null, notes: c.notes ? String(c.notes).slice(0, 2000) : null, client_files: cleanFiles(a.files),
         items: q.items, subtotal: q.subtotal, tax: q.tax, total: q.total,
         shoot_start: start.toISOString(), shoot_end: new Date(+start + q.minutes * 60000).toISOString(), duration_min: q.minutes,
-        payment_option: payOpt, stripe_customer_id: customer, stripe_livemode: LIVE,
+        payment_option: payOpt, stripe_customer_id: customer, stripe_livemode: LIVE, order_page_id: pageId,
       }).select('*').single();
       if (error) throw error;
 
