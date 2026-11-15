@@ -4,6 +4,11 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 // media is delivered (downloads stay locked until paid). Price and the open time slot come from the `booking`
 // function itself, so this can never disagree with checkout; this function only saves the order and adds it to the calendar.
 
+// Files the client uploaded with the order (e.g. a tax map for land), already in the private order-files bucket
+const cleanFiles = (v: unknown) => (Array.isArray(v) ? v : []).slice(0, 5)
+  .filter((f: any) => f && /^land\/[0-9a-f-]{36}\/[^/]{1,140}$/.test(String(f.path)))
+  .map((f: any) => ({ path: String(f.path), name: String(f.name || '').slice(0, 140), size: Number(f.size) || null, type: String(f.type || '').slice(0, 80) }));
+
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 const env = (k: string) => (Deno.env.get(k) ?? '').trim();
 const G_ID = env('GOOGLE_CLIENT_ID'), G_SECRET = env('GOOGLE_CLIENT_SECRET');
@@ -66,7 +71,7 @@ async function addToCalendar(b: Record<string, any>) {
   const ev = {
     summary: `${b.stripe_livemode ? '' : 'TEST '}📸 #${b.number} ${b.address}`,
     location: [b.address, b.unit, b.city, b.state, b.zip].filter(Boolean).join(', '),
-    description: `Booked online${b.stripe_livemode ? '' : ' (TEST booking)'} · PAY ON DELIVERY\n\nClient: ${b.client_name} · ${b.client_phone} · ${b.client_email}\nServices: ${items}\nSize: ${b.sqft_label ?? ''}${b.large_property ? ' (large property)' : ''}\nOccupancy: ${b.occupancy ?? ''}\nAccess: ${b.access_notes ?? ''}\nNotes: ${b.notes ?? ''}\nTotal: $${b.total} · due on delivery`,
+    description: `Booked online${b.stripe_livemode ? '' : ' (TEST booking)'} · PAY ON DELIVERY\n\nClient: ${b.client_name} · ${b.client_phone} · ${b.client_email}\nServices: ${items}\nSize: ${b.sqft_label ?? ''}${b.large_property ? ' (large property)' : ''}\nOccupancy: ${b.occupancy ?? ''}\nAccess: ${b.access_notes ?? ''}\nNotes: ${b.notes ?? ''}${(b.client_files ?? []).length ? `\nFiles: ${b.client_files.length} attached (open the order in HQ)` : ''}\nTotal: $${b.total} · due on delivery`,
     start: { dateTime: b.shoot_start }, end: { dateTime: b.shoot_end },
     extendedProperties: { private: { kv_booking: b.id } },
   };
@@ -106,7 +111,7 @@ Deno.serve(async (req) => {
       client_name: `${first} ${last}`, client_email: email.toLowerCase(), client_phone: phone,
       address: street, unit: a.unit ? String(a.unit).slice(0, 60) : null, city, state, zip,
       sqft: q.sqft, sqft_label: a.sqftLabel ?? null, large_property: q.large,
-      occupancy: a.occupancy || null, access_notes: a.access ? String(a.access).slice(0, 2000) : null, notes: c.notes ? String(c.notes).slice(0, 2000) : null,
+      occupancy: a.occupancy || null, access_notes: a.access ? String(a.access).slice(0, 2000) : null, notes: c.notes ? String(c.notes).slice(0, 2000) : null, client_files: cleanFiles(a.files),
       items: q.items, subtotal: q.subtotal, tax: q.tax, total: q.total,
       shoot_start: start.toISOString(), shoot_end: new Date(+start + q.minutes * 60000).toISOString(), duration_min: q.minutes,
       payment_option: 'pay_later', stripe_livemode: live,

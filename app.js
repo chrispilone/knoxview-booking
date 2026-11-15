@@ -23,7 +23,7 @@ const S = {
   view: 'book', step: 0, loading: true, error: '',
   services: [], upsells: [], config: null, session: null, agent: null,
   pkg: null, items: new Set(), adu: false, ptype: '', // ptype: 'home' | 'land'
-  addr: { street: '', unit: '', city: '', state: 'TN', zip: '', sqftLabel: '', occupancy: '', access: '' },
+  addr: { street: '', unit: '', city: '', state: 'TN', zip: '', sqftLabel: '', occupancy: '', access: '', files: [] },
   slots: null, slotsFrom: null, slotsLoading: false, start: null, startLabel: '',
   contact: { first: '', last: '', email: '', phone: '', brokerage: '', notes: '' },
   payOpt: 'save_card', errors: {}, busy: false,
@@ -93,7 +93,7 @@ window.kv = {
   svcTab(t) { S.svcTab = t === 'alc' ? 'alc' : 'pkg'; render(); document.querySelector('.svc-tabs')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); },
   ptype(t) { if (S.ptype === t) return; S.ptype = t; S.addr.sqftLabel = ''; S.pkg = null; S.items = new Set(); S.adu = false; S.svcTab = 'pkg'; if (t === 'land') S.addr.occupancy = ''; resetSchedule(); render(); setTimeout(() => document.getElementById('o-size')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
   size(label) { S.addr.sqftLabel = label; resetSchedule(); render(); if (!inCart().size) setTimeout(() => document.getElementById('o-svc')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
-  lbPhoto, lbMedia, lbStep, lbClose, showTerms, startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
+  lbPhoto, lbMedia, lbStep, lbClose, showTerms, upFiles, rmFile, startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
 
 function go(n) {
@@ -145,7 +145,7 @@ async function submitOrder() {
   if (!checkAll()) return;
   S.busy = true; S.error = ''; S.payOpt = 'pay_later'; render();
   try {
-    S.done = await api('submit', { ...selection(), start: S.start, address: S.addr, contact: S.contact }, 'order');
+    S.done = await api('submit', { ...selection(), start: S.start, address: addrOut(), contact: S.contact }, 'order');
     S.view = 'done'; S.checkout = null; history.replaceState(null, '', '/');
   } catch (e) {
     S.error = e.message;
@@ -161,7 +161,7 @@ async function startCheckout() {
   S.busy = true; S.error = ''; render();
   try {
     const r = await api('create', { ...selection(), start: S.start, paymentOption: S.payOpt,
-      address: S.addr, contact: S.contact });
+      address: addrOut(), contact: S.contact });
     S.checkout = r;
     render();
     const elements = stripe.elements({ clientSecret: r.clientSecret, appearance });
@@ -396,6 +396,38 @@ function vServices(inline) {
     ${large}
     ${inline ? '' : `<div class="nav"><button class="btn o" onclick="kv.go(0)">Back</button><button class="btn" onclick="kv.go(2)" ${inCart().size ? '' : 'disabled'}>Continue to schedule</button></div>`}`;
 }
+// ===== Land: attach a tax map / plat / survey to the order (private storage; shows on the order in HQ) =====
+const UP = { busy: 0, err: '' };
+const fmtSize = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+function vUpload() {
+  const fs = S.addr.files || [];
+  return `<div class="full upl"><label>Tax map or plat <span class="upl-opt">(optional)</span></label>
+    <p class="upl-d">Attach the tax record map, plat or survey that shows which lot it is.</p>
+    ${fs.map((f, i) => `<div class="upl-f"><span>📎 ${esc(f.name)}</span><small>${fmtSize(f.size || 0)}</small><button type="button" onclick="kv.rmFile(${i})" aria-label="Remove ${esc(f.name)}">&times;</button></div>`).join('')}
+    ${UP.busy ? `<div class="upl-f busy"><span class="spin"></span><span>Uploading…</span></div>` : ''}
+    ${fs.length < 5 ? `<label class="upl-btn"><input type="file" accept=".pdf,image/*" multiple onchange="kv.upFiles(this)">+ Attach a file</label><small class="upl-h">PDF or photo, up to 15 MB</small>` : ''}
+    ${UP.err ? `<div class="msg err">${esc(UP.err)}</div>` : ''}</div>`;
+}
+async function upFiles(input) {
+  const list = [...(input.files || [])].slice(0, 5 - (S.addr.files || []).length); input.value = '';
+  UP.err = '';
+  for (const file of list) {
+    if (file.size > 15 * 1048576) { UP.err = `${file.name} is over 15 MB.`; continue; }
+    if (!/^(application\/pdf|image\/)/.test(file.type || '') && !/\.(pdf|jpe?g|png|heic|heif|webp|gif)$/i.test(file.name)) { UP.err = `${file.name}: please attach a PDF or a photo.`; continue; }
+    UP.busy++; render();
+    const id = crypto.randomUUID?.() || ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c => (c ^ Math.random() * 16 >> c / 4).toString(16));
+    const name = file.name.replace(/[^\w.\- ]+/g, '').replace(/\s+/g, '-').slice(-100) || 'file';
+    const path = `land/${id}/${name}`;
+    const { error } = await sb.storage.from('order-files').upload(path, file, { contentType: file.type || undefined, upsert: false });
+    UP.busy--;
+    if (error) UP.err = `Couldn't upload ${file.name}. Please try again.`;
+    else (S.addr.files = S.addr.files || []).push({ path, name: file.name, size: file.size, type: file.type });
+    render();
+  }
+}
+function rmFile(i) { S.addr.files.splice(i, 1); render(); }
+// What the order sends for the address: land orders label the Parcel ID; only land orders send files
+const addrOut = () => ({ ...S.addr, unit: isLand() && S.addr.unit ? `Parcel ID ${S.addr.unit}` : S.addr.unit, files: isLand() ? (S.addr.files || []) : [] });
 function field(key, label, obj, opt = {}) {
   const v = S[obj][key] || '', req = opt.req !== false, err = S.errors[key] ? 'err' : '';
   const a = `data-o="${obj}" data-k="${key}"`;
@@ -1183,12 +1215,13 @@ function vOne() {
   const addr = a.sqftLabel && haveSvc ? `<section class="o-sec">${oh('o-addr', nA, 'Property address')}
     <div class="panel"><div class="fg pairs">
       ${field('street', 'Street address', 'addr', { full: true, ph: 'Start typing the address', ac: 'off' })}
-      ${field('unit', 'Unit / Lot', 'addr', { req: false, ph: 'Optional', ac: 'address-line2' })}
+      ${land ? field('unit', 'Parcel ID', 'addr', { req: false, ph: 'Optional', ac: 'off' }) : field('unit', 'Unit / Lot', 'addr', { req: false, ph: 'Optional', ac: 'address-line2' })}
       ${field('city', 'City', 'addr', { ph: 'Knoxville', ac: 'address-level2' })}
       ${field('state', 'State', 'addr', { pair: true, options: ['TN', 'NC', 'GA', 'KY', 'VA'] })}
       ${field('zip', 'ZIP', 'addr', { pair: true, ph: '37902', im: 'numeric', ac: 'postal-code' })}
       ${land ? '' : field('occupancy', 'Occupancy', 'addr', { req: false, options: ['Vacant', 'Owner occupied', 'Tenant occupied'], ph: 'Select (optional)' })}
       ${field('access', 'Access notes', 'addr', { full: true, req: false, area: true, ph: land ? 'Gate code, where to park, corners or boundary markers, who will be there…' : 'Lockbox code, gate code, pets, who will be there…' })}
+      ${land ? vUpload() : ''}
     </div></div></section>` : '';
   const time = a.sqftLabel && haveSvc && aOk ? `<section class="o-sec">${oh('o-time', nA + 1, 'Pick a time')}${vSchedule(true)}</section>` : '';
   const you = a.sqftLabel && haveSvc && aOk && S.start ? `<section class="o-sec" id="o-you">${vReview(true)}</section>` : '';
