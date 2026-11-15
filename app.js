@@ -93,7 +93,7 @@ window.kv = {
   svcTab(t) { S.svcTab = t === 'alc' ? 'alc' : 'pkg'; render(); document.querySelector('.svc-tabs')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); },
   ptype(t) { if (S.ptype === t) return; S.ptype = t; S.addr.sqftLabel = ''; S.pkg = null; S.items = new Set(); S.adu = false; S.svcTab = 'pkg'; if (t === 'land') S.addr.occupancy = ''; resetSchedule(); render(); setTimeout(() => document.getElementById('o-size')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
   size(label) { S.addr.sqftLabel = label; resetSchedule(); render(); if (!inCart().size) setTimeout(() => document.getElementById('o-svc')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
-  lbPhoto, lbMedia, lbStep, lbClose, startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
+  lbPhoto, lbMedia, lbStep, lbClose, showTerms, startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
 
 function go(n) {
@@ -311,6 +311,11 @@ function vExample(id) {
     <div class="ex-h"><span>Example of what you get</span><span class="ex-hint">Tap to view</span></div>
     <div class="ex-s">${leads}${e.imgs.map(([n, c], k) => tile(n, c, k)).join('')}</div></div>`;
 }
+
+// ===== Terms & Conditions (Chris's wording, shown in the on-page viewer and at /terms.html) =====
+const TERMS = {"title": "Rights and Usage", "sections": [["Grant of Rights", "You hereby grant to Knox View Media LLC, and its affiliates, contractors, commercial partners, licensees, successors and assigns a non-exclusive, perpetual, fully transferable, sublicensable worldwide right and license, to create, reproduce, display, transmit, and distribute the Work through any and all media now known or hereinafter developed. The \"Work\" is defined as photo(s), video(s), and/or 3D content, floor plans, graphics, audio, animation, constituent files, and other visual content of the property produced under these terms including any derivative works created therefrom. Any and all rights not expressly granted here are reserved to Knox View Media LLC, including copyright and ownership rights in the Work. Knox View Media LLC reserves the right to use the Work for the company's portfolio, samples, self-promotions, entry in contests or exhibitions, editorial use, or for display within or on the outside of Knox View Media LLC's premises. Knox View Media LLC further reserves the right to assign, transfer, license, distribute, or syndicate the Work and any and all rights in the Work to its commercial partners. Except as explicitly set forth in Section 5 herein, You have no ownership rights in the work and no right to sell or license the Work to any third party or copy, modify, reproduce, or create derivatives of the Work without the prior written consent of Knox View Media LLC."], ["Usage Rights", "In exchange for the Grant of Rights set forth herein, Knox View Media LLC grants to You the right to use the images created from the Work and provided to you by Knox View Media LLC for purposes of marketing and promoting the Property, promoting Your real estate business and/or the listing(s), Your brokerage(s), and/or Your business(es) (\"Your License\"). Your License is non-exclusive, non-transferable, covers all territories and media, and is for an unlimited time on websites owned by You. You may authorize third-party websites such as, but not limited to, Multiple Listing Service (MLS) or real estate listing portal websites to display said content solely for the purpose of advertising the subject listing, for as long as said listing is actively listed for sale by that listing agent. Your authorization to third-party websites will automatically expire once said listing is no longer available for sale or any relevant listing agreement between the Property owner and the listing agent has ended, whichever comes first."], ["Releases, Licenses, and Authorizations", "By contracting with Knox View Media LLC to produce the Work, You warrant and represent that You are authorized to enter into this Agreement with regard to the Property and You certify that You have obtained all appropriate and necessary releases, permissions, waivers, licenses and/or authorizations (hereinafter \"Clearances\") for the Grant of Rights and Usage Rights set forth in these Terms and Conditions, including but not limited Clearances from the owner of the Property and any other owners of intellectual property rights contained in, on, or around the Property and captured as part of the Work, including the underlying architectural work. You further warrant and represent that the Property owner and any occupants of the Property have waived any expectation of privacy rights in relation to the images captured and distributed in accordance with the grant of rights hereunder. You agree to indemnify and hold harmless Knox View Media LLC against any and all claims, costs, and expenses, including attorney's fees, due to uses of the Work for which You did not obtain the appropriate Clearance including uses that exceeded the Clearances actually obtained by You."], ["Indemnification/Hold Harmless", "You shall also indemnify and hold Knox View Media LLC, its officers, members, employees, contractors, licensees, sublicensees, agents, successors and assigns harmless from and against any and all liability, claims, injuries, damages, loss, expense, (including court costs and reasonable attorneys' fees) resulting from the performance of this Agreement, or any distribution or use of the Work created hereunder resulting from Your breach of any warranties, representations or certifications hereunder, or resulting from Your negligent or intentional acts or omissions and/or those of Your officers, agents, independent contractors, employees, family members, invitees, licensors, the Property owner, and/or guests."]]};
+function termsHtml() { return `<h2>Terms &amp; Conditions</h2><h3>${esc(TERMS.title)}</h3>${TERMS.sections.map(([h, p]) => `<h4>${esc(h)}</h4><p>${esc(p)}</p>`).join('')}`; }
+function showTerms() { lbOpen(`<div class="lb-doc">${termsHtml()}</div>`, 'doc'); }
 // ----- viewer (lightbox) -----
 const LB = { el: null, list: [], i: 0 };
 function lbOpen(html, cls) {
@@ -526,7 +531,8 @@ function vReview(inline) {
                <small>Payment upon delivery</small></div>
              <button class="btn o" onclick="kv.startCheckout()" ${S.busy ? 'disabled' : ''}>${S.busy && S.payOpt === 'pay_now' ? '<span class="spin"></span>' : 'Pay Now and Submit Order'}</button>
            </div>`}
-    </div>`;
+    </div>
+    <p class="terms-note">By submitting an order, you agree to our <a href="javascript:kv.showTerms()">Terms &amp; Conditions</a>.</p>`;
 }
 function vDone() {
   const d = S.done || {};
@@ -692,7 +698,7 @@ function vLanding() {
         <div class="lp-card">${tab === 'price' ? '' : '<div class="lp-cardh">Client login</div>'}
           <div class="lp-body">${tab === 'price' ? vLandingPrice() : vLandingSignin()}</div>
         </div>
-        <p class="lp-foot">Questions? Call or text <a href="tel:+18658555669">865-855-5669</a></p>
+        <p class="lp-foot">Questions? Call or text <a href="tel:+18658555669">865-855-5669</a><br><a class="lp-terms" href="javascript:kv.showTerms()">Terms &amp; Conditions</a></p>
       </div>
     </div>
     <aside class="lp-photo"><div class="lp-cap"><b>Knox View Real Estate Media</b><span>Photo · Video · Drone · 3D tours<br>Knoxville &amp; the Smokies</span></div></aside>

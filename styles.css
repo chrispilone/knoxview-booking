@@ -772,3 +772,12 @@ a.lp-book:hover{color:#fff}
 .ad-x{padding-top:6px;padding-bottom:18px;gap:14px}
 .ad-x p{margin-top:2px;font-size:13px;line-height:1.6}
 @media (max-width:480px){.ad-x{gap:10px}.ad-x p{margin-top:0}}
+/* terms */
+.terms-note{margin:12px 0 0;text-align:center;font-size:12.5px;color:var(--muted,#6b7a8d)}
+.terms-note a,.lp-terms{color:var(--headline,#1d3250);font-weight:600}
+.lp-terms{display:inline-block;margin-top:6px;font-size:.85rem}
+.lb-doc{background:#fff;width:min(720px,92vw);max-height:80vh;overflow:auto;-webkit-overflow-scrolling:touch;padding:28px 26px 30px;box-shadow:0 20px 60px rgba(0,0,0,.45);color:#3d4c5f;font-size:14px;line-height:1.65;text-align:left}
+.lb-doc h2{margin:0 0 2px;font-family:'Cormorant Garamond',Georgia,serif;font-weight:500;font-size:1.9rem;color:#1d3250;text-transform:none;letter-spacing:0}
+.lb-doc h3{margin:0 0 18px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#5f7389;font-weight:600}
+.lb-doc h4{margin:18px 0 4px;font-size:14px;color:#1d3250}
+.lb-doc p{margin:0}
