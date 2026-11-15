@@ -256,13 +256,15 @@ async function verifyCode(ev) {
   S.busy = false; render();
 }
 function loginBack() { LP().stage = 'enter'; S.error = ''; render(); }
-async function signOut() { await sb.auth.signOut(); S.session = null; S.agent = null; S.pdata = null; S.login = null; S.photo = null; UI.menu = false; location.hash = '#account'; render(); }
+async function signOut() { await sb.auth.signOut(); S.session = null; S.agent = null; S.pdata = null; S.login = null; S.photo = null; INV.data = null; INV.pdf = {}; INV.dmedia = {}; UI.menu = false; location.hash = '#account'; render(); }
 async function loadPortal() {
   S.pdata = { loading: true }; render();
   try { S.pdata = await api('portal'); if (S.pdata.agent) { S.agent = { ...S.agent, ...S.pdata.agent }; fillContact(); } } catch (e) { S.pdata = { error: e.message }; }
   render();
 }
 async function payBooking(id) {
+  const num = (S.pdata?.bookings || []).find(b => b.id === id)?.number || invAll().find(i => i.id === id)?.number || (D.key === id ? D.data?.head?.number : null);
+  if (num) return invPay([num]);
   if (!stripeReady()) { alertModal('Online payments are not switched on yet.'); return; }
   try {
     const r = await api('pay', { bookingId: id });
@@ -755,6 +757,8 @@ const I = {
   again: '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+  filter: '<path d="M3 4h18l-7 8.5V19l-4 2v-8.5z"/>',
   out: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
@@ -830,30 +834,164 @@ function empty(text, cta) {
   return `<div class="empty-st">${ic(I.none, 64)}<p>${esc(text)}</p>${cta ? '<a class="btn" href="#order" style="text-decoration:none">Order now</a>' : ''}</div>`;
 }
 
-function invoicesAll() {
-  const bk = (S.pdata?.bookings || []);
-  const pend = bk.filter(b => !b.paid), paid = bk.filter(b => b.paid);
+/* ================= invoices (Spiro-style) =================
+   Data comes from the `invoices` function: each order is an invoice. Credits are added in HQ and used up first
+   when the client pays. Detail page: #invoices/<number> (media preview, download page, PDF, email). */
+const INV = (S.inv = { data: null, loading: false, error: '', range: 'all', pdf: {}, dmedia: {} });
+const money2 = n => (n < 0 ? '-' : '') + '$' + Math.abs(+n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtInv = d => d ? new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: '2-digit', year: 'numeric' }) : '—';
+async function loadInvoices(quiet) {
+  if (!quiet) { INV.loading = true; INV.error = ''; render(); }
+  try { INV.data = await api('list', {}, 'invoices'); INV.error = ''; INV.pdf = {}; } catch (e) { INV.error = e.message; } // PDFs are rebuilt from live data, so drop cached copies
+  INV.loading = false; render();
+}
+const invAll = () => INV.data?.invoices || [];
+const invFind = n => invAll().find(i => String(i.number) === String(n));
+function invRows() {
+  const all = invAll(), pend = all.filter(i => !i.paid), paid = all.filter(i => i.paid);
   const q = UI.iq.trim().toLowerCase().replace(/^#/, '');
-  const f = list => q ? list.filter(b => `${b.number} ${b.address} ${b.city || ''} ${(b.items || []).map(i => i.name).join(' ')}`.toLowerCase().includes(q)) : list;
-  return { pend, paid, rows: f(UI.itab === 'paid' ? paid : pend) };
+  const since = { '30': 30, '90': 90, 'year': 365 }[INV.range];
+  let rows = UI.itab === 'paid' ? paid : pend;
+  if (since) rows = rows.filter(i => Date.parse(i.invoice_date) > Date.now() - since * 864e5);
+  if (q) rows = rows.filter(i => `${i.number} ${i.address} ${i.place} ${i.items.map(x => x.name).join(' ')}`.toLowerCase().includes(q));
+  return { pend, paid, rows };
+}
+function invActs(i) {
+  return `<div class="iacts"><a class="iact" href="#invoices/${i.number}" title="View invoice & media" aria-label="View invoice ${i.number}">${ic(I.eye)}</a>
+    <button class="iact" onclick="kv.invPdf(${i.number},'download')" title="Download PDF" aria-label="Download invoice ${i.number} as PDF">${ic(I.dl)}</button>
+    <button class="iact" onclick="kv.invEmail(${i.number})" title="Email invoice" aria-label="Email invoice ${i.number}">${ic(I.mail)}</button></div>`;
 }
 function vInvoices() {
-  const { pend, paid, rows } = invoicesAll();
-  const due = pend.reduce((a, b) => a + +b.total, 0), paidSum = paid.reduce((a, b) => a + +b.total, 0);
-  const onFile = pend.filter(b => b.payment_status === 'card_saved').length;
-  const payPill = b => b.paid ? '<span class="pill g">Paid</span>' : b.payment_status === 'card_saved' ? '<span class="pill">Card on file</span>' : b.payment_status === 'processing' ? '<span class="pill">Processing</span>' : `<span class="pill w">${b.payment_status === 'failed' ? 'Payment failed' : 'Unpaid'}</span>`;
-  const head = `<div class="ptools">
-    <div class="tabs"><button class="${UI.itab === 'pending' ? 'on' : ''}" onclick="kv.ui('itab','pending')">${ic(I.inv)}Pending<span class="t-long">&nbsp;invoices</span>${pend.length ? ` <i>${pend.length}</i>` : ''}</button><button class="${UI.itab === 'paid' ? 'on' : ''}" onclick="kv.ui('itab','paid')">${ic(I.table)}Paid<span class="t-long">&nbsp;invoices</span></button></div>
-    <div class="bal"><div><small>Balance due</small><b>${money(due)}</b></div><div><small>Card on file</small><b>${onFile}</b></div><div><small>Paid to date</small><b>${money(paidSum)}</b></div></div>
-    <div class="srch">${ic(I.search, 16)}<input id="iq" type="search" placeholder="Search" value="${esc(UI.iq)}" oninput="kv.search('iq',this.value,'iq')"></div></div>
-    ${onFile && UI.itab === 'pending' ? '<p class="hint" style="margin:-6px 0 14px">Orders with a card on file are charged automatically when your media is delivered. You can also pay any of them now.</p>' : ''}`;
-  if (!rows.length) return head + empty(UI.iq ? 'No invoices match your search.' : UI.itab === 'paid' ? 'No paid invoices yet.' : "You're all paid up. No pending invoices.", false);
-  return head + `<div class="tbl-w"><table class="tbl"><thead><tr><th>Invoice</th><th>Property</th><th>Shoot date</th><th>Services</th><th class="r">Amount</th><th>Status</th><th></th></tr></thead><tbody>
-    ${rows.map(b => `<tr><td><b>#${esc(b.number)}</b></td><td>${esc(b.address)}${b.unit ? ', ' + esc(b.unit) : ''}<div class="hint">${esc(b.city || '')}</div></td>
-      <td>${esc(fmtShort(b.shoot_start))}</td><td class="svc">${(b.items || []).map(i => esc(i.name)).join(', ')}</td>
-      <td class="r"><b>${money(b.total)}</b></td><td>${payPill(b)}${b.paid && b.paid_at ? `<div class="hint">${esc(fmtShort(b.paid_at))}</div>` : ''}</td>
-      <td class="r">${b.paid ? '' : `<button class="btn sm" onclick="kv.payBooking('${b.id}')">Pay</button>`}</td></tr>`).join('')}</tbody></table></div>`;
+  if (UI.inv) return vInvoiceDetail(UI.inv);
+  if (!INV.data) return INV.error ? `<div class="msg err">${esc(INV.error)} <a href="javascript:kv.reloadInvoices()">Try again</a></div>` : '<div class="panel loading"><span class="spin"></span> Loading invoices…</div>';
+  const { pend, rows } = invRows();
+  const bal = pend.reduce((a, i) => a + i.due, 0), cr = +INV.data.credits || 0, total = Math.max(0, bal - cr);
+  const tab = (k, icon, label, n) => `<button class="${UI.itab === k ? 'on' : ''}" onclick="kv.ui('itab','${k}')">${ic(icon)}${label}<span class="t-long">&nbsp;invoices</span>${n ? ` <i>${n}</i>` : ''}</button>`;
+  const head = `<div class="itools">
+    <div class="tabs">${tab('pending', I.inv, 'Pending', pend.length)}${tab('paid', I.table, 'Paid', 0)}</div>
+    ${UI.itab === 'pending' ? `<div class="ibal"><div><small>Balance due</small><b>${money2(bal)}</b></div><div><small>Credits</small><b class="${cr ? 'cr' : ''}">${cr ? '-(' + money2(cr) + ')' : money2(0)}</b></div><div><small>Total balance due</small><b>${money2(total)}</b></div></div>
+      <button class="btn ipay" ${pend.some(i => i.due > 0) ? '' : 'disabled'} onclick="kv.invPay()">${total > 0 ? 'Pay ' + money2(total) : pend.some(i => i.due > 0) ? 'Pay with credit' : 'Pay'}</button>` : '<span class="grow"></span>'}
+    <div class="isrch"><div class="srch">${ic(I.search, 16)}<input id="iq" type="search" placeholder="Search" value="${esc(UI.iq)}" oninput="kv.search('iq',this.value,'iq')"></div>
+      <label class="ifilter" title="Filter by date">${ic(I.filter, 18)}<select aria-label="Show invoices from" onchange="kv.invRange(this.value)">
+        ${[['all', 'All time'], ['30', 'Last 30 days'], ['90', 'Last 90 days'], ['year', 'Last 12 months']].map(([v, l]) => `<option value="${v}" ${INV.range === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>
+    ${cr && UI.itab === 'pending' ? `<p class="hint ihint">You have ${money2(cr)} in account credit. It's used first when you pay.</p>` : ''}`;
+  if (!rows.length) return head + empty(UI.iq || INV.range !== 'all' ? 'No invoices match your search.' : UI.itab === 'paid' ? 'No paid invoices yet.' : "You're all paid up. There are no pending invoices.", false);
+  const paidTab = UI.itab === 'paid';
+  return head + `<div class="tbl-w"><table class="tbl itbl"><thead><tr><th>Invoice #</th><th>Address</th><th class="r">Invoice total</th><th class="r">Amount due</th><th>Invoice date</th><th>Date due</th>${paidTab ? '<th>Date paid</th>' : ''}<th class="r">Actions</th></tr></thead><tbody>
+    ${rows.map(i => `<tr><td class="inum"><a href="#invoices/${i.number}">#${esc(i.number)}</a>${!i.paid && i.payment_status === 'processing' ? ' <span class="pill">Processing</span>' : ''}</td>
+      <td class="iaddr"><b>${esc(i.address)}</b><div class="hint">${esc(i.place)}</div></td>
+      <td class="r" data-l="Invoice total">${money2(i.total)}</td><td class="r" data-l="Amount due"><b>${money2(i.due)}</b>${i.credit ? `<div class="hint">${money2(i.credit)} credit used</div>` : ''}</td>
+      <td data-l="Invoice date">${esc(fmtInv(i.invoice_date))}</td><td data-l="Date due">${esc(fmtInv(i.due_date))}</td>${paidTab ? `<td data-l="Date paid">${esc(fmtInv(i.paid_at))}</td>` : ''}
+      <td class="r">${invActs(i)}${!i.paid && i.due > 0 && i.payment_status !== 'processing' ? `<button class="btn sm" onclick="kv.invPay([${i.number}])">Pay ${money2(i.due)}</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
 }
+function vInvoiceDetail(n) {
+  if (!INV.data) return INV.error ? `<div class="msg err">${esc(INV.error)}</div>` : '<div class="panel loading"><span class="spin"></span> Loading invoice…</div>';
+  const i = invFind(n);
+  if (!i) return `<a class="dl-back" href="#invoices">‹ Invoices</a><div class="msg err">That invoice wasn't found.</div>`;
+  const m = INV.dmedia[i.id];
+  if (!m) { INV.dmedia[i.id] = { loading: true }; api('delivery', { key: i.id }).then(d => { INV.dmedia[i.id] = { d }; render(); }).catch(() => { INV.dmedia[i.id] = { err: true }; render(); }); }
+  const photos = m?.d?.photos || [], more = Math.max(0, photos.length - 6);
+  const grid = !m || m.loading ? '<div class="loading" style="padding:20px 0"><span class="spin"></span> Loading media…</div>'
+    : photos.length ? `<div class="igrid">${photos.slice(0, 6).map((p, k) => `<a href="#delivery/${i.id}/photos" class="ig ${k === 5 && more ? 'more' : ''}" aria-label="${k === 5 && more ? `See all ${photos.length} photos` : 'Open photos'}"><img src="${esc(p.thumb)}" alt="" loading="lazy">${k === 5 && more ? `<span>+${more} more<br><small>Tap to see all</small></span>` : ''}</a>`).join('')}</div>`
+    : `<p class="hint">${m.d && (m.d.videos.length || m.d.tour) ? 'Your videos and tours are on the download page.' : 'Your photos will show here once your media is delivered.'}</p>`;
+  const st = i.paid ? `<span class="pill g">Paid ${esc(fmtShort(i.paid_at))}</span>` : i.payment_status === 'processing' ? '<span class="pill">Payment processing</span>' : `<span class="pill w">Due ${esc(fmtShort(i.due_date))}</span>`;
+  const line = (k, v, cls = '') => `<div class="iline ${cls}"><span>${k}</span><span>${v}</span></div>`;
+  return `<a class="dl-back" href="#invoices">‹ Invoices</a>
+  <div class="idet">
+    <div class="idet-main">
+      <div class="panel ihead"><div><small>Invoice</small><h2>#${esc(i.number)}</h2></div>${st}</div>
+      <div class="panel">
+        <div class="iorder"><div><small>Order</small><b>${esc(i.address)}</b><div class="hint">${esc(i.place)}${i.shoot_start ? ' · Shoot ' + esc(fmtShort(i.shoot_start)) : ''}</div></div>
+          <a class="btn o sm" href="#delivery/${i.id}">${ic(I.dl, 15)} View download page</a></div>
+        ${m?.d?.locked ? `<p class="hint">${ic(I.lock, 14)} Previews are watermarked until this invoice is paid.</p>` : ''}
+        ${grid}
+      </div>
+      <div class="panel"><h3 class="ih3">Services</h3>
+        ${i.items.map(x => line(esc(x.name), money2(x.price))).join('')}
+        ${i.discount ? line('Discount', '-' + money2(i.discount)) : ''}${i.tax ? line('Tax', money2(i.tax)) : ''}
+        ${line('Invoice total', money2(i.total), 'b')}</div>
+    </div>
+    <aside class="panel iside">
+      ${line('Invoice total', money2(i.total))}${i.credit ? line('Credit applied', '-' + money2(i.credit)) : ''}${i.paid ? line('Paid', '-' + money2(Math.max(0, i.total - i.credit))) : ''}
+      ${line('Amount due', money2(i.due), 'big')}
+      <div class="idates"><div><small>Invoice date</small>${esc(fmtShort(i.invoice_date))}</div><div><small>Due</small>${esc(fmtShort(i.due_date))}</div>${i.paid ? `<div><small>Paid</small>${esc(fmtShort(i.paid_at))}</div>` : ''}</div>
+      ${!i.paid && i.due > 0 && i.payment_status !== 'processing' ? `<button class="btn iwide" onclick="kv.invPay([${i.number}])">Pay ${money2(i.due)}</button>${INV.data.credits > 0 ? `<p class="hint" style="margin:6px 0 0">Your ${money2(INV.data.credits)} credit is used first.</p>` : ''}` : ''}
+      <button class="btn o iwide" onclick="kv.invPdf(${i.number},'view')">${ic(I.eye, 16)} View invoice</button>
+      <button class="btn o iwide" onclick="kv.invPdf(${i.number},'download')">${ic(I.dl, 16)} Download PDF</button>
+      <button class="btn o iwide" onclick="kv.invEmail(${i.number})">${ic(I.mail, 16)} Email invoice</button>
+    </aside>
+  </div>`;
+}
+async function invPdfBlob(n) {
+  if (INV.pdf[n]) return INV.pdf[n];
+  const r = await api('pdf', { number: n }, 'invoices');
+  const bin = Uint8Array.from(atob(r.base64), c => c.charCodeAt(0));
+  return (INV.pdf[n] = { blob: new Blob([bin], { type: 'application/pdf' }), name: r.filename });
+}
+async function invPdf(n, how) {
+  // open the tab right away (before waiting) so phones don't block it as a pop-up
+  const w = how === 'view' ? window.open('', '_blank') : null;
+  if (w) w.document.write('<p style="font:16px system-ui;padding:24px;color:#44546b">Loading your invoice…</p>');
+  try {
+    const { blob, name } = await invPdfBlob(n);
+    const url = URL.createObjectURL(blob);
+    if (how === 'view') { if (w) w.location.href = url; else location.href = url; }
+    else { const a = Object.assign(document.createElement('a'), { href: url, download: name }); document.body.appendChild(a); a.click(); a.remove(); }
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } catch (e) { w?.close(); alertModal(e.message); }
+}
+function invEmail(n) {
+  const i = invFind(n), own = INV.data?.client?.email || S.session?.user?.email || '';
+  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">Email invoice #${esc(n)}</h2>
+    <p class="hint" style="margin:0 0 14px">${esc(i?.address || '')} · the PDF is attached.</p>
+    ${own ? `<label class="check-row"><input type="checkbox" id="ieSelf" checked> Send to me (${esc(own)})</label>` : ''}
+    <label for="ieTo" style="margin-top:12px">Also send to <span class="hint">(optional, up to 3, separated by commas)</span></label>
+    <input id="ieTo" type="email" multiple inputmode="email" autocomplete="email" placeholder="name@example.com">
+    <div id="ieMsg"></div>
+    <div class="ph-nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" id="ieGo">Send</button></div></div></div>`;
+  $('ieGo').onclick = async () => {
+    const to = ($('ieTo').value || '').split(/[,;\s]+/).filter(Boolean), self = $('ieSelf')?.checked ?? false;
+    if (!self && !to.length) { $('ieMsg').innerHTML = '<div class="msg err">Choose at least one person to send it to.</div>'; return; }
+    $('ieGo').disabled = true; $('ieGo').innerHTML = '<span class="spin"></span>';
+    try {
+      const r = await api('email', { number: n, to, self }, 'invoices');
+      $('modal').querySelector('.panel').innerHTML = `<h2 style="font-size:22px">Invoice sent</h2><p>Sent to ${r.sent.map(esc).join(', ')}.</p><div class="ph-nav"><span></span><button class="btn" onclick="kv.closeModal()">Done</button></div>`;
+    } catch (e) { $('ieMsg').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; $('ieGo').disabled = false; $('ieGo').textContent = 'Send'; }
+  };
+}
+async function invPay(numbers) {
+  if (!stripeReady()) { alertModal('Online payments are not switched on yet. Please call ' + CFG.phone + '.'); return; }
+  $('modal').innerHTML = '<div class="modal"><div class="panel loading"><span class="spin"></span> Getting your invoice ready…</div></div>';
+  try {
+    const r = await api('pay', { numbers: numbers || [] }, 'invoices');
+    if (r.alreadyPaid || r.paidByCredit) {
+      INV.pdf = {}; await loadInvoices(true); S.pdata = null;
+      $('modal').innerHTML = `<div class="modal"><div class="panel"><h2 style="font-size:22px">${r.paidByCredit ? 'Paid with your credit' : 'Already paid'}</h2><p>${r.paidByCredit ? 'Your account credit covered this. Thank you!' : 'This invoice is already paid.'}</p><div class="ph-nav"><span></span><button class="btn" onclick="kv.closeModal()">Done</button></div></div></div>`;
+      return;
+    }
+    const label = r.numbers.length > 1 ? `${r.numbers.length} invoices (${r.numbers.map(x => '#' + x).join(', ')})` : `Invoice #${r.numbers[0]}`;
+    $('modal').innerHTML = `<div class="modal"><div class="panel"><h2 style="font-size:22px">Pay ${esc(label)}</h2>
+      <div class="tot" style="padding:6px 0 0"><span>Amount due</span><span>${money2(r.amount)}</span></div>
+      <div id="pay-el3" style="margin-top:14px"></div><div id="payErr"></div>
+      <div class="ph-nav"><button class="btn o" onclick="kv.closeModal();kv.reloadInvoices()">Cancel</button><button class="btn" id="payGo">Pay ${money2(r.amount)}</button></div></div></div>`;
+    const elements = stripe.elements({ clientSecret: r.clientSecret, appearance });
+    elements.create('payment').mount('#pay-el3');
+    $('payGo').onclick = async () => {
+      $('payGo').disabled = true; $('payGo').innerHTML = '<span class="spin"></span>';
+      const ret = `${location.origin}/${location.hash || '#invoices'}`;
+      const { error } = await stripe.confirmPayment({ elements, confirmParams: { return_url: ret }, redirect: 'if_required' });
+      if (error) { $('payErr').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; $('payGo').disabled = false; $('payGo').textContent = `Pay ${money2(r.amount)}`; return; }
+      await api('confirm', { pi: r.pi }, 'invoices').catch(() => {});
+      INV.pdf = {}; S.pdata = null; await loadInvoices(true);
+      if (S.view === 'delivery') loadDelivery(S.dl.key);
+      $('modal').innerHTML = `<div class="modal"><div class="panel"><h2 style="font-size:22px">Payment received</h2><p>Thank you! A receipt is on its way to your email.</p><div class="ph-nav"><span></span><button class="btn" onclick="kv.closeModal()">Done</button></div></div></div>`;
+    };
+  } catch (e) { kv.closeModal(); alertModal(e.message); }
+}
+Object.assign(window.kv, {
+  invPdf, invEmail, invPay, reloadInvoices: () => loadInvoices(),
+  invRange(v) { INV.range = v; render(); },
+});
 
 function vSettings() {
   const a = S.pdata?.agent || S.agent || {};
@@ -1002,6 +1140,7 @@ function vPortal() {
 }
 function vPortalBody() {
   const p = S.pdata;
+  if (S.view === 'invoices') return vInvoices(); // has its own data (invoices function)
   if (!p || p.loading) return '<div class="panel loading"><span class="spin"></span> Loading…</div>';
   if (p.error) return `<div class="msg err">${esc(p.error)} <a href="javascript:kv.reloadPortal()">Try again</a></div>`;
   return S.view === 'invoices' ? vInvoices() : S.view === 'profile' ? vSettings() : vListings();
@@ -1241,7 +1380,7 @@ Object.assign(window.kv, {
   search(k, v, id) { UI[k] = v; render(); const el = $(id); if (el) { el.focus(); el.setSelectionRange(v.length, v.length); } },
   menu(ev) { ev?.stopPropagation(); UI.menu = !UI.menu; render(); },
   reloadPortal() { S.pdata = null; loadPortal(); },
-  invoiceFor(n) { UI.iq = '#' + n; UI.itab = S.pdata.bookings.find(b => b.number === n)?.paid ? 'paid' : 'pending'; location.hash = '#invoices'; },
+  invoiceFor(n) { location.hash = '#invoices/' + n; },
   orderAgain(key) {
     const l = findListing(key); if (!l) return;
     if (l.b) Object.assign(S.addr, { street: l.b.address || '', unit: l.b.unit || '', city: l.b.city || '', state: l.b.state || 'TN', zip: l.b.zip || '' });
@@ -1420,6 +1559,7 @@ function route() {
     if (!S.session) { S.after = location.hash; S.view = 'account'; }
     else {
       S.view = h; if (!S.pdata && h !== 'delivery') loadPortal();
+      if (h === 'invoices') { UI.inv = hKey && /^\d+$/.test(hKey) ? hKey : null; loadInvoices(!!INV.data); }
       if (h === 'delivery') { if (hKey && (hKey !== S.dl.key || !S.dl.data)) loadDelivery(hKey); S.dl.tab = hTab || S.dl.tab; if (hKey !== S.dl.key) S.dl.tab = hTab || null; }
     }
   } else S.view = h === 'account' ? 'account' : S.view === 'done' && !h ? 'done' : 'book';
@@ -1437,8 +1577,8 @@ window.addEventListener('hashchange', route);
       try { const t = JSON.parse(atob(hand[1].replace(/-/g, '+').replace(/_/g, '/'))); await sb.auth.setSession({ access_token: t.a, refresh_token: t.r }); }
       catch (e) { console.warn('session handoff failed', e); }
       const go = hand[2] || '', inv = go.match(/^invoice\/(\d+)(\/paid)?$/);
-      if (inv) { UI.iq = '#' + inv[1]; UI.itab = inv[2] ? 'paid' : 'pending'; }
-      history.replaceState(null, '', location.pathname + (/^delivery\/[\w-]+$/.test(go) ? '#' + go : inv ? '#invoices' : '#listings'));
+      if (inv) UI.itab = inv[2] ? 'paid' : 'pending';
+      history.replaceState(null, '', location.pathname + (/^delivery\/[\w-]+$/.test(go) ? '#' + go : inv ? '#invoices/' + inv[1] : '#listings'));
     }
     const load = () => Promise.all([
       sb.from('booking_services').select('id, kind, name, description, includes, price, duration_min, covers, badge, sort_order, category').order('sort_order'),
