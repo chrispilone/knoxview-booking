@@ -1252,7 +1252,9 @@ function vDelivery() {
   let out = `<a class="dl-back" href="#listings">‹ Listings</a>
     <header class="dl-head"><h1>${esc(d.head.address)}</h1><p>${esc([d.head.line2, d.head.brokerage].filter(Boolean).join(' · '))}</p>
       <p class="hint">${when ? esc(when) : ''}${d.head.number ? ` · Order #${esc(d.head.number)}` : ''}</p></header>`;
-  if (d.locked) out += `<div class="dl-lock">${ic(I.lock, 22)}<div><b>Your media is ready.</b> Preview it below, then pay to unlock and download all your media!</div>
+  // "Ready" only once something has actually been delivered (photos, video, floor plans, tour, a website or marketing)
+  const delivered = tabs.length > 0 || d.websites.some(w => !w.soon) || !!d.marketing;
+  if (d.locked && delivered) out += `<div class="dl-lock ready">${ic('<path d="M20 6L9 17l-5-5"/>', 22)}<div><b>Your media is ready!</b> Preview it below, then pay to unlock and download all your media.</div>
       <button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay to download</button></div>`;
   const cards = d.websites.map(w => linkCard(w.label, w.url, null, w.soon)).join('');
   if (cards) out += `<section class="dl-cards">${cards}</section>`;

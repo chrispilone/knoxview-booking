@@ -917,3 +917,7 @@ html{overscroll-behavior-y:contain}
 .ptr-i{width:20px;height:20px;border-radius:50%;border:2.5px solid var(--pale);border-top-color:var(--primary)}
 .ptr.spin .ptr-i{animation:ptrspin .7s linear infinite}
 @keyframes ptrspin{to{transform:rotate(360deg)}}
+/* "media is ready" banner: light green, same family as the credit box and Paid pills */
+.dl-lock.ready{background:#f2faf5;border:1.5px solid #cfe5d8;color:#245c40}
+.dl-lock.ready b{color:var(--ok)}
+.dl-lock.ready>.ic{color:var(--ok);background:#e3f1ea;border-radius:50%;padding:7px;width:36px;height:36px;flex:none}
