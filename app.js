@@ -1107,13 +1107,21 @@ function vOne() {
   const you = a.sqftLabel && haveSvc && aOk && S.start ? `<section class="o-sec" id="o-you">${vReview(true)}</section>` : '';
   return size + svcs + addr + time + you + (S.error && !S.start ? `<div class="msg err">${esc(S.error)}</div>` : '');
 }
+function updBar() { // bottom button: names the next thing to do, then "Submit Order"
+  const nb = $('barNext'); if (!nb) return;
+  nb.textContent = S.checkout ? 'Pay & Submit' : { 'o-size': 'Choose home size', 'o-svc': 'Choose services', 'o-addr': 'Enter address', 'o-time': 'Pick a time', 'o-you': 'Your details' }[nextMissing()] || 'Submit Order';
+  nb.disabled = !!S.busy;
+}
 function oneAfterRender() { // load open times once services + address are in; keep the order form and bar in sync
   if (S.view !== 'book') return;
   const key = JSON.stringify(selection());
   if (inCart().size && S.addr.sqftLabel && addrOk() && !S.slots && !S.slotsLoading && S.slotsKey !== key) { S.slotsKey = key; loadSlots(); }
 }
-document.addEventListener('change', e => { // re-render after an address field is finished so the calendar can appear
-  if (S.view === 'book' && e.target.dataset?.o === 'addr' && ['street', 'city', 'state', 'zip'].includes(e.target.dataset.k)) render();
+document.addEventListener('change', e => { // when the address becomes complete (or incomplete), show/hide the calendar
+  if (S.view !== 'book' || e.target.dataset?.o !== 'addr' || !['street', 'city', 'state', 'zip'].includes(e.target.dataset.k)) return;
+  const ok = addrOk(); if (ok === !!S.addrWasOk) return;
+  S.addrWasOk = ok; resetSchedule(); render();
+  if (ok) setTimeout(() => document.getElementById('o-time')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
 });
 
 function render() {
@@ -1148,10 +1156,8 @@ function render() {
   $('barTot').textContent = money(total());
   $('barSub').textContent = lines().length ? lines().map(l => l.name).join(' · ') : 'Nothing selected';
   const nb = $('barNext');
-  const miss = nextMissing();
-  nb.textContent = S.checkout ? 'Pay & Submit' : { 'o-size': 'Choose home size', 'o-svc': 'Choose services', 'o-addr': 'Enter address', 'o-time': 'Pick a time', 'o-you': 'Your details' }[miss] || 'Submit Order';
-  nb.disabled = !!S.busy;
-  nb.onclick = () => S.checkout ? confirmPay() : miss ? document.getElementById(miss)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : submitOrder();
+  updBar();
+  nb.onclick = () => { const m = nextMissing(); S.checkout ? confirmPay() : m ? document.getElementById(m)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : submitOrder(); };
   oneAfterRender();
 }
 document.addEventListener('input', e => {
@@ -1159,6 +1165,7 @@ document.addEventListener('input', e => {
   S[o][k] = e.target.value;
   if (S.errors[k]) { delete S.errors[k]; e.target.parentElement.classList.remove('err'); }
   if (k === 'sqftLabel') { resetSchedule(); render(); }
+  if (S.view === 'book') updBar();
 });
 $('barOpen').onclick = () => $('sheet').classList.add('on');
 $('sheet').onclick = e => { if (e.target.id === 'sheet') e.currentTarget.classList.remove('on'); };
@@ -1238,7 +1245,7 @@ function acClose() { acBoxEl()?.remove(); AC.list = []; AC.i = -1; }
 async function acSearch(input) {
   const q = input.value.trim(); AC.input = input; AC.q = q;
   if (q.length < 3) return acClose();
-  AC.tok = AC.tok || crypto.randomUUID();
+  AC.tok = AC.tok || (crypto.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2));
   try {
     const r = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': GKEY },
@@ -1300,6 +1307,7 @@ function acHookOrderForm() {
     if (states.includes(a.state)) S.addr.state = a.state;
     if (a.zip) S.addr.zip = a.zip;
     ['street', 'city', 'state', 'zip'].forEach(k => delete S.errors[k]);
-    render();
+    S.addrWasOk = addrOk(); resetSchedule(); render();
+    if (S.addrWasOk && S.view === 'book') setTimeout(() => document.getElementById('o-time')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
   });
 }
