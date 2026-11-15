@@ -757,3 +757,18 @@ a.lp-book:hover{color:#fff}
 .lp-cardh{padding:18px 22px 0;color:var(--ink);font-size:.7rem;font-weight:700;letter-spacing:.24em;text-transform:uppercase}
 @media (min-width:761px){.lp-cardh{padding:22px 30px 0}}
 @media (max-width:380px){.lp-cardh{padding:16px 16px 0}}
+/* Choose your media: compact cards, three across */
+.tcards{grid-template-columns:repeat(3,1fr);gap:10px;max-width:560px}
+.tcard{padding:0 0 9px}
+.tc-img{aspect-ratio:3/2;margin-bottom:7px}
+.tc-img .tick{top:6px;right:6px;width:20px;height:20px}
+.tc-img .tick svg{width:12px;height:12px}
+.tc-n{padding:0 10px;font-size:13px;line-height:1.25}
+@media (max-width:400px){.tc-n{font-size:12px;padding:0 8px}}
+.soon{margin-top:12px;padding:12px 14px;background:#fff;border:1px solid var(--line);border-left:3px solid #1d3250;font-size:13.5px;line-height:1.5;color:var(--muted,#6b7a8d)}
+.soon b{color:var(--headline);font-weight:600}
+.soon a{color:var(--headline);font-weight:600}
+/* add-on preview: a little more room under the name */
+.ad-x{padding-top:6px;padding-bottom:18px;gap:14px}
+.ad-x p{margin-top:2px;font-size:13px;line-height:1.6}
+@media (max-width:480px){.ad-x{gap:10px}.ad-x p{margin-top:0}}

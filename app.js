@@ -297,10 +297,10 @@ const TOUR_ZILLOW = 'https://www.zillow.com/view-imx/b55c2ba6-cc6e-47b1-8e2c-6f3
 const TOUR_PREMIUM = 'https://www.zillow.com/view-imx/387714a0-c187-4298-bad5-51082b18bd8f?setAttribution=mls&wl=true&initialViewType=pano';
 const VIMEO = id => `https://player.vimeo.com/video/${id}?autoplay=1&muted=1&playsinline=1&loop=1&title=0&byline=0&portrait=0&dnt=1`;
 const EX = {
-  '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5': { dir: 'essentials', imgs: [['front','Photos'],['kitchen','Photos'],['living','Photos'],['primary','Photos'],['aerial-house','Drone photos'],['aerial-wide','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
-  '2af4fccb-2e5e-40e0-9413-5a5f2a711e9d': { dir: 'zillow', leads: [['living', 'Zillow 3D tour', 'tour', TOUR_ZILLOW]], imgs: [['front-angle','Photos'],['kitchen-living','Photos'],['primary','Photos'],['aerial-pin','Drone photos'],['aerial-street','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
-  '5d0329ed-225f-4ccf-aed9-8307780de1b4': { dir: 'social', leads: [['aerial-wide', 'Social media video', 'video', '1229552456']], imgs: [['front-yard','Photos'],['kitchen','Photos'],['living','Photos'],['bedroom','Photos'],['aerial-pin','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
-  '271ce816-6215-4ead-b063-d4ae920276bc': { dir: 'premium', leads: [['aerial-yard', 'Premium video', 'video', '1216825550'], ['living', 'Zillow 3D tour', 'tour', TOUR_PREMIUM]], imgs: [['front','Photos'],['kitchen-island','Photos'],['primary','Photos'],['aerial-pin','Drone photos'],['twilight','Virtual twilight'],['floorplan','2D floor plan']] },
+  '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5': { dir: 'essentials', imgs: [['front','Photos'],['kitchen','Photos'],['living','Photos'],['primary','Photos'],['aerial-house','Drone Photos'],['aerial-wide','Drone Photos'],['twilight','Virtual Twilight'],['floorplan','2D Floor Plan']] },
+  '2af4fccb-2e5e-40e0-9413-5a5f2a711e9d': { dir: 'zillow', leads: [['living', 'Zillow 3D Tour', 'tour', TOUR_ZILLOW]], imgs: [['front-angle','Photos'],['kitchen-living','Photos'],['primary','Photos'],['aerial-pin','Drone Photos'],['aerial-street','Drone Photos'],['twilight','Virtual Twilight'],['floorplan','2D Floor Plan']] },
+  '5d0329ed-225f-4ccf-aed9-8307780de1b4': { dir: 'social', leads: [['aerial-wide', 'Social Media Video', 'video', '1229552456']], imgs: [['front-yard','Photos'],['kitchen','Photos'],['living','Photos'],['bedroom','Photos'],['aerial-pin','Drone Photos'],['twilight','Virtual Twilight'],['floorplan','2D Floor Plan']] },
+  '271ce816-6215-4ead-b063-d4ae920276bc': { dir: 'premium', leads: [['aerial-yard', 'Premium Video', 'video', '1216825550'], ['living', 'Zillow 3D Tour', 'tour', TOUR_PREMIUM]], imgs: [['front','Photos'],['kitchen-island','Photos'],['primary','Photos'],['aerial-pin','Drone Photos'],['twilight','Virtual Twilight'],['floorplan','2D Floor Plan']] },
 };
 function vExample(id) {
   const e = EX[id]; if (!e) return '';
@@ -1137,7 +1137,7 @@ function vSummary(btn) {
 const addrOk = () => { const a = S.addr; return !!(a.street && a.city && a.state && /^\d{5}$/.test(a.zip || '')); };
 const detailsOk = () => isValid(3);
 function nextMissing() { // first section still needing an answer
-  if (!S.ptype) return 'o-type';
+  if (!S.ptype || S.ptype === 'str') return 'o-type';
   if (!S.addr.sqftLabel) return 'o-size';
   if (!inCart().size) return 'o-svc';
   if (!addrOk()) return 'o-addr';
@@ -1155,10 +1155,12 @@ const oh = (id, n, title, sub = '') => `<div class="o-h" id="${id}"><span class=
 function vOne() {
   const a = S.addr, st = S.config.settings, land = isLand(), opts = land ? ACRE_OPTIONS : (st.sqft_options || []);
   const tRow = (t, name, sub) => `<button class="tcard ${S.ptype === t ? 'sel' : ''}" onclick="kv.ptype('${t}')" aria-pressed="${S.ptype === t}">
-      <span class="tc-img"><img src="/img/type-${t === 'land' ? 'land' : 'listing'}.jpg" alt="" decoding="async"><span class="tick">${CHECK}</span></span>
-      <span class="tc-n">${name}</span><span class="tc-d">${sub}</span></button>`;
-  const type = `<section class="o-sec">${oh('o-type', 1, 'What are we shooting?')}
-    <div class="tcards">${tRow('home', 'Listing Media', 'Houses, condos, cabins and townhomes')}${tRow('land', 'Land Media', 'Lots and acreage')}</div></section>`;
+      <span class="tc-img"><img src="/img/type-${t === 'home' ? 'listing' : t}.jpg?v=2" alt="" decoding="async"><span class="tick">${CHECK}</span></span>
+      <span class="tc-n">${name}</span></button>`;
+  const type = `<section class="o-sec">${oh('o-type', 1, 'Choose your media')}
+    <div class="tcards">${tRow('home', 'Listing Media', '')}${tRow('land', 'Land Media', '')}${tRow('str', 'STR Media', '')}</div>
+    ${S.ptype === 'str' ? `<div class="soon"><b>Short-term rental media is coming soon.</b> Text us at <a href="${SMS_LINK}">865-855-5669</a> and we'll set up your shoot.</div>` : ''}</section>`;
+  if (S.ptype === 'str') return type;
   const haveSvc = inCart().size > 0, aOk = addrOk();
   const size = !S.ptype ? '' : `<section class="o-sec">${oh('o-size', 2, land ? 'Land size' : 'Home size', land ? 'Total acreage' : 'Heated square feet')}
     <div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
@@ -1188,7 +1190,7 @@ function vOne() {
 }
 function updBar() { // bottom button: names the next thing to do, then "Submit Order"
   const nb = $('barNext'); if (!nb) return;
-  nb.textContent = S.checkout ? 'Pay & Submit' : { 'o-type': 'Listing or land?', 'o-size': isLand() ? 'Choose land size' : 'Choose home size', 'o-svc': 'Choose services', 'o-addr': 'Enter address', 'o-time': 'Pick a time', 'o-you': 'Your details' }[nextMissing()] || 'Submit Order';
+  nb.textContent = S.checkout ? 'Pay & Submit' : { 'o-type': 'Choose your media', 'o-size': isLand() ? 'Choose land size' : 'Choose home size', 'o-svc': 'Choose services', 'o-addr': 'Enter address', 'o-time': 'Pick a time', 'o-you': 'Your details' }[nextMissing()] || 'Submit Order';
   nb.disabled = !!S.busy;
 }
 function oneAfterRender() { // load open times once services + address are in; keep the order form and bar in sync
