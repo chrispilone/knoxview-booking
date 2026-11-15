@@ -1030,3 +1030,19 @@ s.was{color:var(--slate);font-weight:400;margin-right:6px;font-size:.85em;text-d
   .sw{width:42px;height:24px}.sw i::after{width:18px;height:18px}.sw input:checked+i::after{transform:translateX(18px)}
   .nt-msg{font-size:12px;margin-top:8px}
 }
+/* Zillow stats (listing card + pop-up) */
+.zs-line{display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:100%;margin:2px 0 8px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#f6f9fd;font:inherit;font-size:13px;color:var(--body);cursor:pointer;text-align:left}
+.zs-line:hover{border-color:#9fb0c8}.zs-line b{color:var(--primary)}
+.zs-z{font-weight:800;color:#006aff;letter-spacing:.01em}
+.zs-go{margin-left:auto;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--primary)}
+.zs-panel{max-width:520px}
+.zs-big{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.zs-big>div{border:1px solid var(--line);border-radius:12px;padding:12px 8px;text-align:center}
+.zs-big b{display:block;font-family:var(--hf);font-size:28px;font-weight:500;color:var(--primary);line-height:1.1}.zs-big small{color:var(--slate);font-size:12px}
+.zs-rates{display:flex;gap:18px;margin:10px 2px 4px;font-weight:700;color:var(--primary)}.zs-rates small{font-weight:400;color:var(--slate)}
+.zs-h{font-size:14px;margin:16px 0 6px;color:var(--primary)}
+.zs-bench{margin:0;padding-left:18px;font-size:14px;line-height:1.45;color:var(--body)}.zs-bench li{margin:0 0 6px}
+.zs-bars{display:flex;align-items:flex-end;gap:6px;height:110px;padding:6px 0 0}
+.zs-bars>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px}
+.zs-bars i{display:block;width:100%;max-width:34px;border-radius:5px 5px 2px 2px;background:#1d3250}.zs-bars small{font-size:10.5px;color:var(--slate)}
+@media (max-width:520px){.zs-big b{font-size:22px}.zs-line{gap:8px;font-size:12.5px}}

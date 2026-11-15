@@ -300,6 +300,7 @@ async function loadPortal() {
   S.pdata = { loading: true }; render();
   try { S.pdata = await api('portal'); if (S.pdata.agent) { S.agent = { ...S.agent, ...S.pdata.agent }; fillContact(); } } catch (e) { S.pdata = { error: e.message }; }
   render();
+  loadZillow();
 }
 async function payBooking(id) {
   const num = (S.pdata?.bookings || []).find(b => b.id === id)?.number || invAll().find(i => i.id === id)?.number || (D.key === id ? D.data?.head?.number : null);
@@ -870,6 +871,7 @@ function vListings() {
     <a class="lcov" href="#delivery/${l.key}" aria-label="Media for ${esc(l.line1)}">${cover(l)}<span class="lstat ${l.status[1]}">${esc(l.status[0])}</span></a>
     <div class="lbody"><div class="laddr">${esc(l.line1)}<br><span>${esc(l.line2)}</span></div>
       <div class="lmeta2"><span>${ic(I.cal)}${esc(fmtDate(l.date))}</span>${l.b && upcomingShoot(l.b) ? `<button class="btn o sm addcal" onclick="kv.addCal(${l.b.number}, this)">${ic(I.cal, 15)} Add to my calendar</button>` : ''}</div>
+      ${l.b && ZS.by[l.b.id]?.last ? vZillowLine(l.b.id) : ''}
       ${l.b?.locked ? `<button class="btn" style="width:100%;margin-top:10px" onclick="kv.payBooking('${l.b.id}')">${ic(I.lock, 15)} Pay to download</button>` : ''}
       <div class="acts">${acts(l)}</div></div></article>`).join('')}</div>`;
 }
@@ -2090,3 +2092,52 @@ async function addCal(n, btn) {
   if (btn) setTimeout(() => { btn.disabled = false; btn.innerHTML = label; }, 800);
 }
 Object.assign(window.kv, { addCal });
+
+
+/* ================= Zillow Stat Tracker (client side) =================
+   Views, saves and days on Zillow for their listing, captured by Knox View (HQ → order → Zillow Stat Tracker).
+   Zillow's counts cover the last 30 days, so per-day rates use min(days, 30). Benchmarks are Zillow Research's
+   published nationwide ones: ~250 views/day → pending within a week; 5 saves/day → offer within a week; 10+ → above list. */
+const ZS = { by: {}, loaded: false };
+async function loadZillow() {
+  if (!S.session) return;
+  try {
+    const [l, st] = await Promise.all([sb.from('zillow_listings').select('booking_id, url, status, final_reason'), sb.from('zillow_stats').select('booking_id, captured_at, views, saves, days_on_zillow, listing_status').order('captured_at', { ascending: true }).limit(1000)]);
+    if (l.error || st.error) return;
+    const by = {};
+    for (const x of l.data || []) by[x.booking_id] = { ...x, snaps: [] };
+    for (const r of st.data || []) if (by[r.booking_id]) by[r.booking_id].snaps.push(r);
+    for (const k in by) by[k].last = by[k].snaps[by[k].snaps.length - 1] || null;
+    ZS.by = by; ZS.loaded = true; if (S.view === 'listings') render();
+  } catch (_) { /* stats are extra */ }
+}
+const zsDays = d => Math.min(Math.max(+d || 1, 1), 30);
+const zsRate = (v, d) => v == null ? null : v / zsDays(d);
+const zsN = v => v == null ? '—' : Number(v).toLocaleString();
+function vZillowLine(id) {
+  const z = ZS.by[id], s = z.last;
+  return `<button type="button" class="zs-line" onclick="kv.zillowStats('${id}')"><span class="zs-z">Zillow</span>
+    <span><b>${zsN(s.views)}</b> views</span><span><b>${zsN(s.saves)}</b> saves</span><span><b>${zsN(s.days_on_zillow)}</b> days</span><span class="zs-go">Stats →</span></button>`;
+}
+function zillowStats(id) {
+  const z = ZS.by[id]; if (!z?.last) return;
+  const s = z.last, vd = zsRate(s.views, s.days_on_zillow), sd = zsRate(s.saves, s.days_on_zillow);
+  const b = (S.pdata?.bookings || []).find(x => x.id === id);
+  const bench = [];
+  if (sd != null) bench.push(sd >= 10 ? `<b>${sd.toFixed(1)} saves a day</b>: Zillow sees 10+ a day as a strong sign of selling above list price.`
+    : sd >= 5 ? `<b>${sd.toFixed(1)} saves a day</b>: above Zillow's mark of 5 a day, where homes typically get an offer within a week.`
+    : `<b>${sd.toFixed(1)} saves a day</b>: Zillow's mark for an offer within a week is 5 a day.`);
+  if (vd != null) bench.push(vd >= 250 ? `<b>${Math.round(vd).toLocaleString()} views a day</b>: homes with 250+ a day tend to go pending within a week on Zillow.`
+    : `<b>${Math.round(vd).toLocaleString()} views a day</b>: Zillow's fast-sale mark is about 250 a day.`);
+  const snaps = z.snaps.slice(-8);
+  const mx = Math.max(1, ...snaps.map(x => x.views || 0));
+  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel zs-panel"><h2 style="font-size:22px;margin-bottom:2px">Zillow stats</h2>
+    <p class="hint" style="margin:0 0 14px">${esc(b ? b.address : '')} · updated ${esc(new Date(s.captured_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}${z.status === 'final' && z.final_reason ? ' · ' + esc(z.final_reason) : ''}</p>
+    <div class="zs-big"><div><b>${zsN(s.views)}</b><small>Views</small></div><div><b>${zsN(s.saves)}</b><small>Saves</small></div><div><b>${zsN(s.days_on_zillow)}</b><small>Days on Zillow</small></div></div>
+    <div class="zs-rates"><span>${vd == null ? '—' : Math.round(vd).toLocaleString()} <small>views / day</small></span><span>${sd == null ? '—' : sd.toFixed(1)} <small>saves / day</small></span></div>
+    ${bench.length ? `<h3 class="zs-h">How it compares on Zillow</h3><ul class="zs-bench">${bench.map(x => `<li>${x}</li>`).join('')}</ul>` : ''}
+    ${snaps.length > 1 ? `<h3 class="zs-h">Views over time</h3><div class="zs-bars">${snaps.map(x => `<div><i style="height:${Math.max(4, Math.round((x.views || 0) / mx * 100))}%"></i><small>${esc(new Date(x.captured_at).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' }))}</small></div>`).join('')}</div>` : ''}
+    <p class="hint" style="margin:12px 0 0">Zillow counts views and saves from the last 30 days, so these can go down over time. Benchmarks are from Zillow Research, nationwide.</p>
+    <div class="ph-nav"><a class="btn o" href="${esc(z.url)}" target="_blank" rel="noopener">View on Zillow ↗</a><button class="btn" onclick="kv.closeModal()">Close</button></div></div></div>`;
+}
+Object.assign(window.kv, { zillowStats });
