@@ -97,12 +97,10 @@ async function pageServices(pageId: string) {
   const by = new Map((items ?? []).map(i => [i.service_id, i]));
   return (svcs ?? []).map(s => { const it = by.get(s.id)!; return { ...s, price: it.price ?? s.price, list_price: s.price, sort_order: it.sort_order ?? s.sort_order }; });
 }
-async function myPage(req: Request) { // the signed-in client's custom order page, if they have one
+async function myPage(req: Request) { // the signed-in client's custom order page: their own, else their company's (SQL: portal_order_page)
   const user = await userFrom(req); if (!user) return null;
-  const { data: agent } = await admin.from('agents').select('custom_order_page_id').eq('auth_user_id', user.id).maybeSingle();
-  if (!agent?.custom_order_page_id) return null;
-  const { data: page } = await admin.from('custom_order_pages').select('id, title, cover_url, show_default').eq('id', agent.custom_order_page_id).eq('active', true).maybeSingle();
-  return page ?? null;
+  const { data } = await admin.rpc('portal_order_page', { p_user: user.id });
+  return (data as { id: string; title: string; cover_url: string | null; welcome: string | null; show_default: boolean } | null) ?? null;
 }
 // Catalog for this request: the default one, or the client's custom page (only if it's really assigned to them)
 async function catalogFor(req: Request, body: any) {
@@ -471,8 +469,10 @@ async function handle(req: Request) {
     }
 
     if (action === 'delivery') { // one listing's delivery page: websites, 3D tour, photos, videos, floor plans, marketing
-      const { data: agent } = await admin.from('agents').select('id, full_name, brokerage, team_name').eq('auth_user_id', user.id).maybeSingle();
+      const { data: agent } = await admin.from('agents').select('id, full_name, brokerage, team_name, company_id').eq('auth_user_id', user.id).maybeSingle();
       if (!agent) throw new UserError('Delivery not found', 404);
+      // A company assigned in HQ overrides the brokerage / team the client typed themselves
+      const { data: co } = agent.company_id ? await admin.from('companies').select('name').eq('id', agent.company_id).maybeSingle() : { data: null };
       const key = String(body.key || '');
       const projCols = 'id, name, address, city, media, status, dropbox_url, vimeo_url, delivered_at, created_at';
       let head: Record<string, unknown>, b: any = null, projects: any[] = [];
@@ -563,7 +563,7 @@ async function handle(req: Request) {
       } else if (b?.floorplan_url) floorplans.push({ name: 'Floor plan', open: locked ? null : b.floorplan_url });
       const gate = (u: string | null) => locked ? null : u || null;
       return json(req, {
-        head: { ...head, brokerage: [agent.team_name, agent.brokerage].filter(Boolean).join(' - ') || agent.full_name },
+        head: { ...head, brokerage: co?.name || [agent.team_name, agent.brokerage].filter(Boolean).join(' - ') || agent.full_name },
         locked, bookingId: b?.id ?? null, total: b ? +b.total : null,
         websites: b && b.websites_enabled !== false ? [
           { label: 'Branded property website', url: gate(b.website_url), soon: !b.website_url },

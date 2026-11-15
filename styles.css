@@ -964,3 +964,23 @@ html{overscroll-behavior-y:contain}
 .tcards.four{grid-template-columns:repeat(2,1fr);max-width:560px}
 @media (min-width:761px){.tcards.four{grid-template-columns:repeat(4,1fr);max-width:760px}}
 .tc-ph{display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:8px;text-align:center;color:#fff;font-family:var(--hf);font-size:15px;letter-spacing:.04em;background:linear-gradient(135deg,#2a4466,#1d3250)}
+/* "Made for you": the client's custom order page, beneath the default cards */
+.mine{margin-top:18px;max-width:760px}
+.mine.only{margin-top:0}
+.mine-k{display:flex;align-items:center;gap:12px;margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--slate)}
+.mine-k::before,.mine-k::after{content:"";flex:1;height:1px;background:var(--line)}
+.mcard{position:relative;display:flex;align-items:stretch;width:100%;padding:0;border:1.5px solid var(--line);border-radius:14px;background:#fff;overflow:hidden;text-align:left;cursor:pointer;font:inherit;color:inherit;box-shadow:0 6px 22px rgba(20,35,60,.07);transition:border-color .15s,box-shadow .15s,transform .15s}
+.mcard:hover{border-color:#9fb0c8;box-shadow:0 10px 28px rgba(20,35,60,.11)}
+.mcard.sel{border-color:#1d3250;box-shadow:0 0 0 1px #1d3250,0 10px 28px rgba(20,35,60,.12)}
+.mc-img{flex:0 0 42%;min-height:150px;background:#e8edf3;overflow:hidden}
+.mc-img img{width:100%;height:100%;object-fit:cover;display:block}
+.mc-t{flex:1;display:flex;flex-direction:column;justify-content:center;gap:6px;padding:18px 44px 18px 20px}
+.mc-t b{font-family:var(--hf);font-size:22px;font-weight:500;color:var(--primary);line-height:1.15}
+.mc-w{font-size:14.5px;line-height:1.45;color:var(--body)}
+.mc-go{margin-top:4px;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--primary)}
+.mc-go i{font-style:normal;display:inline-block;transition:transform .15s}.mcard:hover .mc-go i{transform:translateX(3px)}
+.mcard .tick{position:absolute;top:12px;right:12px;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:#eef2f7;color:transparent;border:0}
+.mcard .tick svg{width:14px;height:14px}
+.mcard.sel .tick{background:#1d3250;color:#fff}.mcard.sel .tick svg,.mcard.sel .tick svg *{stroke:#fff!important}
+@media (max-width:640px){.mcard{flex-direction:column}.mc-img{flex:none;min-height:0;aspect-ratio:16/9}.mc-t{padding:14px 16px 16px}.mc-t b{font-size:20px}.mcard .tick{background:rgba(255,255,255,.9)}}
+s.was{color:var(--slate);font-weight:400;margin-right:6px;font-size:.85em;text-decoration-thickness:1.5px}

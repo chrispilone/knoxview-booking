@@ -386,13 +386,15 @@ function lbMedia(id, k) {
   else lbOpen(`<div class="lb-tour"><iframe src="${ref}" allow="xr-spatial-tracking; gyroscope; accelerometer; fullscreen" allowfullscreen title="${esc(cap)}"></iframe></div><div class="lb-cap">${esc(cap)} · drag to look around, tap the circles to move</div>`, 'tour');
 }
 document.addEventListener('keydown', ev => { if (!LB.el) return; if (ev.key === 'Escape') lbClose(); if (ev.key === 'ArrowRight') lbStep(1); if (ev.key === 'ArrowLeft') lbStep(-1); });
+// Custom page price below the normal price: show the normal price crossed out
+const was = (x, add = 0) => isCustom() && +x.list_price > +x.price ? `<s class="was">${money(+x.list_price + add)}</s>` : '';
 function vServices(inline) {
   const cov = covered();
   const pk = packages().map(p => `
     <button class="card round pkg ${S.pkg === p.id ? 'sel' : S.pkg ? 'dim' : ''}" onclick="kv.pickPkg('${p.id}')" aria-pressed="${S.pkg === p.id}" ${S.pkg && S.pkg !== p.id ? 'aria-disabled="true"' : ''}>
       <span class="tick">${CHECK}</span>
       <div class="pkg-h"><div class="pkg-nm"><h3>${esc(p.name)}</h3>${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}</div>
-        <span class="pkg-p">${money(+p.price + sizeAdj())}${sizeAdj() ? `<small>for ${esc(S.addr.sqftLabel || 'large property')}</small>` : ''}</span></div>
+        <span class="pkg-p">${was(p, sizeAdj())}${money(+p.price + sizeAdj())}${sizeAdj() ? `<small>for ${esc(S.addr.sqftLabel || 'large property')}</small>` : ''}</span></div>
       <ul class="chk two">${(p.includes || []).map(i => `<li>${CHECK}<span>${esc(incLabel(i))}</span></li>`).join('')}</ul>
     </button>${S.pkg === p.id ? vExample(p.id) : ''}`).join('');
   const ups = upsells().map(u => `<div class="up"><div style="flex:1"><h3>${esc(u.title)}</h3><p>${esc(u.description)}</p></div>
@@ -402,14 +404,14 @@ function vServices(inline) {
     return `<button class="row ${sel ? 'sel' : ''} ${inc ? 'incl' : ''}" onclick="kv.toggle('${s.id}')" aria-pressed="${sel || inc}" ${inc ? 'aria-disabled="true"' : ''}>
       <span class="box">${CHECK}</span>
       <span class="row-t"><span class="row-n">${esc(s.name)}</span>${/^photography$/i.test(s.name) && !isLand() ? `<span class="row-d">${alcPhotoCount()} photos</span>` : s.description ? `<span class="row-d">${esc(s.description)}</span>` : ''}</span>
-      <span class="row-p">${inc ? `<span class="inc">Included in ${esc(svc(S.pkg).name)}</span>` : money(svcPrice(s))}</span></button>`;
+      <span class="row-p">${inc ? `<span class="inc">Included in ${esc(svc(S.pkg).name)}</span>` : was(s, svcPrice(s) - s.price) + money(svcPrice(s))}</span></button>`;
   };
   const card = s => {
     const inc = cov.has(s.id), sel = S.items.has(s.id);
     return `<button class="card sq small-card ${sel ? 'sel' : ''} ${inc ? 'incl' : ''}" onclick="kv.toggle('${s.id}')" aria-pressed="${sel || inc}">
       ${inc ? `<span class="badge g">Included in ${esc(svc(S.pkg).name)}</span>` : ''}
       <span class="tick">${CHECK}</span><h3>${esc(s.name)}</h3>
-      <div class="price">${inc ? '<span style="color:var(--ok)">Included</span>' : money(s.price)}</div>
+      <div class="price">${inc ? '<span style="color:var(--ok)">Included</span>' : was(s) + money(s.price)}</div>
       ${s.description ? `<div class="meta">${esc(s.description)}</div>` : ''}</button>`;
   };
   const st = S.config.settings;
@@ -1517,7 +1519,12 @@ function vOne() {
       <span class="tc-img">${t === 'custom' ? (pg.cover_url ? `<img src="${esc(pg.cover_url)}" alt="" decoding="async">` : `<span class="tc-ph">${esc(pg.title)}</span>`) : `<img src="/img/type-${t === 'home' ? 'listing' : t}.jpg?v=2" alt="" decoding="async">`}<span class="tick">${CHECK}</span></span>
       <span class="tc-n">${name}</span></button>`;
   const type = `<section class="o-sec">${oh('o-type', 1, 'Choose your media')}
-    <div class="tcards${pg && pg.show_default ? ' four' : ''}">${pg ? tRow('custom', esc(pg.title), '') : ''}${!pg || pg.show_default ? tRow('home', 'Listing Media', '') + tRow('land', 'Land Media', '') + tRow('str', 'STR Media', '') : ''}</div>
+    ${!pg || pg.show_default ? `<div class="tcards">${tRow('home', 'Listing Media', '') + tRow('land', 'Land Media', '') + tRow('str', 'STR Media', '')}</div>` : ''}
+    ${pg ? `<div class="mine${pg.show_default ? '' : ' only'}">${pg.show_default ? '<p class="mine-k"><span>Made for you</span></p>' : ''}
+      <button class="mcard ${S.ptype === 'custom' ? 'sel' : ''}" onclick="kv.ptype('custom')" aria-pressed="${S.ptype === 'custom'}">
+        <span class="mc-img">${pg.cover_url ? `<img src="${esc(pg.cover_url)}" alt="" decoding="async">` : `<span class="tc-ph">${esc(pg.title)}</span>`}</span>
+        <span class="mc-t"><b>${esc(pg.title)}</b>${pg.welcome ? `<span class="mc-w">${esc(pg.welcome)}</span>` : ''}<span class="mc-go">${S.ptype === 'custom' ? 'Selected' : 'View your packages'} <i aria-hidden="true">→</i></span></span>
+        <span class="tick">${CHECK}</span></button></div>` : ''}
     ${S.ptype === 'str' ? `<div class="soon"><b>Short-term rental media is coming soon.</b> Text us at <a href="${SMS_LINK}">865-855-5669</a> and we'll set up your shoot.</div>` : ''}</section>`;
   if (S.ptype === 'str') return type;
   const haveSvc = inCart().size > 0, aOk = addrOk();
