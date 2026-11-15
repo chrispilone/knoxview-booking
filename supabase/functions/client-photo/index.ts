@@ -1,0 +1,62 @@
+import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
+
+// Client profile photo (headshot) for the booking portal. Kept separate from `booking` so HQ and the
+// property websites can reuse the same photo fields without touching checkout code.
+//   get    → { photo_url }
+//   set    → { path, original }  saves photos the browser uploaded to agent-photos/<user id>/ (storage policy only
+//            allows their own folder), then removes the client's previous photo files
+//   remove → clears the photo
+// agents.photo_url is a public 1000x1000 square JPEG (show it round with CSS where a circle is needed);
+// agents.photo_original_path is the full photo (max 2400px) so it can be re-cropped later.
+
+const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
+const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
+const BUCKET = 'agent-photos';
+
+const cors = (req: Request) => {
+  const o = req.headers.get('origin') ?? '';
+  const ok = ORIGINS.includes(o) || /^https:\/\/[a-z0-9-]+--knoxview-booking\.netlify\.app$/.test(o);
+  return { 'Access-Control-Allow-Origin': ok ? o : ORIGINS[0], 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Vary': 'Origin' };
+};
+const json = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors(req), 'Content-Type': 'application/json' } });
+class UserError extends Error { constructor(m: string, public status = 400) { super(m); } }
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors(req) });
+  try {
+    const body = await req.json().catch(() => ({}));
+    const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+    const user = jwt.split('.').length === 3 ? (await admin.auth.getUser(jwt)).data?.user : null;
+    if (!user) return json(req, { error: 'Please sign in.' }, 401);
+    const { data: agent } = await admin.from('agents').select('id, photo_url, photo_path, photo_original_path').eq('auth_user_id', user.id).maybeSingle();
+    const action = String(body.action || '');
+
+    if (action === 'get') return json(req, { photo_url: agent?.photo_url ?? null });
+
+    if (action === 'set' || action === 'remove') {
+      if (!agent) throw new UserError('Save your name on your profile first, then add your photo.');
+      const mine = (p: unknown) => typeof p === 'string' && p.startsWith(user.id + '/') && /^[\w-]+\/[\w.-]{1,120}$/.test(p) ? p : null;
+      let patch: Record<string, string | null>;
+      if (action === 'remove') patch = { photo_url: null, photo_path: null, photo_original_path: null };
+      else {
+        const path = mine(body.path);
+        if (!path) throw new UserError('Your photo did not upload. Please try again.');
+        const name = path.split('/')[1];
+        const { data: found } = await admin.storage.from(BUCKET).list(user.id, { search: name, limit: 5 });
+        if (!(found ?? []).some(f => f.name === name)) throw new UserError('Your photo did not upload. Please try again.');
+        patch = { photo_url: admin.storage.from(BUCKET).getPublicUrl(path).data.publicUrl, photo_path: path, photo_original_path: mine(body.original) ?? agent.photo_original_path ?? null };
+      }
+      const { error } = await admin.from('agents').update({ ...patch, photo_updated_at: new Date().toISOString() }).eq('id', agent.id);
+      if (error) throw error;
+      const stale = [agent.photo_path, agent.photo_original_path].filter(p => p && p !== patch.photo_path && p !== patch.photo_original_path) as string[];
+      if (stale.length) await admin.storage.from(BUCKET).remove(stale).catch(() => {});
+      return json(req, { photo_url: patch.photo_url });
+    }
+
+    return json(req, { error: 'Unknown action' }, 400);
+  } catch (e) {
+    const status = e instanceof UserError ? e.status : 500;
+    if (status >= 500) console.error('client-photo error:', String((e as Error)?.message || e));
+    return json(req, { error: e instanceof UserError ? e.message : 'Something went wrong. Please try again.' }, status);
+  }
+});

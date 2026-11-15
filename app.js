@@ -256,7 +256,7 @@ async function verifyCode(ev) {
   S.busy = false; render();
 }
 function loginBack() { LP().stage = 'enter'; S.error = ''; render(); }
-async function signOut() { await sb.auth.signOut(); S.session = null; S.agent = null; S.pdata = null; S.login = null; UI.menu = false; location.hash = '#account'; render(); }
+async function signOut() { await sb.auth.signOut(); S.session = null; S.agent = null; S.pdata = null; S.login = null; S.photo = null; UI.menu = false; location.hash = '#account'; render(); }
 async function loadPortal() {
   S.pdata = { loading: true }; render();
   try { S.pdata = await api('portal'); if (S.pdata.agent) { S.agent = { ...S.agent, ...S.pdata.agent }; fillContact(); } } catch (e) { S.pdata = { error: e.message }; }
@@ -859,7 +859,8 @@ function vSettings() {
   const a = S.pdata?.agent || S.agent || {};
   const f = (k, label, v, attrs = '') => `<div><label for="st_${k}">${label}</label><input id="st_${k}" value="${esc(v || '')}" ${attrs}></div>`;
   return `<div class="panel" style="max-width:640px"><h2 style="font-size:26px;margin-bottom:4px">Profile</h2>
-    <p class="hint" style="margin:0 0 18px">Your contact details. We use these to fill in your bookings and reach you about shoots.</p>
+    <p class="hint" style="margin:0 0 18px">Your photo and contact details. We use these on your bookings, your property websites, and to reach you about shoots.</p>
+    ${a.id ? vPhotoCard(a) : ''}
     <form onsubmit="kv.saveProfile(event)" class="fg">
       <div class="full">${f('full_name', 'Full name', a.full_name, 'autocomplete="name"').slice(5, -6)}</div>
       ${f('phone', 'Mobile number', a.phone ? kv.fmtPhone(a.phone) : '', 'type="tel" inputmode="tel" autocomplete="tel-national" oninput="this.value=kv.fmtPhone(this.value)"')}
@@ -875,6 +876,122 @@ function vSettings() {
       <p style="margin:0"><b>Android:</b> open this page in Chrome, tap the ⋮ menu, then <b>Add to Home screen</b> (or <b>Install app</b>).</p>
       <p class="hint" style="margin:10px 0 0">The first time you open it from your home screen, sign in once with your email or phone.</p></div>`;
 }
+
+/* ================= profile photo (headshot) =================
+   One square photo per client, reused everywhere: the portal header and menu, HQ, and (later) branded property websites.
+   Saved as a 1000x1000 JPEG (agents.photo_url). Round spots show it in a circle, so the editor shows the square and the circle.
+   The full photo (downsized to 2400px) is kept too (agents.photo_original_path) so it can be re-cropped later. */
+const PH = { OUT: 1000, ORIG: 2400, MAX_MB: 25 };
+// S.photo = the signed-in client's photo URL ('' = none, null = not loaded yet)
+const avatar = (a, cls = 'av') => S.photo
+  ? `<span class="${cls} has-ph"><img src="${esc(S.photo)}" alt="" decoding="async"></span>`
+  : `<span class="${cls}">${esc(initials(a?.full_name || S.session?.user?.email || ''))}</span>`;
+function vPhotoCard(a) {
+  const has = !!S.photo;
+  return `<div class="ph-card">${avatar(a, 'av ph-big')}
+    <div class="ph-txt"><b>Profile photo</b><p class="hint">${has ? 'This is the photo we show on your account and on your property websites.' : 'Add a headshot. We show it on your account and on your property websites.'}</p>
+      <div class="ph-acts"><label class="btn sm"><input type="file" accept="image/*" onchange="kv.photoPick(this)" hidden>${has ? 'Change photo' : 'Add photo'}</label>
+        ${has ? `<button type="button" class="btn sm o" onclick="kv.photoRemove()">Remove</button>` : ''}</div></div></div>`;
+}
+async function loadImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image(); img.decoding = 'async'; img.src = url;
+    await img.decode();
+    return img;
+  } catch (_) { throw new Error("That photo couldn't be opened. Try a JPG or PNG."); }
+  finally { setTimeout(() => URL.revokeObjectURL(url), 60000); }
+}
+const toJpeg = (canvas, q = 0.9) => new Promise((ok, no) => canvas.toBlob(b => b ? ok(b) : no(new Error("Couldn't prepare the photo.")), 'image/jpeg', q));
+async function photoPick(input) {
+  const file = input.files?.[0]; input.value = '';
+  if (!file) return;
+  if (file.size > PH.MAX_MB * 1048576) return alertModal(`That photo is over ${PH.MAX_MB} MB. Please pick a smaller one.`);
+  let img; try { img = await loadImage(file); } catch (e) { return alertModal(e.message); }
+  if (Math.min(img.naturalWidth, img.naturalHeight) < 200) return alertModal('That photo is too small. Please pick one at least 200 pixels wide.');
+  openCropper(img);
+}
+function openCropper(img) {
+  const W = img.naturalWidth, H = img.naturalHeight;
+  $('modal').innerHTML = `<div class="modal ph-modal" role="dialog" aria-modal="true" aria-labelledby="phT"><div class="panel ph-panel">
+    <h2 id="phT">Adjust your photo</h2>
+    <p class="hint">Drag to move. ${matchMedia('(pointer:coarse)').matches ? 'Pinch' : 'Scroll or use the slider'} to zoom. The square is your full photo; the circle shows round spots like your account icon.</p>
+    <div class="ph-stage" id="phStage"><img id="phImg" src="${img.src}" alt="" draggable="false"><div class="ph-ring" aria-hidden="true"></div></div>
+    <div class="ph-zoom"><span aria-hidden="true">−</span><input type="range" id="phZoom" min="1" max="4" step="0.01" value="1" aria-label="Zoom"><span aria-hidden="true">+</span></div>
+    <div class="ph-prev"><span class="av ph-sm"><canvas id="phPrev" width="96" height="96"></canvas></span><small>Preview</small></div>
+    <div class="msg err" id="phErr" hidden></div>
+    <div class="nav"><button class="btn o" type="button" onclick="kv.closeModal()">Cancel</button><button class="btn" type="button" id="phSave">Save photo</button></div>
+  </div></div>`;
+  const stage = $('phStage'), el = $('phImg'), zoomEl = $('phZoom'), prev = $('phPrev').getContext('2d');
+  // c = crop square in image pixels: side = min(W,H)/zoom, (x,y) = its top-left
+  const base = Math.min(W, H);
+  const c = { z: 1, x: (W - base) / 2, y: (H - base) / 2 };
+  const side = () => base / c.z;
+  const clamp = () => { c.x = Math.min(Math.max(0, c.x), W - side()); c.y = Math.min(Math.max(0, c.y), H - side()); };
+  let raf = 0;
+  const draw = () => {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      const S0 = stage.clientWidth, k = S0 / side();
+      el.style.width = W * k + 'px'; el.style.height = H * k + 'px';
+      el.style.transform = `translate(${-c.x * k}px, ${-c.y * k}px)`;
+      prev.clearRect(0, 0, 96, 96); prev.drawImage(img, c.x, c.y, side(), side(), 0, 0, 96, 96);
+    });
+  };
+  const zoomTo = (z, fx = 0.5, fy = 0.5) => { // keep the point under (fx,fy) of the frame still
+    z = Math.min(4, Math.max(1, z));
+    const s0 = side(), px = c.x + fx * s0, py = c.y + fy * s0;
+    c.z = z; const s1 = side(); c.x = px - fx * s1; c.y = py - fy * s1; clamp(); zoomEl.value = z; draw();
+  };
+  zoomEl.oninput = () => zoomTo(+zoomEl.value);
+  stage.addEventListener('wheel', e => { e.preventDefault(); const r = stage.getBoundingClientRect(); zoomTo(c.z * Math.exp(-e.deltaY * 0.0015), (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height); }, { passive: false });
+  const pts = new Map(); let pinch = null;
+  stage.onpointerdown = e => { stage.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), z: c.z }; } };
+  stage.onpointermove = e => {
+    const p = pts.get(e.pointerId); if (!p) return;
+    const r = stage.getBoundingClientRect(), k = r.width / side();
+    if (pts.size === 1) { c.x -= (e.clientX - p.x) / k; c.y -= (e.clientY - p.y) / k; clamp(); draw(); }
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2 && pinch) { const [a, b] = [...pts.values()]; zoomTo(pinch.z * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d, ((a.x + b.x) / 2 - r.left) / r.width, ((a.y + b.y) / 2 - r.top) / r.height); }
+  };
+  stage.onpointerup = stage.onpointercancel = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
+  stage.onkeydown = e => { const st = side() * 0.03, m = { ArrowLeft: [-st, 0], ArrowRight: [st, 0], ArrowUp: [0, -st], ArrowDown: [0, st] }[e.key]; if (m) { e.preventDefault(); c.x += m[0]; c.y += m[1]; clamp(); draw(); } };
+  stage.tabIndex = 0; stage.setAttribute('aria-label', 'Photo position. Use arrow keys to move.');
+  new ResizeObserver(draw).observe(stage);
+  draw();
+  $('phSave').onclick = async () => {
+    const btn = $('phSave'), err = $('phErr'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; err.hidden = true;
+    try {
+      const out = document.createElement('canvas'); out.width = out.height = PH.OUT;
+      const g = out.getContext('2d'); g.imageSmoothingQuality = 'high'; g.fillStyle = '#fff'; g.fillRect(0, 0, PH.OUT, PH.OUT);
+      g.drawImage(img, c.x, c.y, side(), side(), 0, 0, PH.OUT, PH.OUT);
+      const sc = Math.min(1, PH.ORIG / Math.max(W, H)), og = document.createElement('canvas');
+      og.width = Math.round(W * sc); og.height = Math.round(H * sc);
+      const o2 = og.getContext('2d'); o2.imageSmoothingQuality = 'high'; o2.fillStyle = '#fff'; o2.fillRect(0, 0, og.width, og.height); o2.drawImage(img, 0, 0, og.width, og.height);
+      const [sq, orig] = await Promise.all([toJpeg(out, 0.9), toJpeg(og, 0.88)]);
+      const uid = S.session.user.id, t = Date.now().toString(36);
+      const path = `${uid}/photo-${t}.jpg`, original = `${uid}/original-${t}.jpg`;
+      const up = (p, b) => sb.storage.from('agent-photos').upload(p, b, { contentType: 'image/jpeg', cacheControl: '31536000', upsert: false });
+      const [r1, r2] = await Promise.all([up(path, sq), up(original, orig)]);
+      if (r1.error) throw new Error("Your photo didn't upload. Please try again.");
+      const r = await api('set', { path, original: r2.error ? null : original }, 'client-photo');
+      S.photo = r.photo_url || ''; kv.closeModal(); render();
+    } catch (e) { err.textContent = e.message; err.hidden = false; btn.disabled = false; btn.textContent = 'Save photo'; }
+  };
+}
+async function photoRemove() {
+  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">Remove your photo?</h2>
+    <p class="hint">Your initials will show instead until you add a new one.</p>
+    <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" id="phRm">Remove</button></div></div></div>`;
+  $('phRm').onclick = async () => {
+    $('phRm').disabled = true;
+    try { await api('remove', {}, 'client-photo'); S.photo = ''; kv.closeModal(); render(); }
+    catch (e) { kv.closeModal(); alertModal(e.message); }
+  };
+}
+function setAgent(a) { if (!a) return; S.agent = { ...(S.agent || {}), ...a }; if (S.pdata) S.pdata.agent = { ...(S.pdata.agent || {}), ...a }; }
+async function loadPhoto() { if (!S.session) return; try { S.photo = (await api('get', {}, 'client-photo')).photo_url || ''; render(); } catch (_) { /* initials stay */ } }
+Object.assign(window.kv, { photoPick, photoRemove });
 
 const TEST_EMAIL = 'chris+test@knoxview.com';
 const isTestAccount = () => (S.session?.user?.email || '').toLowerCase() === TEST_EMAIL;
@@ -900,9 +1017,9 @@ function vHeader() {
   $('pnav').innerHTML = nav;
   const a = S.pdata?.agent || S.agent, name = a?.full_name || S.session?.user?.email || '';
   $('acct').innerHTML = !signedIn ? `<div class="top-acts">${v === 'account' ? '<a class="signin" href="#order">Book now</a>' : '<a class="signin" href="#account">Sign in</a>'}<a class="top-text" href="${SMS_LINK}">${svg(IC_CHAT, 14)} Text us</a></div>`
-    : `<button class="me" onclick="kv.menu(event)" aria-expanded="${UI.menu}"><span class="av">${esc(initials(a?.full_name || name))}</span>
+    : `<button class="me" onclick="kv.menu(event)" aria-expanded="${UI.menu}" aria-label="Account menu">${avatar(a)}
         <span class="me-t"><b>${esc(name)}</b>${a?.brokerage ? `<small>${esc(a.brokerage)}</small>` : ''}</span>${ic(I.down, 16)}</button>
-      ${UI.menu ? `<div class="menu" onclick="event.stopPropagation()"><div class="menu-h"><span class="av">${esc(initials(a?.full_name || name))}</span><div><b>${esc(name)}</b><small>${esc(a?.email || S.session.user.email || '')}</small></div></div>
+      ${UI.menu ? `<div class="menu" onclick="event.stopPropagation()"><div class="menu-h">${avatar(a)}<div><b>${esc(name)}</b><small>${esc(a?.email || S.session.user.email || '')}</small></div></div>
         <a href="#order" onclick="kv.menu()">${ic(I.cart)}Order now</a><a href="#listings" onclick="kv.menu()">${ic(I.home)}Listings</a><a href="#invoices" onclick="kv.menu()">${ic(I.inv)}Invoices</a><a href="#profile" onclick="kv.menu()">${ic(I.user)}Profile</a><button onclick="kv.signOut()">${ic(I.out)}Log out</button></div>` : ''}`;
 }
 
@@ -1148,7 +1265,7 @@ Object.assign(window.kv, {
     S.busy = true; S.error = ''; UI.saved = false; render();
     try {
       const r = await api('profile', { full_name: v('full_name'), phone: v('phone'), brokerage: v('brokerage'), team_name: v('team_name') });
-      S.agent = r.agent; if (S.pdata) S.pdata.agent = r.agent; fillContact(); UI.saved = true;
+      setAgent(r.agent); fillContact(); UI.saved = true;
     } catch (e) { S.error = e.message; }
     S.busy = false; render();
   },
@@ -1342,11 +1459,11 @@ window.addEventListener('hashchange', route);
     if (cfg.stripe?.mode === 'test') $('testbar').hidden = false;
     if (S.session) {
       const l = await api('link').catch(() => ({}));
-      S.agent = l.agent; fillContact();
+      S.agent = l.agent; fillContact(); loadPhoto();
     }
     sb.auth.onAuthStateChange((_e, session) => {
       const was = !!S.session; S.session = session;
-      if (session && !was) { api('link').then(l => { S.agent = l.agent; fillContact(); route(); }).catch(() => route()); }
+      if (session && !was) { api('link').then(l => { S.agent = l.agent; fillContact(); route(); loadPhoto(); }).catch(() => route()); }
     });
     S.loading = false;
     // Returning from a bank redirect (3-D Secure etc.)

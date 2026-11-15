@@ -800,3 +800,29 @@ a.lp-book:hover{color:#fff}
 .upl-btn:hover{border-style:solid;background:#f6f8fb}
 .upl-btn input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .upl-h{display:inline-block;margin-left:10px;font-size:12px;color:var(--muted,#8c98a8)}
+
+/* ===== profile photo (headshot): avatar image, profile card, crop editor ===== */
+.av.has-ph{background:var(--pale);overflow:hidden;padding:0}
+.av.has-ph img,.av canvas{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%}
+.ph-card{display:flex;align-items:center;gap:18px;padding:16px;margin:0 0 20px;border:1px solid var(--line);border-radius:10px;background:#fafbfc}
+.av.ph-big{width:96px;height:96px;font-size:30px}
+.ph-txt b{color:var(--primary);font-size:15px}
+.ph-txt .hint{margin:4px 0 10px}
+.ph-acts{display:flex;gap:8px;flex-wrap:wrap}
+.ph-acts label.btn{display:inline-flex;align-items:center}
+@media (max-width:520px){.ph-card{flex-direction:column;text-align:center}.ph-acts{justify-content:center}}
+.ph-modal .ph-panel{max-width:440px}
+.ph-panel h2{font-size:22px;margin-bottom:4px}
+.ph-panel .hint{margin:0 0 14px}
+.ph-stage{position:relative;width:100%;aspect-ratio:1;overflow:hidden;background:#0f1928;border-radius:4px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;outline:none}
+.ph-stage:active{cursor:grabbing}
+.ph-stage:focus-visible{box-shadow:0 0 0 3px var(--accent)}
+.ph-stage img{position:absolute;left:0;top:0;max-width:none;pointer-events:none;transform-origin:0 0;will-change:transform}
+/* the square is the saved photo; the circle shows what round spots (account icon) display */
+.ph-ring{position:absolute;inset:0;pointer-events:none;border:2px solid rgba(255,255,255,.9);border-radius:4px}
+.ph-ring::before{content:'';position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 999px rgba(15,25,40,.38);border:2px dashed rgba(255,255,255,.85)}
+.ph-zoom{display:flex;align-items:center;gap:10px;margin:14px 0 6px;color:var(--slate);font-size:20px}
+.ph-zoom input{flex:1;accent-color:var(--primary)}
+.ph-prev{display:flex;align-items:center;gap:10px;margin:6px 0 4px;color:var(--slate)}
+.av.ph-sm{width:48px;height:48px;padding:0;overflow:hidden;background:var(--pale)}
+@media (max-width:520px){.ph-modal{padding:8px}.ph-modal .panel{max-height:96vh;padding:16px}}
