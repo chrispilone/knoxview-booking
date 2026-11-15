@@ -945,7 +945,7 @@ function invEmail(n) {
   $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">Email invoice #${esc(n)}</h2>
     <p class="hint" style="margin:0 0 14px">${esc(i?.address || '')} · the PDF is attached.</p>
     ${own ? `<label class="check-row"><input type="checkbox" id="ieSelf" checked> Send to me (${esc(own)})</label>` : ''}
-    <label for="ieTo" style="margin-top:12px">Also send to <span class="hint">(optional, up to 3, separated by commas)</span></label>
+    <label for="ieTo" style="margin-top:12px">Also send to</label><p class="hint" style="margin:0 0 6px">Optional. Up to 3 email addresses, separated by commas.</p>
     <input id="ieTo" type="email" multiple inputmode="email" autocomplete="email" placeholder="name@example.com">
     <div id="ieMsg"></div>
     <div class="ph-nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" id="ieGo">Send</button></div></div></div>`;
@@ -1725,5 +1725,3 @@ function acHookOrderForm() {
     d = 0;
   });
 })();
-// TEMP layout check (removed after testing)
-if (location.search.includes('kvlayout')) window.__kv = { S, INV, UI, render, route };

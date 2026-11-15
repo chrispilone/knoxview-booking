@@ -903,3 +903,4 @@ a.lp-book:hover{color:#fff}
 .itbl th,.itbl td{padding-left:10px;padding-right:10px}
 .itbl td.r:last-child{white-space:nowrap}
 @media(min-width:641px) and (max-width:1100px){.itbl .iact{width:32px;height:32px}.itbl td.r .btn.sm{padding:7px 10px}}
+.check-row{text-transform:none!important;letter-spacing:0!important;font-size:14.5px!important}
