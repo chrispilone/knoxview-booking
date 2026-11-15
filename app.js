@@ -75,7 +75,7 @@ window.kv = {
   calToggle() { S.calOpen = !S.calOpen; if (S.calOpen && !S.calFrom && S.slots?.days?.length) S.calFrom = S.pickDate ? dSun(S.pickDate) : calFirst(); render(); if (S.calOpen) calEnsure(); },
   calShift(n) { const first = calFirst(); S.calFrom = dAdd(S.calFrom || first, n); if (S.calFrom < first) S.calFrom = first; S.pickDate = null; render(); calEnsure(); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
-  startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
+  startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
 
 function go(n) {
@@ -122,7 +122,22 @@ function stripeReady() {
 }
 const appearance = { theme: 'stripe', variables: { colorPrimary: '#1d3250', colorText: '#44546b', colorDanger: '#b0413e', fontFamily: 'Figtree, system-ui, sans-serif', borderRadius: '8px' } };
 
+// "Submit Order": no card now, payment upon delivery (the `order` function books it and adds it to the calendar)
+async function submitOrder() {
+  if (!validate(3)) { render(); return; }
+  S.busy = true; S.error = ''; S.payOpt = 'pay_later'; render();
+  try {
+    S.done = await api('submit', { ...selection(), start: S.start, address: S.addr, contact: S.contact }, 'order');
+    S.view = 'done'; S.checkout = null; history.replaceState(null, '', '/');
+  } catch (e) {
+    S.error = e.message;
+    if (e.status === 409) { resetSchedule(); S.step = 2; loadSlots(); }
+  }
+  S.busy = false; render(); window.scrollTo({ top: 0 });
+}
+// "Pay Now and Submit Order": card payment through Stripe
 async function startCheckout() {
+  S.payOpt = 'pay_now';
   if (!validate(3)) { render(); return; }
   if (!stripeReady()) { S.error = 'Online payments are not switched on yet. Please call ' + CFG.phone + ' to book.'; render(); return; }
   S.busy = true; S.error = ''; render();
@@ -420,17 +435,19 @@ function vReview() {
       <dt>Services</dt><dd>${lines().map(l => esc(l.name)).join(', ')}</dd>
       <dt>Total</dt><dd><b style="color:var(--primary)">${money(total())}</b></dd>
     </dl>
-    <div class="pay"><b style="color:var(--primary)">Payment</b>
-      ${(S.config.settings.payment_options || []).filter(k => payLabels[k]).map(k => `
-      <label class="radio ${S.payOpt === k ? 'sel' : ''}" style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--body);font-size:14px">
-        <input type="radio" name="pay" ${S.payOpt === k ? 'checked' : ''} ${locked ? 'disabled' : ''} onchange="kv.setPay('${k}')"><span><b>${payLabels[k][0]}</b>${payLabels[k][1] ? `<br><span class="hint">${payLabels[k][1]}</span>` : ''}</span></label>`).join('')}
-      <div id="pay-el"></div>
-    </div></div></section>
+    ${locked ? `<div class="pay"><b style="color:var(--primary)">Pay now · ${money(S.checkout.booking.total)}</b><div id="pay-el"></div></div>` : ''}
+    </div></section>
     <div id="revErr">${S.error ? `<div class="msg err">${esc(S.error)}</div>` : ''}</div>
-    <div class="nav" id="revNav"><button class="btn o" onclick="kv.go(2)" ${S.busy ? 'disabled' : ''}>Back</button>
+    <div class="nav" id="revNav">
       ${locked
-        ? `<button class="btn" onclick="kv.confirmPay()" ${S.busy ? 'disabled' : ''}>${S.busy ? '<span class="spin"></span>' : S.checkout.intentType === 'payment' ? 'Pay ' + money(S.checkout.booking.total) + ' &amp; book' : 'Save card &amp; book'}</button>`
-        : `<button class="btn" onclick="kv.startCheckout()" ${S.busy ? 'disabled' : ''}>${S.busy ? '<span class="spin"></span>' : 'Continue to payment'}</button>`}
+        ? `<button class="btn o" onclick="kv.cancelPay()" ${S.busy ? 'disabled' : ''}>Back</button>
+           <button class="btn" onclick="kv.confirmPay()" ${S.busy ? 'disabled' : ''}>${S.busy ? '<span class="spin"></span>' : 'Pay ' + money(S.checkout.booking.total) + ' &amp; Submit Order'}</button>`
+        : `<button class="btn o" onclick="kv.go(2)" ${S.busy ? 'disabled' : ''}>Back</button>
+           <div class="submit-opts">
+             <div class="submit-main"><button class="btn" onclick="kv.submitOrder()" ${S.busy ? 'disabled' : ''}>${S.busy && S.payOpt === 'pay_later' ? '<span class="spin"></span>' : 'Submit Order'}</button>
+               <small>Payment upon delivery</small></div>
+             <button class="btn o" onclick="kv.startCheckout()" ${S.busy ? 'disabled' : ''}>${S.busy && S.payOpt === 'pay_now' ? '<span class="spin"></span>' : 'Pay Now and Submit Order'}</button>
+           </div>`}
     </div>`;
 }
 function vDone() {
@@ -440,7 +457,7 @@ function vDone() {
   return `<div class="panel done-box"><div class="big" style="${ok ? '' : 'background:#c08a1e'}">${CHECK}</div>
     <h2 style="font-size:28px">${ok ? "You're booked" : 'Almost done'}</h2>
     <p>${ok ? `Order #${esc(d.number)} · ${esc(when)}` : 'We received your order but the payment is still processing. We\'ll confirm by email.'}</p>
-    <p class="hint">${d.paymentStatus === 'paid' ? 'Paid in full. ' : d.paymentStatus === 'card_saved' ? 'Your card is saved and will be charged when your media is delivered. ' : ''}A confirmation is on its way.</p>
+    <p class="hint">${d.paymentStatus === 'paid' ? 'Paid in full. ' : d.paymentStatus === 'card_saved' ? 'Your card is saved and will be charged when your media is delivered. ' : 'Payment is due when your media is delivered. '}A confirmation is on its way.</p>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px">
       <a class="btn" href="#listings" style="text-decoration:none">View my listings</a>
       <button class="btn o" onclick="location.href='/'">Book another</button></div></div>`;
@@ -1072,9 +1089,9 @@ function render() {
   $('barTot').textContent = money(total());
   $('barSub').textContent = lines().length ? lines().map(l => l.name).join(' · ') : 'Nothing selected';
   const nb = $('barNext');
-  nb.textContent = S.step < 3 ? 'Continue' : S.checkout ? (S.checkout.intentType === 'payment' ? 'Pay & book' : 'Save card & book') : 'To payment';
+  nb.textContent = S.step < 3 ? 'Continue' : S.checkout ? 'Pay & Submit' : 'Submit Order';
   nb.disabled = S.busy || (S.step === 1 ? !inCart().size : S.step === 2 ? !S.start : false);
-  nb.onclick = () => S.step < 3 ? go(S.step + 1) : S.checkout ? confirmPay() : startCheckout();
+  nb.onclick = () => S.step < 3 ? go(S.step + 1) : S.checkout ? confirmPay() : submitOrder();
 }
 document.addEventListener('input', e => {
   const o = e.target.dataset?.o, k = e.target.dataset?.k; if (!o) return;
