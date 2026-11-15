@@ -1059,6 +1059,16 @@ Object.assign(window.kv, {
   useCredit(v) { S.useCredit = !!v; render(); },
 });
 
+// Account → Notification Preferences: text messages the client wants (HQ shows and edits the same switches)
+function vNotify() {
+  const n = S.notify || {}, ph = n.phone || (S.pdata?.agent || S.agent || {}).phone;
+  const row = (k, title, sub) => `<label class="nt-row"><span><b>${title}</b><small>${sub}</small></span>
+    <span class="sw"><input type="checkbox" ${n[k] ? 'checked' : ''} onchange="kv.setNotify('${k}', this.checked, this)"><i aria-hidden="true"></i></span></label>`;
+  return `<p class="nt-h">Text messages${ph ? ` to <b>${esc(kv.fmtPhone(ph))}</b>` : ''}</p>
+    ${row('sms_appointment_reminders', 'Appointment reminders', 'A text before each scheduled shoot')}
+    ${row('sms_media_delivered', 'Media delivered', 'A text when your photos, videos and media are ready')}
+    <p class="hint nt-msg" id="ntMsg">${ph ? 'Message and data rates may apply. Reply STOP to any text to opt out, or turn these off here anytime.' : 'Add your mobile phone in My Profile to turn on text messages.'}</p>`;
+}
 function vSettings() {
   const a = S.pdata?.agent || S.agent || {}, x = S.extras || {};
   const [f0, ...l0] = (a.full_name || '').split(' ');
@@ -1092,6 +1102,7 @@ function vSettings() {
       <p class="hint" style="margin:10px 0 0">The first time you open it from your home screen, sign in once with your email or phone.</p>`;
   return `<div class="prof"><h2 class="prof-t">Account</h2>
     ${sec('me', 'My Profile', '', profile, true)}
+    ${sec('notify', 'Notification Preferences', '', vNotify(), false)}
     ${sec('app', 'Get the app', 'Add Knox View to your home screen', app, false)}</div>`;
 }
 /* ================= profile photo (headshot) =================
@@ -1207,7 +1218,7 @@ async function photoRemove() {
   };
 }
 function setAgent(a) { if (!a) return; S.agent = { ...(S.agent || {}), ...a }; if (S.pdata) S.pdata.agent = { ...(S.pdata.agent || {}), ...a }; }
-async function loadPhoto() { if (!S.session) return; try { const r = await api('get', {}, 'client-photo'); S.photo = r.photo_url || ''; S.logo = r.logo_url || ''; S.extras = r.extras || {}; render(); } catch (_) { /* initials stay */ } }
+async function loadPhoto() { if (!S.session) return; try { const r = await api('get', {}, 'client-photo'); S.photo = r.photo_url || ''; S.logo = r.logo_url || ''; S.extras = r.extras || {}; S.notify = r.notify || {}; render(); } catch (_) { /* initials stay */ } }
 Object.assign(window.kv, { photoPick, photoRemove });
 
 /* ===== Logo (profile): the agent's own logo, PNG with transparency kept; used on property websites ===== */
@@ -1537,6 +1548,14 @@ Object.assign(window.kv, {
       <div class="nav"><button class="btn o" onclick="kv.closeModal()">Close</button>${b && !b.paid ? `<button class="btn" onclick="kv.closeModal();kv.payBooking('${b.id}')">Pay ${money(b.total)}</button>` : ''}</div></div></div>`;
   },
   // open / close a profile section in place (no re-render, so unsaved typing stays)
+  async setNotify(k, on, el) {
+    const prev = { ...(S.notify || {}) }, msg = $('ntMsg');
+    S.notify = { ...prev, [k]: on };
+    try {
+      const r = await api('notify', { sms_appointment_reminders: !!S.notify.sms_appointment_reminders, sms_media_delivered: !!S.notify.sms_media_delivered }, 'client-photo');
+      S.notify = r.notify; if (msg) { msg.textContent = 'Saved.'; msg.classList.add('ok'); setTimeout(() => { msg.classList.remove('ok'); msg.textContent = 'Message and data rates may apply. Reply STOP to any text to opt out, or turn these off here anytime.'; }, 2200); }
+    } catch (e) { S.notify = prev; if (el) el.checked = !on; if (msg) { msg.textContent = e.message; msg.classList.remove('ok'); } }
+  },
   acc(k, on) {
     UI.sec = { ...(UI.sec || {}), [k]: on };
     const btn = document.querySelector(`.acc-h[onclick*="'${k}'"]`); if (!btn) return render();
