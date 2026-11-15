@@ -22,7 +22,7 @@ async function api(action, body = {}, fn = 'booking') {
 const S = {
   view: 'book', step: 0, loading: true, error: '',
   services: [], upsells: [], config: null, session: null, agent: null,
-  pkg: null, items: new Set(), adu: false,
+  pkg: null, items: new Set(), adu: false, ptype: '', // ptype: 'home' | 'land'
   addr: { street: '', unit: '', city: '', state: 'TN', zip: '', sqftLabel: '', occupancy: '', access: '' },
   slots: null, slotsFrom: null, slotsLoading: false, start: null, startLabel: '',
   contact: { first: '', last: '', email: '', phone: '', brokerage: '', notes: '' },
@@ -31,8 +31,15 @@ const S = {
   done: null, login: null, pdata: null, after: '',
 };
 const svc = id => S.services.find(s => s.id === id);
-const packages = () => S.services.filter(s => s.kind === 'package').sort((a, b) => a.sort_order - b.sort_order);
-const alacarte = () => S.services.filter(s => s.kind === 'addon').sort((a, b) => a.sort_order - b.sort_order);
+const isLand = () => S.ptype === 'land';
+const packages = () => S.services.filter(s => s.kind === 'package' && (s.category === 'land') === isLand()).sort((a, b) => a.sort_order - b.sort_order);
+const LAND_SKIP = /zillow|3d tour|twilight/i; // home-only services hidden for land
+const alacarte = () => S.services.filter(s => s.kind === 'addon' && !(isLand() && LAND_SKIP.test(s.name))).sort((a, b) => a.sort_order - b.sort_order);
+// Land size tiers (no price change yet; set a price per tier here later if needed)
+const ACRE_OPTIONS = [{ label: 'Under 10 acres' }, { label: '10 to 50 acres' }, { label: 'Over 50 acres' }];
+// Photo count shown in packages: 30+ photos, or 40+ for homes over 3,500 sq ft
+const photoCount = () => largeOn() ? '40+' : '30+';
+const incLabel = i => /^photography$/i.test(i) ? `${photoCount()} photos` : /^premium photography$/i.test(i) ? `Premium photography (${photoCount()} photos)` : i;
 const covered = () => new Set(S.pkg ? svc(S.pkg)?.covers ?? [] : []);
 const inCart = () => { const c = new Set(S.items); if (S.pkg) c.add(S.pkg); return c; };
 const anyOf = (list, set) => (list || []).some(x => set.has(x));
@@ -46,7 +53,7 @@ const largeVisible = () => largeEnabled() && inCart().size > 0;
 const sizeAdj = () => largeOn() ? +S.config.settings.large_fee : 0; // shown inside package prices
 function lines() {
   const out = [];
-  if (S.pkg) { const p = svc(S.pkg); out.push({ name: p.name + ' Package', price: +p.price + sizeAdj(), subs: p.includes }); }
+  if (S.pkg) { const p = svc(S.pkg); out.push({ name: p.name + ' Package', price: +p.price + sizeAdj(), subs: (p.includes || []).map(incLabel) }); }
   for (const id of S.items) { const s = svc(id); if (s) out.push({ name: s.name, price: +s.price }); }
   if (!S.pkg && largeOn() && largeVisible()) out.push({ name: S.config.settings.large_label, price: +S.config.settings.large_fee });
   return out;
@@ -76,6 +83,7 @@ window.kv = {
   calShift(n) { const first = calFirst(); S.calFrom = dAdd(S.calFrom || first, n); if (S.calFrom < first) S.calFrom = first; S.pickDate = null; render(); calEnsure(); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
   svcTab(t) { S.svcTab = t === 'alc' ? 'alc' : 'pkg'; render(); document.querySelector('.svc-tabs')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); },
+  ptype(t) { if (S.ptype === t) return; S.ptype = t; S.addr.sqftLabel = ''; S.pkg = null; S.items = new Set(); S.adu = false; S.svcTab = 'pkg'; if (t === 'land') S.addr.occupancy = ''; resetSchedule(); render(); setTimeout(() => document.getElementById('o-size')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
   size(label) { S.addr.sqftLabel = label; resetSchedule(); render(); if (!inCart().size) setTimeout(() => document.getElementById('o-svc')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
   startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
@@ -281,7 +289,7 @@ function vServices(inline) {
       <span class="tick">${CHECK}</span>
       <div class="pkg-h"><div class="pkg-nm"><h3>${esc(p.name)}</h3>${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}</div>
         <span class="pkg-p">${money(+p.price + sizeAdj())}${sizeAdj() ? `<small>for ${esc(S.addr.sqftLabel || 'large property')}</small>` : ''}</span></div>
-      <ul class="chk two">${(p.includes || []).map(i => `<li>${CHECK}<span>${esc(i)}</span></li>`).join('')}</ul>
+      <ul class="chk two">${(p.includes || []).map(i => `<li>${CHECK}<span>${esc(incLabel(i))}</span></li>`).join('')}</ul>
     </button>`).join('');
   const ups = upsells().map(u => `<div class="up"><div style="flex:1"><h3>${esc(u.title)}</h3><p>${esc(u.description)}</p></div>
       <button class="btn lt" onclick="kv.toggle('${u.service_id}')">+ ${money(svc(u.service_id).price)}</button></div>`).join('');
@@ -289,7 +297,7 @@ function vServices(inline) {
     const inc = cov.has(s.id), sel = S.items.has(s.id);
     return `<button class="row ${sel ? 'sel' : ''} ${inc ? 'incl' : ''}" onclick="kv.toggle('${s.id}')" aria-pressed="${sel || inc}" ${inc ? 'aria-disabled="true"' : ''}>
       <span class="box">${CHECK}</span>
-      <span class="row-t"><span class="row-n">${esc(s.name)}</span>${s.description ? `<span class="row-d">${esc(s.description)}</span>` : ''}</span>
+      <span class="row-t"><span class="row-n">${esc(s.name)}</span>${/^photography$/i.test(s.name) && !isLand() ? `<span class="row-d">${photoCount()} photos</span>` : s.description ? `<span class="row-d">${esc(s.description)}</span>` : ''}</span>
       <span class="row-p">${inc ? `<span class="inc">Included in ${esc(svc(S.pkg).name)}</span>` : money(s.price)}</span></button>`;
   };
   const card = s => {
@@ -310,7 +318,7 @@ function vServices(inline) {
       <button type="button" role="tab" aria-selected="${tab === 'pkg'}" class="${tab === 'pkg' ? 'on' : ''}" onclick="kv.svcTab('pkg')">Packages${S.pkg ? ' <i>1</i>' : ''}</button>
       <button type="button" role="tab" aria-selected="${tab === 'alc'}" class="${tab === 'alc' ? 'on' : ''}" onclick="kv.svcTab('alc')">À La Carte${nAlc ? ` <i>${nAlc}</i>` : ''}</button></div>`;
   return `${tabs}
-    ${tab === 'pkg' ? `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Listing Media Packages</h2></div>
+    ${tab === 'pkg' ? `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>${isLand() ? 'Land Media Packages' : 'Listing Media Packages'}</h2></div>
       ${S.pkg ? `<p class="pkg-note">${esc(svc(S.pkg).name)} selected. Tap it again to choose a different package.</p>` : ''}<div class="pkgs">${pk}</div>
       <p class="svc-switch">Only need one service? <a href="javascript:kv.svcTab('alc')">See à la carte services →</a></p></section>
     ${SHOW_UPSELLS && ups ? `<section class="sec">${ups}</section>` : ''}`
@@ -1072,6 +1080,7 @@ function vSummary(btn) {
 const addrOk = () => { const a = S.addr; return !!(a.street && a.city && a.state && /^\d{5}$/.test(a.zip || '')); };
 const detailsOk = () => isValid(3);
 function nextMissing() { // first section still needing an answer
+  if (!S.ptype) return 'o-type';
   if (!S.addr.sqftLabel) return 'o-size';
   if (!inCart().size) return 'o-svc';
   if (!addrOk()) return 'o-addr';
@@ -1087,29 +1096,33 @@ function checkAll() { // before submitting: flag what's missing and jump to it
 }
 const oh = (id, n, title, sub = '') => `<div class="o-h" id="${id}"><span class="o-n">${n}</span><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div></div>`;
 function vOne() {
-  const a = S.addr, st = S.config.settings, opts = st.sqft_options || [];
+  const a = S.addr, st = S.config.settings, land = isLand(), opts = land ? ACRE_OPTIONS : (st.sqft_options || []);
+  const tRow = (t, name, sub) => `<button class="row ${S.ptype === t ? 'sel' : ''}" onclick="kv.ptype('${t}')" aria-pressed="${S.ptype === t}">
+      <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${name}</span><span class="row-d">${sub}</span></span></button>`;
+  const type = `<section class="o-sec">${oh('o-type', 1, 'What are we shooting?')}
+    <div class="list">${tRow('home', 'Home listing', 'Houses, condos, cabins and townhomes')}${tRow('land', 'Land listing', 'Lots and acreage')}</div></section>`;
   const haveSvc = inCart().size > 0, aOk = addrOk();
-  const size = `<section class="o-sec">${oh('o-size', 1, 'Home size', 'Heated square feet')}
+  const size = !S.ptype ? '' : `<section class="o-sec">${oh('o-size', 2, land ? 'Land size' : 'Home size', land ? 'Total acreage' : 'Heated square feet')}
     <div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
       <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${esc(o.label)}</span></span></button>`).join('')}</div></section>`;
-  const svcs = a.sqftLabel ? `<section class="o-sec">${oh('o-svc', 2, 'Services', 'Check a package, or pick individual services')}${vServices(true)}</section>` : '';
-  const addr = a.sqftLabel && haveSvc ? `<section class="o-sec">${oh('o-addr', 3, 'Property address')}
+  const svcs = a.sqftLabel ? `<section class="o-sec">${oh('o-svc', 3, 'Services', 'Check a package, or pick individual services')}${vServices(true)}</section>` : '';
+  const addr = a.sqftLabel && haveSvc ? `<section class="o-sec">${oh('o-addr', 4, 'Property address')}
     <div class="panel"><div class="fg pairs">
       ${field('street', 'Street address', 'addr', { full: true, ph: 'Start typing the address', ac: 'off' })}
       ${field('unit', 'Unit / Lot', 'addr', { req: false, ph: 'Optional', ac: 'address-line2' })}
       ${field('city', 'City', 'addr', { ph: 'Knoxville', ac: 'address-level2' })}
       ${field('state', 'State', 'addr', { pair: true, options: ['TN', 'NC', 'GA', 'KY', 'VA'] })}
       ${field('zip', 'ZIP', 'addr', { pair: true, ph: '37902', im: 'numeric', ac: 'postal-code' })}
-      ${field('occupancy', 'Occupancy', 'addr', { req: false, options: ['Vacant', 'Owner occupied', 'Tenant occupied'], ph: 'Select (optional)' })}
-      ${field('access', 'Access notes', 'addr', { full: true, req: false, area: true, ph: 'Lockbox code, gate code, pets, who will be there…' })}
+      ${land ? '' : field('occupancy', 'Occupancy', 'addr', { req: false, options: ['Vacant', 'Owner occupied', 'Tenant occupied'], ph: 'Select (optional)' })}
+      ${field('access', 'Access notes', 'addr', { full: true, req: false, area: true, ph: land ? 'Gate code, where to park, corners or boundary markers, who will be there…' : 'Lockbox code, gate code, pets, who will be there…' })}
     </div></div></section>` : '';
-  const time = a.sqftLabel && haveSvc && aOk ? `<section class="o-sec">${oh('o-time', 4, 'Pick a time')}${vSchedule(true)}</section>` : '';
+  const time = a.sqftLabel && haveSvc && aOk ? `<section class="o-sec">${oh('o-time', 5, 'Pick a time')}${vSchedule(true)}</section>` : '';
   const you = a.sqftLabel && haveSvc && aOk && S.start ? `<section class="o-sec" id="o-you">${vReview(true)}</section>` : '';
-  return size + svcs + addr + time + you + (S.error && !S.start ? `<div class="msg err">${esc(S.error)}</div>` : '');
+  return type + size + svcs + addr + time + you + (S.error && !S.start ? `<div class="msg err">${esc(S.error)}</div>` : '');
 }
 function updBar() { // bottom button: names the next thing to do, then "Submit Order"
   const nb = $('barNext'); if (!nb) return;
-  nb.textContent = S.checkout ? 'Pay & Submit' : { 'o-size': 'Choose home size', 'o-svc': 'Choose services', 'o-addr': 'Enter address', 'o-time': 'Pick a time', 'o-you': 'Your details' }[nextMissing()] || 'Submit Order';
+  nb.textContent = S.checkout ? 'Pay & Submit' : { 'o-type': 'Home or land?', 'o-size': isLand() ? 'Choose land size' : 'Choose home size', 'o-svc': 'Choose services', 'o-addr': 'Enter address', 'o-time': 'Pick a time', 'o-you': 'Your details' }[nextMissing()] || 'Submit Order';
   nb.disabled = !!S.busy;
 }
 function oneAfterRender() { // load open times once services + address are in; keep the order form and bar in sync
