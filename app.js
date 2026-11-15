@@ -1068,7 +1068,7 @@ function vSettings() {
   const bm = x.birth_month ?? '', bd = x.birth_day ?? '';
   const dmax = bm ? [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][bm - 1] : 31;
   const sec = (key, title, sub, body, open) => { const on = UI.sec?.[key] ?? open;
-    return `<section class="acc ${on ? 'open' : ''}"><button type="button" class="acc-h" aria-expanded="${on}" onclick="kv.acc('${key}', ${!on})"><span><b>${title}</b><small>${sub}</small></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    return `<section class="acc ${on ? 'open' : ''}"><button type="button" class="acc-h" aria-expanded="${on}" onclick="kv.acc('${key}', ${!on})"><span><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div class="acc-b" ${on ? '' : 'hidden'}>${body}</div></section>`; };
   const profile = `<form onsubmit="kv.saveProfile(event)" class="fg">
       ${f('first', 'First name', first, 'autocomplete="given-name" required')}
@@ -1090,8 +1090,8 @@ function vSettings() {
       <p style="margin:0 0 6px"><b>iPhone:</b> open this page in Safari, tap the Share button, then <b>Add to Home Screen</b>.</p>
       <p style="margin:0"><b>Android:</b> open this page in Chrome, tap the ⋮ menu, then <b>Add to Home screen</b> (or <b>Install app</b>).</p>
       <p class="hint" style="margin:10px 0 0">The first time you open it from your home screen, sign in once with your email or phone.</p>`;
-  return `<div class="prof"><h2 class="prof-t">Profile</h2>
-    ${sec('me', 'My profile', 'Name, contact, brokerage, website, birthday, photo and logo', profile, true)}
+  return `<div class="prof"><h2 class="prof-t">Account</h2>
+    ${sec('me', 'My Profile', '', profile, true)}
     ${sec('app', 'Get the app', 'Add Knox View to your home screen', app, false)}</div>`;
 }
 /* ================= profile photo (headshot) =================
@@ -1287,7 +1287,7 @@ function vPortalOrDelivery() {
 
 function vHeader() {
   const v = S.view, signedIn = !!S.session;
-  const nav = signedIn ? [['#order', I.cart, 'Order now', v === 'book' || v === 'done'], ['#listings', I.home, 'Listings', v === 'listings' || v === 'delivery'], ['#profile', I.user, 'Profile', v === 'profile']]
+  const nav = signedIn ? [['#order', I.cart, 'Order now', v === 'book' || v === 'done'], ['#listings', I.home, 'Listings', v === 'listings' || v === 'delivery'], ['#profile', I.user, 'Account', v === 'profile']]
     .map(([h, i, t, on]) => `<a href="${h}" class="${on ? 'on' : ''}">${ic(i)}<span>${t}</span></a>`).join('') : '';
   $('pnav').innerHTML = nav;
   const a = S.pdata?.agent || S.agent, name = a?.full_name || S.session?.user?.email || '';
@@ -1295,7 +1295,7 @@ function vHeader() {
     : `<button class="me" onclick="kv.menu(event)" aria-expanded="${UI.menu}" aria-label="Account menu">${avatar(a)}
         <span class="me-t"><b>${esc(name)}</b>${a?.brokerage ? `<small>${esc(a.brokerage)}</small>` : ''}</span>${ic(I.down, 16)}</button>
       ${UI.menu ? `<div class="menu" onclick="event.stopPropagation()"><div class="menu-h">${avatar(a)}<div><b>${esc(name)}</b><small>${esc(a?.email || S.session.user.email || '')}</small></div></div>
-        <a href="#order" onclick="kv.menu()">${ic(I.cart)}Order now</a><a href="#listings" onclick="kv.menu()">${ic(I.home)}Listings</a><a href="#invoices" onclick="kv.menu()">${ic(I.inv)}Invoices</a><a href="#profile" onclick="kv.menu()">${ic(I.user)}Profile</a><button onclick="kv.signOut()">${ic(I.out)}Log out</button></div>` : ''}`;
+        <a href="#order" onclick="kv.menu()">${ic(I.cart)}Order now</a><a href="#listings" onclick="kv.menu()">${ic(I.home)}Listings</a><a href="#invoices" onclick="kv.menu()">${ic(I.inv)}Invoices</a><a href="#profile" onclick="kv.menu()">${ic(I.user)}Account</a><button onclick="kv.signOut()">${ic(I.out)}Log out</button></div>` : ''}`;
 }
 
 /* ================= delivery page (#delivery/<listing key>[/<tab>]) ================= */
