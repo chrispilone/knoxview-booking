@@ -71,9 +71,9 @@ window.kv = {
   toggleAdu() { S.adu = !S.adu; resetSchedule(); render(); },
   go, pickSlot(start, label) { S.start = start; S.startLabel = label; S.checkout = null; render(); },
   moreSlots() { loadSlots(S.slots.days[S.slots.days.length - 1].date, true); },
-  pickSugg(date, start, label) { S.pickDate = date; S.calFrom = dSun(date); S.start = start; S.startLabel = label; S.checkout = null; render(); },
-  calToggle() { S.calOpen = !S.calOpen; if (S.calOpen && !S.calFrom && S.slots?.days?.length) S.calFrom = dSun(S.pickDate || S.slots.days[0].date); render(); if (S.calOpen) calEnsure(); },
-  calShift(n) { const first = dSun(S.slots.days[0].date); S.calFrom = dAdd(S.calFrom || first, n); if (S.calFrom < first) S.calFrom = first; S.pickDate = null; render(); calEnsure(); },
+  pickSugg(date, start, label) { S.pickDate = date; S.calFrom = dAdd(calFirst(), Math.floor((Date.parse(date) - Date.parse(calFirst())) / 864e5 / 14) * 14); S.start = start; S.startLabel = label; S.checkout = null; render(); },
+  calToggle() { S.calOpen = !S.calOpen; if (S.calOpen && !S.calFrom && S.slots?.days?.length) S.calFrom = S.pickDate ? dSun(S.pickDate) : calFirst(); render(); if (S.calOpen) calEnsure(); },
+  calShift(n) { const first = calFirst(); S.calFrom = dAdd(S.calFrom || first, n); if (S.calFrom < first) S.calFrom = first; S.pickDate = null; render(); calEnsure(); },
   setPay(v) { S.payOpt = v; S.checkout = null; render(); },
   startCheckout, confirmPay, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
@@ -331,6 +331,7 @@ function vProperty() {
 // ---- Schedule: three suggested times, plus a full two-week calendar on request ----
 const dAdd = (d, n) => new Date(Date.parse(d + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
 const dSun = d => dAdd(d, -new Date(d + 'T12:00:00Z').getUTCDay());
+const calFirst = () => { const ds = S.slots?.days || []; return dSun((ds.find(d => d.times.length) || ds[0]).date); }; // the week of the first opening
 const dFmt = (d, o) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', ...o });
 const slotHour = t => { const m = String(t.label).match(/(\d+):\d+\s*(AM|PM)/i); if (!m) return 9; let h = +m[1] % 12; if (/pm/i.test(m[2])) h += 12; return h; };
 function suggestSlots(days) { // soonest, the next open day, and one about a week out — spread across different days
@@ -348,7 +349,7 @@ function relDay(date) {
 }
 function calEnsure() { // make sure the visible two weeks are loaded
   const days = S.slots?.days || []; if (!days.length || S.slotsLoading) return;
-  const last = days[days.length - 1].date, end = dAdd(S.calFrom || dSun(days[0].date), 13);
+  const last = days[days.length - 1].date, end = dAdd(S.calFrom || calFirst(), 13);
   if (end > last) loadSlots(last, true);
 }
 function vSchedule() {
@@ -364,7 +365,7 @@ function vSchedule() {
     : `<div class="hint">No open times in the next two weeks. Open the full calendar or call ${esc(CFG.phone)}.</div>`;
   let cal = '';
   if (S.calOpen) {
-    const first = dSun(days[0].date), start = S.calFrom || first, grid = Array.from({ length: 14 }, (_, i) => dAdd(start, i));
+    const first = calFirst(), start = S.calFrom || first, grid = Array.from({ length: 14 }, (_, i) => dAdd(start, i));
     const byDate = new Map(days.map(d => [d.date, d]));
     const active = S.pickDate && byDate.get(S.pickDate)?.times.length && grid.includes(S.pickDate) ? S.pickDate : grid.find(g => byDate.get(g)?.times.length);
     const day = active && byDate.get(active);
