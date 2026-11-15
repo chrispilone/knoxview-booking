@@ -826,3 +826,5 @@ a.lp-book:hover{color:#fff}
 .ph-prev{display:flex;align-items:center;gap:10px;margin:6px 0 4px;color:var(--slate)}
 .av.ph-sm{width:48px;height:48px;padding:0;overflow:hidden;background:var(--pale)}
 @media (max-width:520px){.ph-modal{padding:8px}.ph-modal .panel{max-height:96vh;padding:16px}}
+.ph-nav{display:flex;justify-content:space-between;gap:12px;margin-top:18px}
+.ph-nav .btn{flex:1}

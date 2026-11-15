@@ -920,7 +920,7 @@ function openCropper(img) {
     <div class="ph-zoom"><span aria-hidden="true">−</span><input type="range" id="phZoom" min="1" max="4" step="0.01" value="1" aria-label="Zoom"><span aria-hidden="true">+</span></div>
     <div class="ph-prev"><span class="av ph-sm"><canvas id="phPrev" width="96" height="96"></canvas></span><small>Preview</small></div>
     <div class="msg err" id="phErr" hidden></div>
-    <div class="nav"><button class="btn o" type="button" onclick="kv.closeModal()">Cancel</button><button class="btn" type="button" id="phSave">Save photo</button></div>
+    <div class="ph-nav"><button class="btn o" type="button" onclick="kv.closeModal()">Cancel</button><button class="btn" type="button" id="phSave">Save photo</button></div>
   </div></div>`;
   const stage = $('phStage'), el = $('phImg'), zoomEl = $('phZoom'), prev = $('phPrev').getContext('2d');
   // c = crop square in image pixels: side = min(W,H)/zoom, (x,y) = its top-left
@@ -982,7 +982,7 @@ function openCropper(img) {
 async function photoRemove() {
   $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">Remove your photo?</h2>
     <p class="hint">Your initials will show instead until you add a new one.</p>
-    <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" id="phRm">Remove</button></div></div></div>`;
+    <div class="ph-nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" id="phRm">Remove</button></div></div></div>`;
   $('phRm').onclick = async () => {
     $('phRm').disabled = true;
     try { await api('remove', {}, 'client-photo'); S.photo = ''; kv.closeModal(); render(); }
