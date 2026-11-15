@@ -398,7 +398,7 @@ function vServices(inline) {
     <button class="card round pkg ${S.pkg === p.id ? 'sel' : S.pkg ? 'dim' : ''}" onclick="kv.pickPkg('${p.id}')" aria-pressed="${S.pkg === p.id}" ${S.pkg && S.pkg !== p.id ? 'aria-disabled="true"' : ''}>
       <span class="tick">${CHECK}</span>
       <div class="pkg-h"><div class="pkg-nm"><h3>${esc(p.name)}</h3>${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}</div>
-        <span class="pkg-p">${was(p, sizeAdj(p))}${money(+p.price + sizeAdj(p))}${sizeAdj(p) ? `<small>for ${esc(S.addr.sqftLabel || 'large property')}</small>` : ''}</span></div>
+        <span class="pkg-p">${was(p, sizeAdj(p))}${money(+p.price + sizeAdj(p))}</span></div>
       <ul class="chk two">${(p.includes || []).map(i => `<li>${CHECK}<span>${esc(incLabel(i))}</span></li>`).join('')}</ul>
     </button>${S.pkg === p.id ? vExample(p.id) : ''}`).join('');
   const ups = upsells().map(u => `<div class="up"><div style="flex:1"><h3>${esc(u.title)}</h3><p>${esc(u.description)}</p></div>
