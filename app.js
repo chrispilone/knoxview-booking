@@ -683,9 +683,9 @@ function vLanding() {
       <div class="lp-in">
         <section class="lp-hero">
           <h1>${tab === 'price' ? 'Let’s make your listing <em>shine.</em>' : 'Welcome <em>back.</em>'}</h1>
-          <p>${tab === 'price' ? 'Enter the address and home size to see <b>your exact price</b>.' : 'Sign in to book, pay and download your media.'}</p>
+          ${tab === 'price' ? '<p>Enter the address and home size to see <b>your exact price</b>.</p>' : `<a class="lp-go lp-book" href="#order">Book a shoot ${svg(IC_ARROW)}</a>`}
         </section>
-        <div class="lp-card">
+        <div class="lp-card">${tab === 'price' ? '' : '<div class="lp-cardh">Client login</div>'}
           <div class="lp-body">${tab === 'price' ? vLandingPrice() : vLandingSignin()}</div>
         </div>
         <p class="lp-foot">Questions? Call or text <a href="tel:+18658555669">865-855-5669</a></p>

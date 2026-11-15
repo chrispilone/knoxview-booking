@@ -752,3 +752,9 @@ body.lb-open{overflow:hidden}
 .lb-nav.prev{left:8px}.lb-nav.next{right:8px}
 .lb-vid iframe{display:block;border:0;height:min(78vh,760px);aspect-ratio:9/16;max-width:94vw;background:#000;box-shadow:0 20px 60px rgba(0,0,0,.45)}
 .lb-tour iframe{display:block;border:0;width:min(1100px,94vw);height:min(72vh,680px);background:#111;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+/* sign-in page: Book a shoot button + "Client login" card heading */
+a.lp-book{margin:6px 0 30px;text-decoration:none;color:#fff}
+a.lp-book:hover{color:#fff}
+.lp-cardh{padding:18px 22px 0;color:var(--ink);font-size:.7rem;font-weight:700;letter-spacing:.24em;text-transform:uppercase}
+@media (min-width:761px){.lp-cardh{padding:22px 30px 0}}
+@media (max-width:380px){.lp-cardh{padding:16px 16px 0}}
