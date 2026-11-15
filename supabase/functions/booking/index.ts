@@ -129,7 +129,8 @@ function price(cat: Awaited<ReturnType<typeof loadCatalog>>, sel: Sel) {
   const opt = (cat.settings.sqft_options as { label: string; max: number | null }[]).find(o => o.label === sel.sqftLabel);
   const large = !!sel.adu || (opt ? (opt.max === null || opt.max >= cat.settings.large_sqft) : false);
   // Homes over 3,500 sq ft: packages add the large-home fee ($75); photos-only orders (à la carte Photography, no package) add $25.
-  if (large && pkg && +cat.settings.large_fee > 0) items.push({ id: 'large', name: cat.settings.large_label, kind: 'fee', price: +cat.settings.large_fee, minutes: cat.settings.large_minutes });
+  const largeFee = pkg && pkg.large_fee != null ? +pkg.large_fee : +cat.settings.large_fee; // a package can have its own large-property fee
+  if (large && pkg && largeFee > 0) items.push({ id: 'large', name: cat.settings.large_label, kind: 'fee', price: largeFee, minutes: cat.settings.large_minutes });
   else if (large && !pkg) { const ph = items.find(i => i.kind === 'service' && /^photography$/i.test(i.name)); if (ph) { ph.price += PHOTO_LARGE_FEE; ph.minutes += 15; } }
   const subtotal = items.reduce((a, i) => a + i.price, 0);
   const minutes = items.reduce((a, i) => a + (i.minutes || 0), 0);
@@ -322,7 +323,7 @@ async function handle(req: Request) {
       const pkOk = LIVE ? pk.startsWith('pk_live_') : pk.startsWith('pk_test_');
       const page = await myPage(req).catch(() => null);
       const customPage = page ? { ...page, services: (await pageServices(page.id)).map(x => ({ id: x.id, kind: x.kind, name: x.name, description: x.description, includes: x.includes, price: +x.price, list_price: +x.list_price,
-        duration_min: x.duration_min, covers: x.covers, badge: x.badge, sort_order: x.sort_order, category: x.category })) } : null;
+        duration_min: x.duration_min, covers: x.covers, badge: x.badge, sort_order: x.sort_order, category: x.category, large_fee: x.large_fee })) } : null;
       return json(req, { stripe: { mode, publishableKey: (mode === 'test' || mode === 'live') && pkOk ? pk : null }, settings: s, customPage });
     }
 

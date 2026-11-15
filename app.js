@@ -69,10 +69,14 @@ const largeOn = () => {
 const largeVisible = () => largeEnabled() && inCart().size > 0;
 // À la carte price shown to the client: Photography is $250 (not $225) for homes over 3,500 sq ft on a photos-only order
 const svcPrice = s => +s.price + (!S.pkg && largeOn() && /^photography$/i.test(s.name) ? 25 : 0);
-const sizeAdj = () => largeOn() ? +S.config.settings.large_fee : 0; // shown inside package prices
+// shown inside package prices: the package's own large-property fee, or the normal one
+const pkgLargeFee = p => p && p.large_fee != null ? +p.large_fee : +S.config.settings.large_fee;
+const sizeAdj = p => largeOn() ? pkgLargeFee(p) : 0;
+// the fee to quote before a package is picked: the selected package's, or the one all shown packages share, else the normal fee
+const largeFeeShown = () => { if (S.pkg) return pkgLargeFee(svc(S.pkg)); const fs = [...new Set(packages().map(pkgLargeFee))]; return fs.length === 1 ? fs[0] : +S.config.settings.large_fee; };
 function lines() {
   const out = [];
-  if (S.pkg) { const p = svc(S.pkg); out.push({ name: p.name + ' Package', price: +p.price + sizeAdj() }); }
+  if (S.pkg) { const p = svc(S.pkg); out.push({ name: p.name + ' Package', price: +p.price + sizeAdj(p) }); }
   for (const id of S.items) { const s = svc(id); if (s) out.push({ name: s.name, price: svcPrice(s) }); }
   // photos-only orders over 3,500 sq ft: Photography is $250 instead of $225 (no separate large-home fee)
   return out;
@@ -394,7 +398,7 @@ function vServices(inline) {
     <button class="card round pkg ${S.pkg === p.id ? 'sel' : S.pkg ? 'dim' : ''}" onclick="kv.pickPkg('${p.id}')" aria-pressed="${S.pkg === p.id}" ${S.pkg && S.pkg !== p.id ? 'aria-disabled="true"' : ''}>
       <span class="tick">${CHECK}</span>
       <div class="pkg-h"><div class="pkg-nm"><h3>${esc(p.name)}</h3>${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}</div>
-        <span class="pkg-p">${was(p, sizeAdj())}${money(+p.price + sizeAdj())}${sizeAdj() ? `<small>for ${esc(S.addr.sqftLabel || 'large property')}</small>` : ''}</span></div>
+        <span class="pkg-p">${was(p, sizeAdj(p))}${money(+p.price + sizeAdj(p))}${sizeAdj(p) ? `<small>for ${esc(S.addr.sqftLabel || 'large property')}</small>` : ''}</span></div>
       <ul class="chk two">${(p.includes || []).map(i => `<li>${CHECK}<span>${esc(incLabel(i))}</span></li>`).join('')}</ul>
     </button>${S.pkg === p.id ? vExample(p.id) : ''}`).join('');
   const ups = upsells().map(u => `<div class="up"><div style="flex:1"><h3>${esc(u.title)}</h3><p>${esc(u.description)}</p></div>
@@ -418,7 +422,7 @@ function vServices(inline) {
   const large = false ? `<section class="sec"><div class="sec-h"><i style="background:#8ca6cc"></i><h2>Property Add-Ons</h2></div>
       <p class="d">For larger homes and properties with extra structures.</p><div class="grid">
       <button class="card sq small-card ${S.adu ? 'sel' : ''}" onclick="kv.toggleAdu()" aria-pressed="${S.adu}"><span class="tick">${CHECK}</span>
-      <h3>${esc(st.large_label)}</h3><div class="price">${money(st.large_fee)}</div><div class="meta">Over ${Number(st.large_sqft).toLocaleString()} sq ft, or an ADU / guest house / extra structure</div></button></div></section>` : '';
+      <h3>${esc(st.large_label)}</h3><div class="price">${money(largeFeeShown())}</div><div class="meta">Over ${Number(st.large_sqft).toLocaleString()} sq ft, or an ADU / guest house / extra structure</div></button></div></section>` : '';
   const onlyOne = isCustom() && (!packages().length || !alacarte().length);
   const tab = isLand() ? 'pkg' : onlyOne ? (packages().length ? 'pkg' : 'alc') : (S.svcTab || 'pkg'), nAlc = [...S.items].length;
   const tabs = `<div class="svc-tabs" role="tablist">
@@ -493,8 +497,8 @@ function vProperty() {
       ${field('occupancy', 'Occupancy', 'addr', { req: false, options: ['Vacant', 'Owner occupied', 'Tenant occupied'], ph: 'Select (optional)' })}
       ${field('access', 'Access notes', 'addr', { full: true, req: false, area: true, ph: 'Lockbox code, gate code, pets, who will be there…' })}
     </div>
-    ${largeOn() ? `<div class="callout"><span>Package prices on the next step include +${money(st.large_fee)} for ${big ? `homes ${Number(st.large_sqft).toLocaleString()}+ sq ft` : 'properties with an ADU or extra structure'}: more photos and more time on site.</span></div>` : ''}
-    ${largeEnabled() && !big ? `<label class="check"><input type="checkbox" ${S.adu ? 'checked' : ''} onchange="kv.toggleAdu()"> This property has an ADU, guest house or extra structure (+${money(st.large_fee)})</label>` : ''}
+    ${largeOn() ? `<div class="callout"><span>Package prices on the next step include +${money(largeFeeShown())} for ${big ? `homes ${Number(st.large_sqft).toLocaleString()}+ sq ft` : 'properties with an ADU or extra structure'}: more photos and more time on site.</span></div>` : ''}
+    ${largeEnabled() && !big ? `<label class="check"><input type="checkbox" ${S.adu ? 'checked' : ''} onchange="kv.toggleAdu()"> This property has an ADU, guest house or extra structure (+${money(largeFeeShown())})</label>` : ''}
     </div></section>
     <div class="nav"><span></span><button class="btn" onclick="kv.go(1)">Continue to services</button></div>`;
 }
@@ -1653,7 +1657,7 @@ window.addEventListener('hashchange', route);
       history.replaceState(null, '', location.pathname + (/^delivery\/[\w-]+$/.test(go) ? '#' + go : inv ? '#invoices/' + inv[1] : '#listings'));
     }
     const load = () => Promise.all([
-      sb.from('booking_services').select('id, kind, name, description, includes, price, duration_min, covers, badge, sort_order, category').order('sort_order'),
+      sb.from('booking_services').select('id, kind, name, description, includes, price, duration_min, covers, badge, sort_order, category, large_fee').order('sort_order'),
       sb.from('booking_upsells').select('service_id, title, description, show_when_any, hide_when_any, sort_order').order('sort_order'),
       api('config'),
       sb.auth.getSession(),
