@@ -1068,8 +1068,8 @@ function vNotify() {
     <span class="sw"><input type="checkbox" data-nt="${k}" ${k === 'all' ? (all ? 'checked' : '') : n[k] ? 'checked' : ''} onchange="kv.setNotify('${k}', this.checked)"><i aria-hidden="true"></i></span></label>`;
   return `<p class="nt-h">Text messages${ph ? ` to <b>${esc(kv.fmtPhone(ph))}</b>` : ''}</p>
     ${row('all', 'All notifications', '', 'nt-all')}
-    ${row('sms_appointment_reminders', 'Appointment reminders', 'Before each scheduled shoot')}
-    ${row('sms_media_delivered', 'Media delivered', 'When your photos, videos and media are ready')}
+    ${row('sms_appointment_reminders', 'Appointment reminders', 'So you never forget')}
+    ${row('sms_media_delivered', 'Media delivered', 'When your media is ready')}
     <p class="hint nt-msg" id="ntMsg">${ph ? NT_NOTE : 'Add your mobile phone in My Profile to turn on text messages.'}</p>`;
 }
 function vSettings() {
