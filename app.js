@@ -497,7 +497,6 @@ function vProperty() {
       ${field('occupancy', 'Occupancy', 'addr', { req: false, options: ['Vacant', 'Owner occupied', 'Tenant occupied'], ph: 'Select (optional)' })}
       ${field('access', 'Access notes', 'addr', { full: true, req: false, area: true, ph: 'Lockbox code, gate code, pets, who will be there…' })}
     </div>
-    ${largeOn() ? `<div class="callout"><span>Package prices on the next step include +${money(largeFeeShown())} for ${big ? `homes ${Number(st.large_sqft).toLocaleString()}+ sq ft` : 'properties with an ADU or extra structure'}: more photos and more time on site.</span></div>` : ''}
     ${largeEnabled() && !big ? `<label class="check"><input type="checkbox" ${S.adu ? 'checked' : ''} onchange="kv.toggleAdu()"> This property has an ADU, guest house or extra structure (+${money(largeFeeShown())})</label>` : ''}
     </div></section>
     <div class="nav"><span></span><button class="btn" onclick="kv.go(1)">Continue to services</button></div>`;
