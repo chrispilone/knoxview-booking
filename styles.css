@@ -781,3 +781,9 @@ a.lp-book:hover{color:#fff}
 .lb-doc h3{margin:0 0 18px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#5f7389;font-weight:600}
 .lb-doc h4{margin:18px 0 4px;font-size:14px;color:#1d3250}
 .lb-doc p{margin:0}
+/* desktop: Book a shoot sits on the photo; phones: under the heading */
+.lp-photo-book{align-self:flex-start;display:inline-flex;align-items:center;gap:10px;margin:0 0 26px;padding:16px 26px;background:#fff;color:#1d3250;text-decoration:none;font-size:.78rem;font-weight:700;letter-spacing:.22em;text-transform:uppercase;box-shadow:0 10px 30px rgba(0,0,0,.25);transition:background .15s,color .15s}
+.lp-photo-book:hover{background:#1d3250;color:#fff}
+.lp-photo-book svg{width:16px;height:16px}
+@media (min-width:961px){a.lp-book{display:none}}
+@media (min-width:961px){.lp-hero h1{margin-bottom:24px}}

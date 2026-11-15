@@ -692,16 +692,16 @@ function vLanding() {
       </div></header>
       <div class="lp-in">
         <section class="lp-hero">
-          <h1>${tab === 'price' ? 'Let’s make your listing <em>shine.</em>' : 'Welcome <em>back.</em>'}</h1>
+          <h1>${tab === 'price' ? 'Let’s make your listing <em>shine.</em>' : 'Client <em>login.</em>'}</h1>
           ${tab === 'price' ? '<p>Enter the address and home size to see <b>your exact price</b>.</p>' : `<a class="lp-go lp-book" href="#order">Book a shoot ${svg(IC_ARROW)}</a>`}
         </section>
-        <div class="lp-card">${tab === 'price' ? '' : '<div class="lp-cardh">Client login</div>'}
+        <div class="lp-card">
           <div class="lp-body">${tab === 'price' ? vLandingPrice() : vLandingSignin()}</div>
         </div>
         <p class="lp-foot">Questions? Call or text <a href="tel:+18658555669">865-855-5669</a><br><a class="lp-terms" href="javascript:kv.showTerms()">Terms &amp; Conditions</a></p>
       </div>
     </div>
-    <aside class="lp-photo"><div class="lp-cap"><b>Knox View Real Estate Media</b><span>Photo · Video · Drone · 3D tours<br>Knoxville &amp; the Smokies</span></div></aside>
+    <aside class="lp-photo"><div class="lp-cap"><a class="lp-photo-book" href="#order">Book a shoot ${svg(IC_ARROW)}</a><b>Knox View Real Estate Media</b><span>Photo · Video · Drone · 3D tours<br>Knoxville &amp; the Smokies</span></div></aside>
   </div>`;
 }
 function vAccount() { return vLanding(); }
