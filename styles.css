@@ -984,3 +984,11 @@ html{overscroll-behavior-y:contain}
 .mcard.sel .tick{background:#1d3250;color:#fff}.mcard.sel .tick svg,.mcard.sel .tick svg *{stroke:#fff!important}
 @media (max-width:640px){.mcard{flex-direction:column}.mc-img{flex:none;min-height:0;aspect-ratio:16/9}.mc-t{padding:14px 16px 16px}.mc-t b{font-size:20px}.mcard .tick{background:rgba(255,255,255,.9)}}
 s.was{color:var(--slate);font-weight:400;margin-right:6px;font-size:.85em;text-decoration-thickness:1.5px}
+/* Profile: logo */
+.lg-box{flex:none;width:132px;height:96px;display:grid;place-items:center;padding:8px;border:1px dashed #c8d0dc;border-radius:10px;background:#fff;color:var(--slate);font-size:12px;overflow:hidden}
+.lg-box img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.lg-prev{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:6px 0 12px}
+.lg-prev span{display:grid;place-items:center;height:130px;padding:14px;border-radius:10px;border:1px solid var(--line);background:#fff}
+.lg-prev span.dk{background:#1d3250;border-color:#1d3250}
+.lg-prev img{max-width:100%;max-height:100%;object-fit:contain}
+@media (max-width:520px){.lg-card{flex-direction:column;align-items:flex-start}.lg-box{width:100%;height:110px}.lg-prev{grid-template-columns:1fr}}

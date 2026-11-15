@@ -1064,7 +1064,7 @@ function vSettings() {
   const f = (k, label, v, attrs = '') => `<div><label for="st_${k}">${label}</label><input id="st_${k}" value="${esc(v || '')}" ${attrs}></div>`;
   return `<div class="panel" style="max-width:640px"><h2 style="font-size:26px;margin-bottom:4px">Profile</h2>
     <p class="hint" style="margin:0 0 18px">Your photo and contact details. We use these on your bookings, your property websites, and to reach you about shoots.</p>
-    ${a.id ? vPhotoCard(a) : ''}
+    ${a.id ? vPhotoCard(a) + vLogoCard() : ''}
     <form onsubmit="kv.saveProfile(event)" class="fg">
       <div class="full">${f('full_name', 'Full name', a.full_name, 'autocomplete="name"').slice(5, -6)}</div>
       ${f('phone', 'Mobile number', a.phone ? kv.fmtPhone(a.phone) : '', 'type="tel" inputmode="tel" autocomplete="tel-national" oninput="this.value=kv.fmtPhone(this.value)"')}
@@ -1194,8 +1194,65 @@ async function photoRemove() {
   };
 }
 function setAgent(a) { if (!a) return; S.agent = { ...(S.agent || {}), ...a }; if (S.pdata) S.pdata.agent = { ...(S.pdata.agent || {}), ...a }; }
-async function loadPhoto() { if (!S.session) return; try { S.photo = (await api('get', {}, 'client-photo')).photo_url || ''; render(); } catch (_) { /* initials stay */ } }
+async function loadPhoto() { if (!S.session) return; try { const r = await api('get', {}, 'client-photo'); S.photo = r.photo_url || ''; S.logo = r.logo_url || ''; render(); } catch (_) { /* initials stay */ } }
 Object.assign(window.kv, { photoPick, photoRemove });
+
+/* ===== Logo (profile): the agent's own logo, PNG with transparency kept; used on property websites ===== */
+function vLogoCard() {
+  const has = !!S.logo;
+  return `<div class="ph-card lg-card"><span class="lg-box">${has ? `<img src="${esc(S.logo)}" alt="Your logo">` : '<span>Logo</span>'}</span>
+    <div class="ph-txt"><b>Logo</b><p class="hint">${has ? 'Your logo for your property websites and marketing.' : 'Add your logo or your team’s. A PNG with a transparent background looks best.'}</p>
+      <div class="ph-acts"><label class="btn sm"><input type="file" accept="image/png,image/jpeg,image/webp" onchange="kv.logoPick(this)" hidden>${has ? 'Change logo' : 'Add logo'}</label>
+        ${has ? `<button type="button" class="btn sm o" onclick="kv.logoRemove()">Remove</button>` : ''}</div></div></div>`;
+}
+// scale to max 1600px and trim empty (transparent or plain white) margins
+function logoCanvas(img) {
+  const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, w, h);
+  const d = g.getImageData(0, 0, w, h).data, empty = i => d[i + 3] < 12 || (d[i] > 248 && d[i + 1] > 248 && d[i + 2] > 248);
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (!empty((y * w + x) * 4)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return c;
+  const pad = Math.round(Math.max(x1 - x0, y1 - y0) * 0.02); x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(w - 1, x1 + pad); y1 = Math.min(h - 1, y1 + pad);
+  const t = document.createElement('canvas'); t.width = x1 - x0 + 1; t.height = y1 - y0 + 1;
+  t.getContext('2d').drawImage(c, x0, y0, t.width, t.height, 0, 0, t.width, t.height);
+  return t;
+}
+async function logoPick(input) {
+  const file = input.files?.[0]; input.value = '';
+  if (!file) return;
+  if (file.size > 15 * 1048576) return alertModal('That file is over 15 MB. Please pick a smaller one.');
+  let img; try { img = await loadImage(file); } catch (_) { return alertModal("That logo couldn't be opened. Try a PNG or JPG."); }
+  const cv = logoCanvas(img), src = cv.toDataURL('image/png');
+  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">Your logo</h2>
+    <p class="hint">How it looks on light and dark backgrounds. We trimmed the empty space around it.</p>
+    <div class="lg-prev"><span><img src="${src}" alt=""></span><span class="dk"><img src="${src}" alt=""></span></div>
+    <div class="msg err" id="lgErr" hidden></div>
+    <div class="ph-nav"><button class="btn o" type="button" onclick="kv.closeModal()">Cancel</button><button class="btn" type="button" id="lgSave">Save logo</button></div></div></div>`;
+  $('lgSave').onclick = async () => {
+    const btn = $('lgSave'), err = $('lgErr'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; err.hidden = true;
+    try {
+      const blob = await new Promise((ok, no) => cv.toBlob(b => b ? ok(b) : no(new Error("Couldn't prepare the logo.")), 'image/png'));
+      const path = `${S.session.user.id}/logo-${Date.now().toString(36)}.png`;
+      const up = await sb.storage.from('agent-photos').upload(path, blob, { contentType: 'image/png', cacheControl: '31536000', upsert: false });
+      if (up.error) throw new Error("Your logo didn't upload. Please try again.");
+      const r = await api('logo_set', { path }, 'client-photo');
+      S.logo = r.logo_url || ''; kv.closeModal(); render();
+    } catch (e) { err.textContent = e.message; err.hidden = false; btn.disabled = false; btn.textContent = 'Save logo'; }
+  };
+}
+async function logoRemove() {
+  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">Remove your logo?</h2>
+    <div class="ph-nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" id="lgRm">Remove</button></div></div></div>`;
+  $('lgRm').onclick = async () => {
+    $('lgRm').disabled = true;
+    try { await api('logo_remove', {}, 'client-photo'); S.logo = ''; kv.closeModal(); render(); }
+    catch (e) { kv.closeModal(); alertModal(e.message); }
+  };
+}
+Object.assign(window.kv, { logoPick, logoRemove });
 
 const TEST_EMAIL = 'chris+test@knoxview.com';
 const isTestAccount = () => (S.session?.user?.email || '').toLowerCase() === TEST_EMAIL;
