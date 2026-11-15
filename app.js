@@ -639,7 +639,7 @@ function vLanding() {
   return `<div class="lp">
     <div class="lp-main">
       <header class="lp-top"><div class="lp-in lp-bar">
-        <a class="lp-logo" href="#order" aria-label="Knox View Real Estate Media"></a>
+        <a class="lp-logo" href="https://www.knoxview.com" target="_blank" rel="noopener" aria-label="Knox View Real Estate Media"></a>
         <div class="lp-actions">
           <a class="lp-signin" href="#order">Book now</a>
           <a class="lp-text" href="${SMS_LINK}">${svg(IC_CHAT, 16)} Text us</a>
@@ -1349,3 +1349,36 @@ function acHookOrderForm() {
     if (S.addrWasOk && S.view === 'book') setTimeout(() => document.getElementById('o-time')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
   });
 }
+
+// ===== Pull to refresh (sign-in page): pull down from the top, the page follows your finger, an arrow turns
+// as you pull, and past the line it says "Release to refresh". Works in Safari and the home-screen app.
+(() => {
+  const LIMIT = 72, MAX = 120;
+  const el = document.createElement('div'); el.id = 'ptr';
+  el.innerHTML = '<span class="ptr-c"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></span><span class="ptr-t">Pull to refresh</span>';
+  document.body.appendChild(el);
+  let y0 = null, d = 0, busy = false;
+  const on = () => document.body.classList.contains('landing') && !busy;
+  const set = (px, anim) => {
+    const pg = $('landing'); el.style.transition = pg.style.transition = anim ? 'transform .25s ease' : 'none';
+    pg.style.transform = px ? `translateY(${px}px)` : '';
+    el.style.transform = `translate(-50%, ${px - 48}px)`; el.style.opacity = Math.min(1, px / 40);
+    el.querySelector('svg').style.transform = `rotate(${Math.min(px / LIMIT, 1) * 300}deg)`;
+    el.classList.toggle('ready', px >= LIMIT);
+    el.querySelector('.ptr-t').textContent = busy ? 'Refreshing…' : px >= LIMIT ? 'Release to refresh' : 'Pull to refresh';
+  };
+  document.addEventListener('touchstart', e => { y0 = on() && window.scrollY <= 0 && e.touches.length === 1 ? e.touches[0].clientY : null; d = 0; }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (y0 === null) return;
+    const dy = e.touches[0].clientY - y0;
+    if (dy <= 0 || window.scrollY > 0) { if (d) set(0); d = 0; return; }
+    d = Math.min(MAX, dy * 0.55); // resistance: the page moves slower than the finger
+    e.cancelable && e.preventDefault(); set(d);
+  }, { passive: false });
+  document.addEventListener('touchend', () => {
+    if (y0 === null) return; y0 = null;
+    if (d >= LIMIT) { busy = true; el.classList.add('spin'); set(LIMIT, true); setTimeout(() => location.reload(), 350); }
+    else set(0, true);
+    d = 0;
+  });
+})();

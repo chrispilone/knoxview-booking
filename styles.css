@@ -699,3 +699,15 @@ body.landing .top,body.landing #main,body.landing .bar,body.landing .sheet{displ
 .top-text{display:inline-flex;align-items:center;gap:6px;color:var(--headline);border:1px solid var(--headline);padding:7px 11px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;text-decoration:none}
 .top-text:hover{background:var(--headline);color:#fff}
 a.lp-signin{color:#e7edf6!important}a.lp-signin:hover{color:var(--rule)!important}
+/* pull to refresh (sign-in page) */
+body.landing,html:has(body.landing){overscroll-behavior-y:none}
+#ptr{position:fixed;top:0;left:50%;z-index:60;display:none;align-items:center;gap:8px;transform:translate(-50%,-48px);opacity:0;background:#fff;color:var(--night,#1d3250);padding:8px 14px 8px 8px;box-shadow:0 4px 16px rgba(15,30,55,.18);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;pointer-events:none}
+body.landing #ptr{display:flex}
+#ptr .ptr-c{width:28px;height:28px;display:grid;place-items:center;background:#e7edf6;border-radius:50%}
+#ptr svg{transition:transform .05s linear}
+#ptr.ready .ptr-c{background:var(--night,#1d3250);color:#fff}
+#ptr.spin svg{animation:ptrSpin .7s linear infinite}
+@keyframes ptrSpin{to{transform:rotate(360deg)}}
+html:has(body.landing),body.landing{background:#1d3250}
+body.landing #landing{background:var(--bg)}
+#ptr .ptr-t{white-space:nowrap}
