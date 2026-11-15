@@ -1213,7 +1213,7 @@ window.addEventListener('hashchange', route);
       history.replaceState(null, '', location.pathname + (/^delivery\/[\w-]+$/.test(go) ? '#' + go : inv ? '#invoices' : '#listings'));
     }
     const load = () => Promise.all([
-      sb.from('booking_services').select('id, kind, name, description, includes, price, duration_min, covers, badge, sort_order').order('sort_order'),
+      sb.from('booking_services').select('id, kind, name, description, includes, price, duration_min, covers, badge, sort_order, category').order('sort_order'),
       sb.from('booking_upsells').select('service_id, title, description, show_when_any, hide_when_any, sort_order').order('sort_order'),
       api('config'),
       sb.auth.getSession(),
