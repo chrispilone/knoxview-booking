@@ -1631,10 +1631,10 @@ function vOne() {
   const a = S.addr, st = S.config.settings, land = isLand(), opts = land ? ACRE_OPTIONS : (st.sqft_options || []);
   const pg = PAGE();
   const tRow = (t, name, sub) => `<button class="tcard ${S.ptype === t ? 'sel' : ''}" onclick="kv.ptype('${t}')" aria-pressed="${S.ptype === t}">
-      <span class="tc-img">${t === 'custom' ? (pg.cover_url ? `<img src="${esc(pg.cover_url)}" alt="" decoding="async">` : `<span class="tc-ph">${esc(pg.title)}</span>`) : `<img src="/img/type-${t === 'home' ? 'listing' : t}.jpg?v=2" alt="" decoding="async">`}<span class="tick">${CHECK}</span></span>
+      <span class="tc-img">${t === 'custom' ? (pg.cover_url ? `<img src="${esc(pg.cover_url)}" alt="" decoding="async">` : `<span class="tc-ph">${esc(pg.title)}</span>`) : `<img src="/img/type-${t === 'home' ? 'listing' : t}.jpg?v=3" alt="" decoding="async">`}<span class="tick">${CHECK}</span></span>
       <span class="tc-n">${name}</span></button>`;
   const type = `<section class="o-sec">${oh('o-type', 1, 'Choose your media')}
-    ${!pg || pg.show_default ? `<div class="tcards">${tRow('home', 'Listing Media', '') + tRow('land', 'Land Media', '') + tRow('str', 'STR Media', '')}</div>` : ''}
+    ${!pg || pg.show_default ? `<div class="tcards">${tRow('home', 'Listing Media', '') + tRow('land', 'Land Media', '')}</div>` : ''}
     ${pg ? `<div class="mine${pg.show_default ? '' : ' only'}">${pg.show_default ? '<p class="mine-k"><span>Made for you</span></p>' : ''}
       <button class="mcard ${S.ptype === 'custom' ? 'sel' : ''}" onclick="kv.ptype('custom')" aria-pressed="${S.ptype === 'custom'}">
         <span class="mc-img">${pg.cover_url ? `<img src="${esc(pg.cover_url)}" alt="" decoding="async">` : `<span class="tc-ph">${esc(pg.title)}</span>`}</span>

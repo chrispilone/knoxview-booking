@@ -749,7 +749,7 @@ a.lp-book:hover{color:#fff}
 @media (min-width:761px){.lp-cardh{padding:22px 30px 0}}
 @media (max-width:380px){.lp-cardh{padding:16px 16px 0}}
 /* Choose your media: compact cards, three across */
-.tcards{grid-template-columns:repeat(3,1fr);gap:10px;max-width:560px}
+.tcards{grid-template-columns:repeat(2,1fr);gap:10px;max-width:460px}
 .tcard{padding:0 0 9px}
 .tc-img{aspect-ratio:3/2;margin-bottom:7px}
 .tc-img .tick{top:6px;right:6px;width:20px;height:20px}
