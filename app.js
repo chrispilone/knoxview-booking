@@ -432,7 +432,7 @@ function vServices(inline) {
   return `${isLand() || onlyOne ? '' : tabs}
     ${tab === 'pkg' ? `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>${isLand() ? 'Land Media Packages' : isCustom() ? esc(PAGE().title) + ' Packages' : 'Listing Media Packages'}</h2></div>
       ${S.pkg ? `<p class="pkg-note">${esc(svc(S.pkg).name)} selected. Tap it again to choose a different package.</p>` : ''}<div class="pkgs">${pk}</div>
-      ${isLand() || onlyOne ? '' : `<p class="svc-switch">Only need one service? <a href="javascript:kv.svcTab('alc')">See à la carte services →</a></p>`}</section>
+      </section>
     ${SHOW_UPSELLS && ups ? `<section class="sec">${ups}</section>` : ''}`
     : `<section class="sec"><div class="sec-h"><i style="background:#1f3c66"></i><h2>À La Carte Services</h2></div>
       <p class="d">${S.pkg ? `Add services to your ${esc(svc(S.pkg).name)} package, or book any service on its own.` : 'Need just one thing? Book any service on its own.'} A basic floor plan is included with every photo shoot.</p>
