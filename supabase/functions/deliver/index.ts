@@ -7,7 +7,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 // Subject, heading, message and button come from the template (delivery_templates, edited in HQ settings) so every
 // email is consistent; the only per-order text is the optional "notes" box. Every email is BCC'd to chris@knoxview.com.
 // Layout matches the Resend "Media delivered" template. Placeholders: {first_name} {client_name} {address} {city} {order_number} {link}
-// The email's button opens the client's delivery page in the portal. Unpaid orders (with "Require payment" on)
+// The email's button opens the order's delivery page (its own page at /d/<share token>, works when forwarded). Unpaid orders (with "Require payment" on)
 // get a line saying media unlocks after payment. Sent through Resend (RESEND_API_KEY) or, until that's set,
 // the owner's Gmail (same as sign-in codes). Every send is logged in delivery_emails.
 
@@ -27,6 +27,9 @@ const cors = (req: Request) => {
   const ok = ORIGINS.includes(o) || /^https:\/\/[a-z0-9-]+--knoxview-hq\.netlify\.app$/.test(o);
   return { 'Access-Control-Allow-Origin': ok ? o : ORIGINS[0], 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Vary': 'Origin' };
 };
+// The delivery page is its own page: anyone with this link (forwarded email, text) can view it. No sign-in needed;
+// downloads still unlock only after payment when the order requires it.
+const shareLink = (b: any) => b.public_token ? `${PORTAL}/d/${b.public_token}` : `${PORTAL}/#delivery/${b.id}`;
 const json = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors(req), 'Content-Type': 'application/json' } });
 class Bad extends Error { constructor(m: string, public status = 400) { super(m); } }
 const esc = (s: string) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -42,7 +45,7 @@ async function load(id: string) {
 function fill(s: string, b: any, a: any) {
   const name = String(a?.full_name || b.client_name || '').trim();
   const v: Record<string, string> = { first_name: name.split(/\s+/)[0] || 'there', client_name: name || 'there', address: b.address || 'your listing',
-    city: b.city || '', order_number: b.number ? String(b.number) : '', link: `${PORTAL}/#delivery/${b.id}` };
+    city: b.city || '', order_number: b.number ? String(b.number) : '', link: shareLink(b) };
   return String(s ?? '').replace(/\{(\w+)\}/g, (m, k) => k in v ? v[k] : m);
 }
 function e164(p: string) {
@@ -62,7 +65,7 @@ async function sendSms(to: string, content: string) {
 const F = "font-family:Arial,Helvetica,sans-serif;";
 const P = `margin:0 0 16px 0;${F}font-size:15px;line-height:24px;color:#44546b;`;
 function render(b: any, a: any, tpl: any, notes: string) {
-  const link = `${PORTAL}/#delivery/${b.id}`;
+  const link = shareLink(b);
   const locked = !b.paid && b.require_payment !== false;
   const heading = fill(tpl.heading, b, a), button = tpl.button_label || 'Open my media';
   const paras = fill(tpl.body, b, a).split(/\n{2,}/).map((x: string) => x.trim()).filter(Boolean);
@@ -100,7 +103,7 @@ function render(b: any, a: any, tpl: any, notes: string) {
 </td></tr>
 <tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:0 0 12px 12px;padding:0 32px 30px 32px;">
   <p style="margin:0;${F}font-size:15px;line-height:22px;color:#44546b;">Chris Pilone<br /><span style="color:#1f3c66;">Knox View Real Estate Media</span><br /><a href="tel:+18658555669" style="color:#1f3c66;text-decoration:none;">865-855-5669</a> &middot; <a href="https://knoxview.com" style="color:#1f3c66;text-decoration:none;">knoxview.com</a></p></td></tr>
-<tr><td align="center" style="padding:18px 24px;"><p style="margin:0;${F}font-size:11px;line-height:17px;color:#8a96a8;">Button not working? Open <a href="${esc(link)}" style="color:#8a96a8;">${esc(link)}</a><br />You'll sign in with your email or mobile number.<br />Knox View Real Estate Media &middot; Knoxville, Tennessee</p></td></tr>
+<tr><td align="center" style="padding:18px 24px;"><p style="margin:0;${F}font-size:11px;line-height:17px;color:#8a96a8;">Button not working? Open <a href="${esc(link)}" style="color:#8a96a8;">${esc(link)}</a><br />Knox View Real Estate Media &middot; Knoxville, Tennessee</p></td></tr>
 </table></td></tr></table></body></html>`;
   const text = `${heading}\n${[b.address, b.city].filter(Boolean).join(', ')}\n\n${paras.join('\n\n')}\n\nDelivered: ${deliverables}\n${b.number ? `Order: #${b.number}\n` : ''}Payment: ${payment}\n\n${button}: ${link}\n\n${note ? `A note from Chris:\n${note}\n\n` : ''}${closing ? closing + '\n\n' : ''}Chris Pilone\nKnox View Real Estate Media\n865-855-5669 · knoxview.com\n`;
   return { html, text, subject: fill(tpl.subject, b, a).replace(/[\r\n]+/g, ' ').trim().slice(0, 200) };
@@ -158,7 +161,7 @@ Deno.serve(async (req) => {
     const { b, a } = await load(String(b0.bookingId || ''));
     if (b0.action === 'context') {
       const { data: hist } = await admin.from('delivery_emails').select('created_at, template_key, to_email, cc, subject, ok, error, sms_to, sms_ok, sms_error, marked_complete').eq('booking_id', b.id).order('created_at', { ascending: false }).limit(20);
-      return json(req, { to: (a?.email || b.client_email || '').toLowerCase(), phone: a?.phone || b.client_phone || '', bcc: BCC, sms: !!QUO_KEY, link: `${PORTAL}/#delivery/${b.id}`, history: hist || [] });
+      return json(req, { to: (a?.email || b.client_email || '').toLowerCase(), phone: a?.phone || b.client_phone || '', bcc: BCC, sms: !!QUO_KEY, link: shareLink(b), history: hist || [] });
     }
     const { data: tpl } = await admin.from('delivery_templates').select('*').eq('key', String(b0.templateKey || 'media')).maybeSingle();
     if (!tpl) throw new Bad('Pick a delivery email template.');

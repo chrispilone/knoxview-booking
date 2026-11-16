@@ -60,7 +60,7 @@ async function stripe(path: string, live: boolean, body?: Record<string, unknown
 }
 
 /* ---------------- data ---------------- */
-const COLS = 'id, number, status, address, unit, city, state, zip, items, subtotal, discount, tax, total, credit_applied, paid, paid_at, paid_method, payment_status, payment_option, stripe_payment_intent_id, stripe_livemode, stripe_customer_id, shoot_start, created_at, invoice_sent_at, invoice_due_at, client_name, client_email, client_phone, cover_url, marketing_url, require_payment';
+const COLS = 'id, number, status, address, unit, city, state, zip, items, subtotal, discount, tax, total, credit_applied, paid, paid_at, paid_method, payment_status, payment_option, stripe_payment_intent_id, stripe_livemode, stripe_customer_id, shoot_start, created_at, invoice_sent_at, invoice_due_at, client_name, client_email, client_phone, cover_url, marketing_url, require_payment, public_token';
 const isInvoice = (b: any) => b.status !== 'cancelled' && !(b.status === 'requested' && b.payment_status === 'unpaid');
 const dueOf = (b: any) => b.paid ? 0 : Math.max(0, r2(+b.total - +(b.credit_applied || 0)));
 function shape(b: any) {
@@ -191,7 +191,7 @@ async function invoicePdf(b: any, client: any) {
   link(portalLink, M, ly - 3, M + w('View All Details', R, 10), ly + 10);
   const dx = M + w('View All Details', R, 10) + 18;
   text('Download Media', dx, ly, { c: ACC }); page.drawLine({ start: { x: dx, y: ly - 2 }, end: { x: dx + w('Download Media', R, 10), y: ly - 2 }, thickness: 0.6, color: ACC });
-  link(`${PORTAL}/#delivery/${b.id}`, dx, ly - 3, dx + w('Download Media', R, 10), ly + 10);
+  link(b.public_token ? `${PORTAL}/d/${b.public_token}` : `${PORTAL}/#delivery/${b.id}`, dx, ly - 3, dx + w('Download Media', R, 10), ly + 10);
   y = ly - 10;
   // table: Description | Cost Breakdown | Order Total (order total cell spans the rows)
   const c1 = M, c2 = M + 300, c3 = M + 400, c4 = RX, head = 30;

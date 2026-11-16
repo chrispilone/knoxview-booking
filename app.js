@@ -318,11 +318,12 @@ async function loadPortal() {
   loadZillow();
 }
 async function payBooking(id) {
-  const num = (S.pdata?.bookings || []).find(b => b.id === id)?.number || invAll().find(i => i.id === id)?.number || (D.key === id ? D.data?.head?.number : null);
+  const viaShare = !!SHARE && !D.data?.mine; // someone the link was forwarded to: pay through the share link
+  const num = viaShare ? null : (S.pdata?.bookings || []).find(b => b.id === id)?.number || invAll().find(i => i.id === id)?.number || (D.key === id ? D.data?.head?.number : null);
   if (num) return invPay([num]);
   if (!stripeReady()) { alertModal('Online payments are not switched on yet.'); return; }
   try {
-    const r = await api('pay', { bookingId: id });
+    const r = viaShare ? await api('share-pay', { token: SHARE }) : await api('pay', { bookingId: id });
     if (r.alreadyPaid) { if (S.view === 'delivery') loadDelivery(S.dl.key); else loadPortal(); return; }
     $('modal').innerHTML = `<div class="modal"><div class="panel"><h2 style="font-size:22px">Pay to download</h2>
       <div class="tot" style="padding:6px 0 0"><span>Amount due</span><span>${money(r.booking.total)}</span></div>
@@ -332,7 +333,7 @@ async function payBooking(id) {
     elements.create('payment').mount('#pay-el2');
     $('payGo').onclick = async () => {
       $('payGo').disabled = true;
-      const { error } = await stripe.confirmPayment({ elements, confirmParams: { return_url: `${location.origin}/#invoices` }, redirect: 'if_required' });
+      const { error } = await stripe.confirmPayment({ elements, confirmParams: { return_url: SHARE ? location.origin + location.pathname : `${location.origin}/#invoices` }, redirect: 'if_required' });
       if (error) { $('payErr').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; $('payGo').disabled = false; return; }
       await api('confirm', { bookingId: r.booking.id, token: r.booking.token }).catch(() => {});
       kv.closeModal(); S.pdata = null; if (S.view === 'delivery') loadDelivery(S.dl.key); else loadPortal();
@@ -1344,12 +1345,19 @@ I.code = '<path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/>';
 I.copy = '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
 const isPhone = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
 const D = (S.dl = { key: null, data: null, loading: false, error: '', tab: null, sel: new Set() });
+// The delivery page is also its own page: /d/<order share token>. That's the link in delivery emails and texts, so it
+// works when forwarded to anyone (no sign-in). Downloads still unlock only after payment when the order requires it.
+const SHARE = (location.pathname.match(/^\/d\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i) || [])[1] || null;
+const DL_TABS = ['photos', 'video', 'floorplan', 'tour'];
 
 async function loadDelivery(key) {
   Object.assign(D, { key, data: null, loading: true, error: '', sel: new Set() }); render();
-  try { D.data = await api('delivery', { key }); } catch (e) { D.error = e.message; }
+  try { D.data = SHARE ? await api('share-delivery', { token: SHARE }) : await api('delivery', { key }); } catch (e) { D.error = e.message; }
+  if (SHARE && D.data?.head?.address) document.title = `${D.data.head.address} · Knox View`;
   D.loading = false; render();
 }
+// "‹ Listings" only for the client who owns this order (a forwarded share link has no listings to go back to)
+const dlBack = () => !SHARE ? '<a class="dl-back" href="#listings">‹ Listings</a>' : D.data?.mine ? '<a class="dl-back" href="/#listings">‹ Listings</a>' : '';
 const dTabs = d => [
   (d.photos.length || d.folders.length) && ['photos', I.photo, 'Photos'],
   d.videos.length && ['video', I.film, 'Video'],
@@ -1367,10 +1375,10 @@ function linkCard(title, url, icon, soon) {
       <button class="btn o wide" onclick="kv.dQR(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title))})">${ic(I.qr, 16)} QR code</button></div></div>`;
 }
 function vDelivery() {
-  if (D.loading || !D.data) return D.error ? `<a class="dl-back" href="#listings">‹ Listings</a><div class="msg err">${esc(D.error)}</div>` : '<div class="panel loading"><span class="spin"></span> Getting your media…</div>';
+  if (D.loading || !D.data) return D.error ? `${dlBack()}<div class="msg err">${esc(D.error)}</div>` : '<div class="panel loading"><span class="spin"></span> Getting your media…</div>';
   const d = D.data, tabs = dTabs(d), tab = (tabs.find(t => t[0] === D.tab) || tabs[0] || [])[0];
   const when = d.head.date ? fmtDate(d.head.date) : '';
-  let out = `<a class="dl-back" href="#listings">‹ Listings</a>
+  let out = `${dlBack()}
     <header class="dl-head"><h1>${esc(d.head.address)}</h1><p>${esc([d.head.line2, d.head.brokerage].filter(Boolean).join(' · '))}</p>
       <p class="hint">${when ? esc(when) : ''}${d.head.number ? ` · Order #${esc(d.head.number)}` : ''}</p></header>`;
   // "Ready" only once something has actually been delivered (photos, video, floor plans, tour, a website or marketing)
@@ -1517,7 +1525,7 @@ Object.assign(window.kv, {
   dLbGo(step) { const n = curSet().length; D.lb = (D.lb + step + n) % n; lbPaint(); },
   dLbSel() { const i = D.lb; D.sel.has(i) ? D.sel.delete(i) : D.sel.add(i); lbPaint(); render(); },
   dLbClose() { D.lb = null; document.body.style.overflow = ''; const el = document.getElementById('lb'); if (el) { el.className = 'lb'; el.innerHTML = ''; } },
-  dTab(t) { D.tab = t; D.sel = new Set(); history.replaceState(null, '', `#delivery/${D.key}/${t}`); render(); },
+  dTab(t) { D.tab = t; D.sel = new Set(); history.replaceState(null, '', SHARE ? `#${t}` : `#delivery/${D.key}/${t}`); render(); },
   dSel(i) { if (D.data.locked) return; D.sel.has(i) ? D.sel.delete(i) : D.sel.add(i); render(); },
   dSelAll() { const l = curSet(); D.sel = D.sel.size === l.length ? new Set() : new Set(l.map((_, i) => i)); render(); },
   dPick() { // choose quality for the selected photos
@@ -1752,6 +1760,14 @@ $('sheet').onclick = e => { if (e.target.id === 'sheet') e.currentTarget.classLi
 
 function route() {
   S.error = '';
+  // Share link page (/d/<token>): always the delivery page. Other links clicked from it (Book now, Sign in…) go to the portal.
+  if (SHARE) {
+    const t = location.hash.replace('#', '');
+    if (t && !DL_TABS.includes(t)) { location.href = '/#' + t; return; }
+    UI.menu = false; S.view = 'delivery'; if (t) D.tab = t;
+    if (D.key !== SHARE || (!D.data && !D.loading)) loadDelivery(SHARE); else render();
+    return;
+  }
   const [h, hKey, hTab] = location.hash.replace('#', '').split('/');
   UI.menu = false; UI.saved = false;
   if (h === 'account' && S.session) { location.replace('#listings'); return; }
@@ -1905,6 +1921,7 @@ function acHookOrderForm() {
 function freshAfterOrder() { S.pdata = null; if (typeof INV !== 'undefined') { INV.data = null; INV.pdf = {}; INV.dmedia = {}; } }
 // Reload whatever the current page shows (used by pull-to-refresh and when the app comes back to the front).
 async function refreshView() {
+  if (SHARE) { if (S.view === 'delivery') await loadDelivery(SHARE); return; }
   if (!S.session) return;
   const v = S.view, jobs = [loadPhoto()];
   if (v === 'delivery' && S.dl.key) jobs.push(loadDelivery(S.dl.key));
@@ -1930,7 +1947,7 @@ async function refreshView() {
   // Which page can be pulled right now (null = none)
   const target = () => {
     if (document.body.classList.contains('landing')) return $('landing');
-    if (S.session && PORTAL_VIEWS.includes(S.view) && !$('modal').innerHTML && !document.querySelector('.lb')) return $('main');
+    if ((S.session || SHARE) && PORTAL_VIEWS.includes(S.view) && !$('modal').innerHTML && !document.querySelector('.lb')) return $('main');
     return null;
   };
   const scrolledParent = n => {
