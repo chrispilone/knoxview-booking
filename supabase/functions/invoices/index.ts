@@ -24,11 +24,11 @@ const REPLY_TO = env('DELIVERY_REPLY_TO') || 'chris@knoxview.com';
 const PORTAL = (env('PORTAL_URL') || 'https://knoxview-booking.netlify.app').replace(/\/$/, '');
 const G_ID = env('GOOGLE_CLIENT_ID'), G_SECRET = env('GOOGLE_CLIENT_SECRET');
 const BIZ = { name: 'Knox View Real Estate Media', legal: 'Knox View Media LLC', address: ['Knox View Media LLC', '3912 Papermill Square NW', 'Knoxville, TN 37909'], owner: 'Chris Pilone', phone: '865-855-5669', email: 'chris@knoxview.com', web: 'knoxview.com', city: 'Knoxville, Tennessee' };
-const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
+const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'https://hq.knoxview.com', 'http://localhost:8888', 'http://localhost:5173'];
 
 const cors = (req: Request) => {
   const o = req.headers.get('origin') ?? '';
-  const ok = ORIGINS.includes(o) || /^https:\/\/[a-z0-9-]+--knoxview-booking\.netlify\.app$/.test(o);
+  const ok = ORIGINS.includes(o) || /^https:\/\/[a-z0-9-]+--knoxview-(booking|hq)\.netlify\.app$/.test(o);
   return { 'Access-Control-Allow-Origin': ok ? o : ORIGINS[0], 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Vary': 'Origin' };
 };
 const json = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors(req), 'Content-Type': 'application/json' } });
@@ -310,6 +310,15 @@ Deno.serve(async (req) => {
       const fake = { id: 'x', number: 1042, status: 'scheduled', address: '1208 Ft Craig Trl', unit: null, city: 'Maryville', state: 'TN', zip: '37803', items: [{ name: 'Premium Package (photos, drone, video walkthrough, 3D tour)', price: 549, kind: 'package' }, { name: 'Twilight Photos', price: 150, kind: 'service' }, { name: 'Large property (over 3,500 sq ft)', price: 75, kind: 'fee' }],
         subtotal: 774, discount: 0, tax: 0, total: 774, credit_applied: body.paid ? 0 : 100, paid: !!body.paid, paid_at: body.paid ? new Date().toISOString() : null, paid_method: null, payment_status: 'paid', created_at: new Date(Date.now() - 864e5 * 3).toISOString(), invoice_sent_at: null, invoice_due_at: null, client_name: 'Jane Agent', client_email: 'jane@example.com', client_phone: '865-555-0100', shoot_start: new Date(Date.now() - 864e5 * 5).toISOString() };
       return json(req, { base64: b64bytes(await invoicePdf(fake, { full_name: 'Jane Agent', brokerage: 'Prime Mountain Properties', team_name: 'Mount LeConte Team', email: 'jane@example.com', phone: '865-555-0100' })) });
+    }
+    if (action === 'hq_pdf') { // HQ (owner / super admins): any order's invoice PDF, exactly what the client gets
+      const { user } = await me(req);
+      const { data: tm } = await admin.from('team_members').select('role, active, permissions').eq('id', user.id).maybeSingle();
+      if (!tm?.active || !(tm.role === 'owner' || tm.permissions?.super_admin === true)) throw new UserError('Only HQ super admins can open invoices.', 403);
+      const { data: b } = await admin.from('bookings').select(COLS + ', agent_id').eq('id', String(body.bookingId || '')).maybeSingle();
+      if (!b) throw new UserError('Invoice not found', 404);
+      const { data: client } = b.agent_id ? await admin.from('agents').select('id, full_name, email, phone, brokerage, team_name').eq('id', b.agent_id).maybeSingle() : { data: null };
+      return json(req, { filename: fileName(b), base64: b64bytes(await invoicePdf(b, client)) });
     }
     const { agent } = await me(req);
 
