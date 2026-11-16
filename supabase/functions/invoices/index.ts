@@ -60,8 +60,9 @@ async function stripe(path: string, live: boolean, body?: Record<string, unknown
 }
 
 /* ---------------- data ---------------- */
-const COLS = 'id, number, order_no, status, address, unit, city, state, zip, items, subtotal, discount, tax, total, credit_applied, paid, paid_at, paid_method, payment_status, payment_option, stripe_payment_intent_id, stripe_livemode, stripe_customer_id, shoot_start, created_at, invoice_sent_at, invoice_due_at, client_name, client_email, client_phone, cover_url, marketing_url, require_payment, public_token';
-const isInvoice = (b: any) => b.status !== 'cancelled' && !(b.status === 'requested' && b.payment_status === 'unpaid');
+const COLS = 'id, number, order_no, status, address, unit, city, state, zip, items, subtotal, discount, tax, total, credit_applied, paid, paid_at, paid_method, payment_status, payment_option, stripe_payment_intent_id, stripe_livemode, stripe_customer_id, shoot_start, created_at, invoice_sent_at, invoice_due_at, client_name, client_email, client_phone, cover_url, marketing_url, require_payment, public_token, invoice';
+// invoice = false: placed in HQ with "Create an invoice? No", so it isn't listed, payable or shareable as an invoice
+const isInvoice = (b: any) => b.invoice !== false && b.status !== 'cancelled' && !(b.status === 'requested' && b.payment_status === 'unpaid');
 const dueOf = (b: any) => b.paid ? 0 : Math.max(0, r2(+b.total - +(b.credit_applied || 0)));
 function shape(b: any) {
   const invDate = b.invoice_sent_at || b.created_at;

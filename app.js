@@ -867,7 +867,7 @@ function acts(l) {
   const go = (tab, icon, title, on) => on ? `<a class="act" href="${dl}/${tab}" title="${title}" aria-label="${title}">${ic(icon)}<span class="al">${title}</span></a>` : `<span class="act off" title="${title} · not ready yet">${ic(icon)}<span class="al">${title}</span></span>`;
   return [go('photos', I.dl, 'Photos', !!ph || (has && l.media.some(m => m.media === 'photo'))),
     `<a class="act" href="${dl}" title="Media & delivery" aria-label="Media & delivery">${ic(I.eye)}<span class="al">All media</span></a>`,
-    l.b ? b(`kv.invoiceFor(${l.b.number})`, I.inv, 'Order details, invoice and appointment', 'Order') : '',
+    l.b && l.b.invoice !== false ? b(`kv.invoiceFor(${l.b.number})`, I.inv, 'Order details, invoice and appointment', 'Order') : '',
     l.b ? b(`kv.resched(${l.b.number})`, I.cal, 'Reschedule this shoot', 'Reschedule') : b(`kv.orderAgain('${l.key}')`, I.again, 'Book this address again', 'Rebook'),
     l.b ? `<button class="act act-x" onclick="kv.cancelAppt(${l.b.number})" title="Cancel appointment" aria-label="Cancel appointment">${ic(I.xc)}<span class="al">Cancel</span></button>` : ''].join('');
 }

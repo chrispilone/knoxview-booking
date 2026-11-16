@@ -4,6 +4,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 //   context { bookingId } -> { to, phone, bcc, sms, history } defaults: the agent's email/mobile on file (else the order's)
 //   preview { bookingId, templateKey, notes, smsBody } -> { html, subject, sms }   (exactly what the client will get)
 //   send    { bookingId, templateKey, to, cc[], notes, markComplete, sms, smsTo, smsBody } -> { ok, provider, sms }
+//   confirm { bookingId, email, sms } -> { email?: {ok,error}, sms?: {ok,error} }   booking confirmation from HQ's New order form
+//           (email to the client's email on file, text to their mobile on file; logged in delivery_emails as 'confirmation')
 // Subject, heading, message and button come from the template (delivery_templates, edited in HQ settings) so every
 // email is consistent; the only per-order text is the optional "notes" box. Every email is BCC'd to chris@knoxview.com.
 // Layout matches the Resend "Media delivered" template. Placeholders: {first_name} {client_name} {address} {city} {order_number} {link}
@@ -108,6 +110,52 @@ function render(b: any, a: any, tpl: any, notes: string) {
   const text = `${heading}\n${[b.address, b.city].filter(Boolean).join(', ')}\n\n${paras.join('\n\n')}\n\nDelivered: ${deliverables}\n${b.number ? `Order: ${b.order_no || "#" + b.number}\n` : ''}Payment: ${payment}\n\n${button}: ${link}\n\n${note ? `A note from Chris:\n${note}\n\n` : ''}${closing ? closing + '\n\n' : ''}Chris Pilone\nKnox View Real Estate Media\n865-855-5669 · knoxview.com\n`;
   return { html, text, subject: fill(tpl.subject, b, a).replace(/[\r\n]+/g, ' ').trim().slice(0, 200) };
 }
+/* ---------- booking confirmation (HQ New order) ---------- */
+const TZ = 'America/New_York';
+const whenLong = (b: any) => { if (!b.shoot_start) return 'To be scheduled';
+  const s = new Date(b.shoot_start), e = b.shoot_end ? new Date(b.shoot_end) : null;
+  const day = s.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'long', day: 'numeric' });
+  const t = (d: Date) => d.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
+  return `${day} · ${t(s)}${e ? '–' + t(e) : ''}`; };
+const whenShort = (b: any) => { const s = new Date(b.shoot_start);
+  return `${s.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric' })} at ${s.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' })}`; };
+function renderConfirm(b: any, a: any) {
+  const name = String(a?.full_name || b.client_name || '').trim(), first = name.split(/\s+/)[0] || 'there';
+  const link = b.invoice === false ? `${PORTAL}/#listings` : `${PORTAL}/#invoices/${b.number}`;
+  const place = [b.address, b.city].filter(Boolean).join(', ');
+  const services = (b.items || []).map((i: any) => i.name).filter((n: string) => n && !/large property|travel|fee/i.test(n)).join(', ') || 'Listing media';
+  const money = (n: number) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: Number(n) % 1 ? 2 : 0, maximumFractionDigits: 2 });
+  const payment = b.invoice === false ? '' : b.paid ? 'Paid, thank you!' : `${money(b.total)}, due on delivery`;
+  const row = (k: string, v: string) => `<tr><td style="padding:7px 0;${F}font-size:12px;line-height:18px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#1f3c66;width:110px;vertical-align:top;">${k}</td><td style="padding:7px 0;${F}font-size:15px;line-height:22px;color:#44546b;vertical-align:top;">${v}</td></tr>`;
+  const p = (x: string) => `<p style="${P}">${esc(x)}</p>`;
+  const heading = 'Shoot confirmed';
+  const intro = `Hi ${first}, you're all set! Here are the details for your shoot.`;
+  const change = "Need to reschedule? You can change or cancel your shoot in your client portal until 5 PM the day before, or call or text us at 865-855-5669.";
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Knox View</title></head>
+<body style="margin:0;padding:0;background-color:#f5f4f0;">
+<div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#f5f4f0;">${esc(heading)} · ${esc(whenLong(b))}</div>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f5f4f0" style="background-color:#f5f4f0;"><tr><td align="center" style="padding:28px 12px;">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;">
+<tr><td bgcolor="#0d1726" style="background-color:#0d1726;border-radius:12px 12px 0 0;padding:0;line-height:0;font-size:0;overflow:hidden;"><img src="${PORTAL}/email-header.jpg" width="600" alt="Knox View Real Estate Media" style="display:block;width:100%;max-width:600px;height:auto;border:0;border-radius:12px 12px 0 0;color:#ffffff;font-family:Georgia,serif;font-size:22px;line-height:1.4;" /></td></tr>
+<tr><td bgcolor="#ffffff" style="background-color:#ffffff;padding:34px 32px 18px 32px;">
+  <h1 style="margin:0 0 6px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:32px;font-weight:normal;letter-spacing:1px;text-transform:uppercase;color:#1f3c66;">${esc(heading)}</h1>
+  <p style="margin:0 0 20px 0;${F}font-size:13px;line-height:20px;color:#8a96a8;">${esc(place)}</p>
+  ${p(intro)}
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#e7edf6" style="background-color:#e7edf6;border-radius:12px;margin:4px 0 22px 0;"><tr><td style="padding:16px 20px;"><table width="100%" cellpadding="0" cellspacing="0" border="0">
+    ${row('When', esc(whenLong(b)))}${row('Where', esc(place))}${row('Services', esc(services))}${b.number ? row('Order', esc(b.order_no || '#' + b.number)) : ''}${payment ? row('Payment', esc(payment)) : ''}</table></td></tr></table>
+  <table cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px 0;"><tr><td bgcolor="#1d3250" style="background-color:#1d3250;border-radius:8px;">
+    <a href="${esc(link)}" style="display:inline-block;padding:13px 26px;${F}font-size:13px;line-height:16px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#ffffff;text-decoration:none;">View my order</a></td></tr></table>
+  ${p(change)}
+</td></tr>
+<tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:0 0 12px 12px;padding:0 32px 30px 32px;">
+  <p style="margin:0;${F}font-size:15px;line-height:22px;color:#44546b;">Chris Pilone<br /><span style="color:#1f3c66;">Knox View Real Estate Media</span><br /><a href="tel:+18658555669" style="color:#1f3c66;text-decoration:none;">865-855-5669</a> &middot; <a href="https://knoxview.com" style="color:#1f3c66;text-decoration:none;">knoxview.com</a></p></td></tr>
+<tr><td align="center" style="padding:18px 24px;"><p style="margin:0;${F}font-size:11px;line-height:17px;color:#8a96a8;">Button not working? Open <a href="${esc(link)}" style="color:#8a96a8;">${esc(link)}</a><br />Knox View Real Estate Media &middot; Knoxville, Tennessee</p></td></tr>
+</table></td></tr></table></body></html>`;
+  const text = `${heading}\n${place}\n\n${intro}\n\nWhen: ${whenLong(b)}\nWhere: ${place}\nServices: ${services}\n${b.number ? `Order: ${b.order_no || '#' + b.number}\n` : ''}${payment ? `Payment: ${payment}\n` : ''}\nView my order: ${link}\n\n${change}\n\nChris Pilone\nKnox View Real Estate Media\n865-855-5669 · knoxview.com\n`;
+  const subject = `Shoot confirmed: ${b.address || 'your listing'}${b.shoot_start ? ' on ' + whenShort(b).replace(/ at .*/, '') : ''}`.slice(0, 200);
+  const sms = `Hi ${first}, your Knox View shoot at ${b.address || 'your listing'} is confirmed for ${b.shoot_start ? whenShort(b) : 'soon'}. Questions or changes? Call or text 865-855-5669. - Knox View Media`;
+  return { html, text, subject, sms };
+}
 async function ownerGmailToken() {
   if (!G_ID || !G_SECRET) return null;
   const { data: owner } = await admin.from('team_members').select('id').eq('role', 'owner').eq('active', true).order('created_at').limit(1).maybeSingle();
@@ -162,6 +210,26 @@ Deno.serve(async (req) => {
     if (b0.action === 'context') {
       const { data: hist } = await admin.from('delivery_emails').select('created_at, template_key, to_email, cc, subject, ok, error, sms_to, sms_ok, sms_error, marked_complete').eq('booking_id', b.id).order('created_at', { ascending: false }).limit(20);
       return json(req, { to: (a?.email || b.client_email || '').toLowerCase(), phone: a?.phone || b.client_phone || '', bcc: BCC, sms: !!QUO_KEY, link: shareLink(b), history: hist || [] });
+    }
+    if (b0.action === 'confirm') {
+      const m = renderConfirm(b, a), out: Record<string, unknown> = {};
+      const to = String(a?.email || b.client_email || '').trim().toLowerCase();
+      let provider: string | null = null, error: string | null = null;
+      if (b0.email) {
+        if (!EMAIL_RE.test(to)) error = 'no valid email on file';
+        else { try { provider = await sendEmail(to, [], m.subject, m.html, m.text); } catch (e) { error = (e as Error).message; } }
+        out.email = { ok: !!provider, error };
+      }
+      let smsTo: string | null = null, smsOk: boolean | null = null, smsError: string | null = null;
+      if (b0.sms) {
+        smsTo = e164(String(a?.phone || b.client_phone || ''));
+        if (!smsTo) { smsOk = false; smsError = 'no valid mobile number on file'; }
+        else { try { await sendSms(smsTo, m.sms); smsOk = true; } catch (e) { smsOk = false; smsError = (e as Error).message; } }
+        out.sms = { ok: smsOk, error: smsError };
+      }
+      if (b0.email || b0.sms) await admin.from('delivery_emails').insert({ booking_id: b.id, template_key: 'confirmation', to_email: b0.email ? to : '', cc: [], bcc: b0.email ? BCC || null : null,
+        subject: b0.email ? m.subject : 'Booking confirmation (text only)', provider, ok: !!provider || smsOk === true, error, sent_by: me.id, marked_complete: false, sms_to: smsTo, sms_ok: smsOk, sms_error: smsError });
+      return json(req, out);
     }
     const { data: tpl } = await admin.from('delivery_templates').select('*').eq('key', String(b0.templateKey || 'media')).maybeSingle();
     if (!tpl) throw new Bad('Pick a delivery email template.');

@@ -535,6 +535,7 @@ async function handle(req: Request) {
         return json(req, { address: b.address + (b.unit ? ', ' + b.unit : ''), city: b.city || '', state: b.state || '',
           cover: /^https:\/\//.test(b.cover_url || '') ? b.cover_url : pic ? (pic.preview || pic.url) : null });
       }
+      if ((action === 'share-pay' || action === 'share-invoice') && b.invoice === false) throw new UserError('This order has no invoice. Nothing is due. Call or text 865-855-5669 with any questions.', 404);
       if (action === 'share-pay') return json(req, await payFor(b));
       if (action === 'share-invoice') { // the payment link page (/pay/<token>): invoice summary, no sign-in
         const { data: ag } = await admin.from('agents').select('full_name, brokerage, team_name').eq('id', b.agent_id).maybeSingle();
@@ -567,7 +568,7 @@ async function handle(req: Request) {
     if (action === 'portal') {
       const { data: agent } = await admin.from('agents').select('id, full_name, email, phone, brokerage').eq('auth_user_id', user.id).maybeSingle();
       if (!agent) return json(req, { agent: null, bookings: [], listings: [] });
-      const { data: bks } = await admin.from('bookings').select('id, number, order_no, status, address, unit, city, state, zip, media_title, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, photo_files, videos, tour_url, floorplan_url, website_url, media_files, require_payment')
+      const { data: bks } = await admin.from('bookings').select('id, number, order_no, status, address, unit, city, state, zip, media_title, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, photo_files, videos, tour_url, floorplan_url, website_url, media_files, require_payment, invoice')
         .eq('agent_id', agent.id).neq('status', 'cancelled').order('shoot_start', { ascending: false }).limit(200);
       // deliveries made outside the portal (HQ / Spiro era) for this client, not tied to a portal booking
       const { data: own } = await admin.from('projects').select('id, name, address, city, media, status, dropbox_url, vimeo_url, delivered_at, created_at, parent_project_id')
@@ -580,7 +581,7 @@ async function handle(req: Request) {
           const delivered = p.status === 'delivered';
           return { name: p.name, media: p.media, delivered, deliveredAt: p.delivered_at,
             // must-pay: links unlock only once the order is paid
-            dropbox: delivered && b.paid && p.dropbox_url ? 'delivery' : null, vimeo: delivered && b.paid && p.vimeo_url ? 'delivery' : null };
+            dropbox: delivered && (b.paid || b.require_payment === false) && p.dropbox_url ? 'delivery' : null, vimeo: delivered && (b.paid || b.require_payment === false) && p.vimeo_url ? 'delivery' : null };
         });
         // delivery links set on the booking in HQ count as delivered media too
         // (only true/false flags reach the client here; real file links come from the delivery page's signed links)
