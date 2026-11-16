@@ -51,7 +51,7 @@ async function folderPath(set: any, b: any, agent: any) {
   const v: Record<string, string> = { year: g('year'), month: g('month'), day: g('day'), month_name: MONTHS[+g('month') - 1] || '', date: dayKey,
     date_dots: `${g('month')}.${g('day')}.${g('year')}`, quarter: String(Math.ceil(+g('month') / 3)), day_seq: String(seq).padStart(2, '0'),
     address: b.address + (b.unit ? ' ' + b.unit : ''), address_slug: slug(b.address + (b.unit ? ' ' + b.unit : '')), city: b.city || '', zip: b.zip || '',
-    order_number: String(b.number || ''), client_name: client, client_lower: client.toLowerCase(), brokerage: agent?.brokerage || '', photographer };
+    order_number: String(b.order_no || b.number || ''), client_name: client, client_lower: client.toLowerCase(), brokerage: agent?.brokerage || '', photographer };
   const name = String(set.dropbox_folder_name || '{address} #{order_number}').split('/').map(seg => clean(seg.replace(/\{(\w+)\}/g, (m, k) => k in v ? v[k] : m))).filter(Boolean).join('/');
   const root = '/' + String(set.dropbox_root || '/Knox View Media/Orders').split('/').map(clean).filter(Boolean).join('/');
   return (root === '/' ? '' : root) + '/' + name;

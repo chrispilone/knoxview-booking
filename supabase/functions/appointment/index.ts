@@ -158,7 +158,7 @@ async function icsFile(req: Request) {
   const where = [b.address + (b.unit ? ', ' + b.unit : ''), b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   const portal = (env('PORTAL_URL') || 'https://knoxview-booking.netlify.app').replace(/\/$/, '');
   const title = `Your Knox View shoot at ${where}`;
-  const desc = `Knox View Real Estate Media photo shoot (order #${b.number}).\nView, reschedule or cancel: ${portal}/#invoices/${b.number}\nQuestions? Call or text ${PHONE}.`;
+  const desc = `Knox View Real Estate Media photo shoot (order ${b.order_no || '#' + b.number}).\nView, reschedule or cancel: ${portal}/#invoices/${b.number}\nQuestions? Call or text ${PHONE}.`;
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Knox View Real Estate Media//Booking Portal//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
     `UID:order-${b.id}@knoxview.com`, `SEQUENCE:${Math.floor(Date.parse(b.updated_at || b.shoot_start) / 1000)}`, `DTSTAMP:${z(new Date())}`,
     `DTSTART:${z(start)}`, `DTEND:${z(end)}`, `SUMMARY:${icsEsc(title)}`, `LOCATION:${icsEsc(where)}`, `DESCRIPTION:${icsEsc(desc)}`, `URL:${portal}/#invoices/${b.number}`,
@@ -212,7 +212,7 @@ Deno.serve(async (req) => {
           headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ start: { dateTime: start.toISOString(), timeZone: tz }, end: { dateTime: end.toISOString(), timeZone: tz } }) }).catch(e => console.error('gcal', String(e)));
       }
-      await notifyChris(`Rescheduled: #${b.number} ${b.address}`, [`${agent.full_name || b.client_name} rescheduled their shoot in the portal.`, '', `Order #${b.number} · ${where}`,
+      await notifyChris(`Rescheduled: ${b.order_no || '#' + b.number} ${b.address}`, [`${agent.full_name || b.client_name} rescheduled their shoot in the portal.`, '', `Order ${b.order_no || "#" + b.number} · ${where}`,
         `Was: ${when(b.shoot_start, tz)}`, `Now: ${when(start.toISOString(), tz)}`, `Reason: ${why}`, b.gcal_event_id ? 'Your Google Calendar event was moved.' : 'This order has no Google Calendar event.', '', `HQ: https://hq.knoxview.com/#/bookings/${b.id}`]);
       return json(req, { start: start.toISOString(), label: when(start.toISOString(), tz) });
     }
@@ -222,7 +222,7 @@ Deno.serve(async (req) => {
       const reason = String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 500);
       if (reason.length < 3) throw new UserError('Please add a reason for cancelling.');
       const credit = +(b.credit_applied || 0);
-      if (credit > 0) await admin.from('client_credits').insert({ agent_id: agent.id, amount: credit, kind: 'returned', booking_id: b.id, note: `Returned: order #${b.number} cancelled` });
+      if (credit > 0) await admin.from('client_credits').insert({ agent_id: agent.id, amount: credit, kind: 'returned', booking_id: b.id, note: `Returned: order ${b.order_no || "#" + b.number} cancelled` });
       const { error } = await admin.from('bookings').update({ status: 'cancelled', cancelled_at: new Date().toISOString(), credit_applied: 0, gcal_event_id: null,
         notes: [b.notes, `Cancelled by client in portal${reason ? ': ' + reason : ''}`].filter(Boolean).join('\n'), updated_at: new Date().toISOString() }).eq('id', b.id);
       if (error) throw error;
@@ -230,7 +230,7 @@ Deno.serve(async (req) => {
         const tok = await ownerGoogleToken();
         if (tok) await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(b.gcal_event_id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${tok}` } }).catch(e => console.error('gcal', String(e)));
       }
-      await notifyChris(`Cancelled: #${b.number} ${b.address}`, [`${agent.full_name || b.client_name} cancelled their shoot in the portal.`, '', `Order #${b.number} · ${where}`, `Was: ${when(b.shoot_start, tz)}`,
+      await notifyChris(`Cancelled: ${b.order_no || '#' + b.number} ${b.address}`, [`${agent.full_name || b.client_name} cancelled their shoot in the portal.`, '', `Order ${b.order_no || "#" + b.number} · ${where}`, `Was: ${when(b.shoot_start, tz)}`,
         reason ? `Reason: ${reason}` : 'No reason given.', credit ? `$${credit.toFixed(2)} of account credit went back to their account.` : '', b.gcal_event_id ? 'Removed from your Google Calendar.' : '', '', `HQ: https://hq.knoxview.com/#/bookings/${b.id}`]);
       return json(req, { cancelled: true, creditReturned: credit });
     }

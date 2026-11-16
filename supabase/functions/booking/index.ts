@@ -242,7 +242,7 @@ async function addToCalendar(b: Record<string, any>) {
   const tok = await ownerGoogleToken(); if (!tok) return;
   const items = (b.items as { name: string; kind: string }[]).map(i => i.name).join(', ');
   const ev = {
-    summary: `${b.stripe_livemode ? '' : 'TEST '}📸 #${b.number} ${b.address}`,
+    summary: `${b.stripe_livemode ? '' : 'TEST '}📸 ${b.order_no || '#' + b.number} ${b.address}`,
     location: [b.address, b.unit, b.city, b.state, b.zip].filter(Boolean).join(', '),
     description: `Booked online${b.stripe_livemode ? '' : ' (TEST booking, no real payment)'}\n\nClient: ${b.client_name} · ${b.client_phone} · ${b.client_email}\nServices: ${items}\nSize: ${b.sqft_label ?? ''}${b.large_property ? ' (large property)' : ''}\nOccupancy: ${b.occupancy ?? ''}\nAccess: ${b.access_notes ?? ''}\nNotes: ${b.notes ?? ''}${(b.client_files ?? []).length ? `\nFiles: ${b.client_files.length} attached (open the order in HQ)` : ''}\nTotal: $${b.total} · ${b.payment_status}`,
     start: { dateTime: b.shoot_start }, end: { dateTime: b.shoot_end },
@@ -323,7 +323,7 @@ async function deliveryFor(agent: any, key: string) {
       if (!data || data.status === 'cancelled') throw new UserError('Delivery not found', 404);
       b = data;
       if ((b.project_ids ?? []).length) projects = (await admin.from('projects').select(projCols).in('id', b.project_ids)).data ?? [];
-      head = { title: (b.media_title || '').trim() || null, address: b.address + (b.unit ? ', ' + b.unit : ''), line2: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '), date: b.shoot_start, number: b.number };
+      head = { title: (b.media_title || '').trim() || null, address: b.address + (b.unit ? ', ' + b.unit : ''), line2: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '), date: b.shoot_start, number: b.number, order_no: b.order_no };
     }
     const locked = !!b && !b.paid && b.require_payment !== false; // pay before download (switch per order in HQ; HQ deliveries outside the portal are paid elsewhere)
     const done = projects.filter(p => p.status === 'delivered');
@@ -417,7 +417,7 @@ async function payFor(b: any) { // Stripe payment for an unpaid order (portal, s
   let pi = piId ? await stripe(`/payment_intents/${piId}`, undefined, 'GET', undefined, bl) : null;
   if (!pi || ['canceled', 'succeeded'].includes(pi.status) || pi.amount !== cents) {
     pi = await stripe('/payment_intents', { amount: cents, currency: 'usd', customer: b.stripe_customer_id,
-      automatic_payment_methods: { enabled: true }, description: `Knox View #${b.number} · ${b.address}`, receipt_email: b.client_email, metadata: { booking_id: b.id, booking_number: String(b.number) } }, 'POST', undefined, bl);
+      automatic_payment_methods: { enabled: true }, description: `Knox View ${b.order_no || '#' + b.number} · ${b.address}`, receipt_email: b.client_email, metadata: { booking_id: b.id, booking_number: String(b.number), order_no: b.order_no || '' } }, 'POST', undefined, bl);
     await admin.from('bookings').update({ stripe_payment_intent_id: pi.id }).eq('id', b.id);
   }
   return { clientSecret: pi.client_secret, intentType: 'payment', booking: { id: b.id, token: b.public_token, total: amountDue(b) } };
@@ -500,26 +500,26 @@ async function handle(req: Request) {
       }).select('*').single();
       if (error) throw error;
 
-      const meta = { booking_id: b.id, booking_number: String(b.number) };
+      const meta = { booking_id: b.id, booking_number: String(b.number), order_no: b.order_no || '' };
       let clientSecret: string, intentType: 'payment' | 'setup';
       if (payOpt === 'pay_now') {
         const pi = await stripe('/payment_intents', { amount: Math.round(q.total * 100), currency: 'usd', customer, setup_future_usage: 'off_session',
-          automatic_payment_methods: { enabled: true }, description: `Knox View #${b.number} · ${street}`, receipt_email: email.toLowerCase(), metadata: meta }, 'POST', `pi-${b.id}`);
+          automatic_payment_methods: { enabled: true }, description: `Knox View ${b.order_no || '#' + b.number} · ${street}`, receipt_email: email.toLowerCase(), metadata: meta }, 'POST', `pi-${b.id}`);
         await admin.from('bookings').update({ stripe_payment_intent_id: pi.id }).eq('id', b.id);
         clientSecret = pi.client_secret; intentType = 'payment';
       } else {
-        const si = await stripe('/setup_intents', { customer, usage: 'off_session', automatic_payment_methods: { enabled: true }, description: `Knox View #${b.number} · ${street}`, metadata: meta }, 'POST', `si-${b.id}`);
+        const si = await stripe('/setup_intents', { customer, usage: 'off_session', automatic_payment_methods: { enabled: true }, description: `Knox View ${b.order_no || '#' + b.number} · ${street}`, metadata: meta }, 'POST', `si-${b.id}`);
         await admin.from('bookings').update({ stripe_setup_intent_id: si.id }).eq('id', b.id);
         clientSecret = si.client_secret; intentType = 'setup';
       }
-      return json(req, { booking: { id: b.id, number: b.number, token: b.public_token, total: q.total, start: b.shoot_start }, clientSecret, intentType });
+      return json(req, { booking: { id: b.id, number: b.number, order_no: b.order_no, token: b.public_token, total: q.total, start: b.shoot_start }, clientSecret, intentType });
     }
 
     if (action === 'confirm') { // called by the browser after Stripe confirms; webhook does the same
       const { data: b } = await admin.from('bookings').select('id').eq('id', String(body.bookingId || '')).eq('public_token', String(body.token || '')).maybeSingle();
       if (!b) throw new UserError('Booking not found', 404);
       const f = await finalize(b.id);
-      return json(req, { number: f.number, status: f.status, paymentStatus: f.payment_status, start: f.shoot_start, total: f.total });
+      return json(req, { number: f.number, order_no: f.order_no, status: f.status, paymentStatus: f.payment_status, start: f.shoot_start, total: f.total });
     }
 
     /* ----- share link: the delivery page is its own page (/d/<token>). Anyone with the link (forwarded email, text)
@@ -538,7 +538,7 @@ async function handle(req: Request) {
       if (action === 'share-pay') return json(req, await payFor(b));
       if (action === 'share-invoice') { // the payment link page (/pay/<token>): invoice summary, no sign-in
         const { data: ag } = await admin.from('agents').select('full_name, brokerage, team_name').eq('id', b.agent_id).maybeSingle();
-        return json(req, { number: b.number, title: (b.media_title || '').trim() || null, address: b.address + (b.unit ? ', ' + b.unit : ''),
+        return json(req, { number: b.number, order_no: b.order_no, title: (b.media_title || '').trim() || null, address: b.address + (b.unit ? ', ' + b.unit : ''),
           line2: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '), client: ag?.full_name || b.client_name || '',
           items: (b.items || []).map((i: any) => ({ name: i.name, price: +i.price })), discount: +(b.discount || 0), tax: +(b.tax || 0),
           total: +b.total, credit: +(b.credit_applied || 0), due: b.paid ? 0 : amountDue(b), paid: !!b.paid, paid_at: b.paid_at,
@@ -567,7 +567,7 @@ async function handle(req: Request) {
     if (action === 'portal') {
       const { data: agent } = await admin.from('agents').select('id, full_name, email, phone, brokerage').eq('auth_user_id', user.id).maybeSingle();
       if (!agent) return json(req, { agent: null, bookings: [], listings: [] });
-      const { data: bks } = await admin.from('bookings').select('id, number, status, address, unit, city, state, zip, media_title, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, photo_files, videos, tour_url, floorplan_url, website_url, media_files, require_payment')
+      const { data: bks } = await admin.from('bookings').select('id, number, order_no, status, address, unit, city, state, zip, media_title, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, photo_files, videos, tour_url, floorplan_url, website_url, media_files, require_payment')
         .eq('agent_id', agent.id).neq('status', 'cancelled').order('shoot_start', { ascending: false }).limit(200);
       // deliveries made outside the portal (HQ / Spiro era) for this client, not tied to a portal booking
       const { data: own } = await admin.from('projects').select('id, name, address, city, media, status, dropbox_url, vimeo_url, delivered_at, created_at, parent_project_id')

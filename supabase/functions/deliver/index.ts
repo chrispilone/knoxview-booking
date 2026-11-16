@@ -45,7 +45,7 @@ async function load(id: string) {
 function fill(s: string, b: any, a: any) {
   const name = String(a?.full_name || b.client_name || '').trim();
   const v: Record<string, string> = { first_name: name.split(/\s+/)[0] || 'there', client_name: name || 'there', address: b.address || 'your listing',
-    city: b.city || '', order_number: b.number ? String(b.number) : '', link: shareLink(b) };
+    city: b.city || '', order_number: b.order_no || (b.number ? String(b.number) : ''), link: shareLink(b) };
   return String(s ?? '').replace(/\{(\w+)\}/g, (m, k) => k in v ? v[k] : m);
 }
 function e164(p: string) {
@@ -96,7 +96,7 @@ function render(b: any, a: any, tpl: any, notes: string) {
   <p style="margin:0 0 20px 0;${F}font-size:13px;line-height:20px;color:#8a96a8;">${esc([b.address, b.city].filter(Boolean).join(', '))}</p>
   ${hero}${paras.map(p).join('')}
   <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#e7edf6" style="background-color:#e7edf6;border-radius:12px;margin:4px 0 22px 0;"><tr><td style="padding:16px 20px;"><table width="100%" cellpadding="0" cellspacing="0" border="0">
-    ${row('Delivered', esc(deliverables))}${b.number ? row('Order', '#' + esc(String(b.number))) : ''}${row('Payment', esc(payment))}</table></td></tr></table>
+    ${row('Delivered', esc(deliverables))}${b.number ? row('Order', esc(b.order_no || '#' + b.number)) : ''}${row('Payment', esc(payment))}</table></td></tr></table>
   <table cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px 0;"><tr><td bgcolor="#1d3250" style="background-color:#1d3250;border-radius:8px;">
     <a href="${esc(link)}" style="display:inline-block;padding:13px 26px;${F}font-size:13px;line-height:16px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#ffffff;text-decoration:none;">${esc(button)}</a></td></tr></table>
   ${stripHtml}${noteHtml}${closing ? p(closing) : ''}
@@ -105,7 +105,7 @@ function render(b: any, a: any, tpl: any, notes: string) {
   <p style="margin:0;${F}font-size:15px;line-height:22px;color:#44546b;">Chris Pilone<br /><span style="color:#1f3c66;">Knox View Real Estate Media</span><br /><a href="tel:+18658555669" style="color:#1f3c66;text-decoration:none;">865-855-5669</a> &middot; <a href="https://knoxview.com" style="color:#1f3c66;text-decoration:none;">knoxview.com</a></p></td></tr>
 <tr><td align="center" style="padding:18px 24px;"><p style="margin:0;${F}font-size:11px;line-height:17px;color:#8a96a8;">Button not working? Open <a href="${esc(link)}" style="color:#8a96a8;">${esc(link)}</a><br />Knox View Real Estate Media &middot; Knoxville, Tennessee</p></td></tr>
 </table></td></tr></table></body></html>`;
-  const text = `${heading}\n${[b.address, b.city].filter(Boolean).join(', ')}\n\n${paras.join('\n\n')}\n\nDelivered: ${deliverables}\n${b.number ? `Order: #${b.number}\n` : ''}Payment: ${payment}\n\n${button}: ${link}\n\n${note ? `A note from Chris:\n${note}\n\n` : ''}${closing ? closing + '\n\n' : ''}Chris Pilone\nKnox View Real Estate Media\n865-855-5669 · knoxview.com\n`;
+  const text = `${heading}\n${[b.address, b.city].filter(Boolean).join(', ')}\n\n${paras.join('\n\n')}\n\nDelivered: ${deliverables}\n${b.number ? `Order: ${b.order_no || "#" + b.number}\n` : ''}Payment: ${payment}\n\n${button}: ${link}\n\n${note ? `A note from Chris:\n${note}\n\n` : ''}${closing ? closing + '\n\n' : ''}Chris Pilone\nKnox View Real Estate Media\n865-855-5669 · knoxview.com\n`;
   return { html, text, subject: fill(tpl.subject, b, a).replace(/[\r\n]+/g, ' ').trim().slice(0, 200) };
 }
 async function ownerGmailToken() {

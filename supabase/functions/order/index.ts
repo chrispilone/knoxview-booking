@@ -69,7 +69,7 @@ async function addToCalendar(b: Record<string, any>) {
   const tok = await ownerGoogleToken(); if (!tok) return;
   const items = (b.items as { name: string }[]).map(i => i.name).join(', ');
   const ev = {
-    summary: `${b.stripe_livemode ? '' : 'TEST '}📸 #${b.number} ${b.address}`,
+    summary: `${b.stripe_livemode ? '' : 'TEST '}📸 ${b.order_no || '#' + b.number} ${b.address}`,
     location: [b.address, b.unit, b.city, b.state, b.zip].filter(Boolean).join(', '),
     description: `Booked online${b.stripe_livemode ? '' : ' (TEST booking)'} · PAY ON DELIVERY\n\nClient: ${b.client_name} · ${b.client_phone} · ${b.client_email}\nServices: ${items}\nSize: ${b.sqft_label ?? ''}${b.large_property ? ' (large property)' : ''}\nOccupancy: ${b.occupancy ?? ''}\nAccess: ${b.access_notes ?? ''}\nNotes: ${b.notes ?? ''}${(b.client_files ?? []).length ? `\nFiles: ${b.client_files.length} attached (open the order in HQ)` : ''}\nTotal: $${b.total} · due on delivery`,
     start: { dateTime: b.shoot_start }, end: { dateTime: b.shoot_end },
@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
     }).select('*').single();
     if (error) throw error;
     await addToCalendar(b).catch(e => console.error('calendar', String(e)));
-    return json(req, { number: b.number, status: b.status, paymentStatus: b.payment_status, start: b.shoot_start, total: b.total, id: b.id, token: b.public_token });
+    return json(req, { number: b.number, order_no: b.order_no, status: b.status, paymentStatus: b.payment_status, start: b.shoot_start, total: b.total, id: b.id, token: b.public_token });
   } catch (e) {
     const status = e instanceof Bad ? e.status : 500;
     if (status >= 500) console.error('order error:', String((e as Error)?.message || e));

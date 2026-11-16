@@ -60,13 +60,13 @@ async function stripe(path: string, live: boolean, body?: Record<string, unknown
 }
 
 /* ---------------- data ---------------- */
-const COLS = 'id, number, status, address, unit, city, state, zip, items, subtotal, discount, tax, total, credit_applied, paid, paid_at, paid_method, payment_status, payment_option, stripe_payment_intent_id, stripe_livemode, stripe_customer_id, shoot_start, created_at, invoice_sent_at, invoice_due_at, client_name, client_email, client_phone, cover_url, marketing_url, require_payment, public_token';
+const COLS = 'id, number, order_no, status, address, unit, city, state, zip, items, subtotal, discount, tax, total, credit_applied, paid, paid_at, paid_method, payment_status, payment_option, stripe_payment_intent_id, stripe_livemode, stripe_customer_id, shoot_start, created_at, invoice_sent_at, invoice_due_at, client_name, client_email, client_phone, cover_url, marketing_url, require_payment, public_token';
 const isInvoice = (b: any) => b.status !== 'cancelled' && !(b.status === 'requested' && b.payment_status === 'unpaid');
 const dueOf = (b: any) => b.paid ? 0 : Math.max(0, r2(+b.total - +(b.credit_applied || 0)));
 function shape(b: any) {
   const invDate = b.invoice_sent_at || b.created_at;
   return {
-    id: b.id, number: b.number, address: b.address + (b.unit ? ', ' + b.unit : ''), place: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+    id: b.id, number: b.number, order_no: b.order_no || '#' + b.number, address: b.address + (b.unit ? ', ' + b.unit : ''), place: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '),
     items: (b.items || []).map((i: any) => ({ name: i.name, price: +i.price, kind: i.kind })),
     subtotal: +(b.subtotal ?? b.total), discount: +(b.discount || 0), tax: +(b.tax || 0), total: +b.total, credit: +(b.credit_applied || 0), due: dueOf(b),
     paid: !!b.paid, paid_at: b.paid ? b.paid_at : null, paid_method: b.paid_method, payment_status: b.payment_status,
@@ -95,7 +95,7 @@ async function applyCredits(agentId: string, list: any[]) {
   for (const b of list) {
     const use = r2(Math.min(bal, dueOf(b)));
     if (use <= 0) continue;
-    const { data: row } = await admin.from('client_credits').insert({ agent_id: agentId, amount: -use, kind: 'applied', booking_id: b.id, note: `Used on invoice #${b.number}`, created_by: null }).select('id').single();
+    const { data: row } = await admin.from('client_credits').insert({ agent_id: agentId, amount: -use, kind: 'applied', booking_id: b.id, note: `Used on invoice ${b.order_no || "#" + b.number}`, created_by: null }).select('id').single();
     if (await creditBalance(agentId) < 0) { await admin.from('client_credits').delete().eq('id', row!.id); break; } // another payment used it first
     b.credit_applied = r2(+(b.credit_applied || 0) + use); bal = r2(bal - use);
     const patch: Record<string, unknown> = { credit_applied: b.credit_applied, updated_at: new Date().toISOString() };
@@ -135,7 +135,7 @@ async function invoicePdf(b: any, client: any) {
   // listing + order date + "View all details" link, bordered Description / Cost breakdown / Order total table, totals.
   const inv = shape(b);
   const doc = await PDFDocument.create();
-  doc.setTitle(`Invoice ${inv.number} - ${inv.address}`); doc.setAuthor(BIZ.legal); doc.setCreator('Knox View');
+  doc.setTitle(`Invoice ${inv.order_no} - ${inv.address}`); doc.setAuthor(BIZ.legal); doc.setCreator('Knox View');
   const page = doc.addPage([612, 792]);
   const R = await doc.embedFont(StandardFonts.Helvetica), B = await doc.embedFont(StandardFonts.HelveticaBold);
   const INK = rgb(0.1, 0.12, 0.16), MUTE = rgb(0.42, 0.47, 0.55), LINE = rgb(0.2, 0.22, 0.26), SOFT = rgb(0.82, 0.84, 0.87);
@@ -160,7 +160,7 @@ async function invoicePdf(b: any, client: any) {
   const portalLink = `${PORTAL}/#invoices/${inv.number}`;
   // title + logo
   let y = 792 - 64;
-  text(`Invoice: #${inv.number}`, RX, y, { f: B, s: 20, right: true });
+  text(`Invoice: ${inv.order_no}`, RX, y, { f: B, s: 20, right: true });
   const logo = await logoBytes();
   if (logo) { const img = await doc.embedPng(logo); const h = 56, lw = img.width * h / img.height; page.drawImage(img, { x: M, y: y - 62, width: lw, height: h }); }
   else text('KNOX VIEW', M, y - 40, { f: B, s: 22, c: ACC });
@@ -235,7 +235,7 @@ async function invoicePdf(b: any, client: any) {
 }
 function b64bytes(u8: Uint8Array) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); }
 const b64str = (str: string) => b64bytes(new TextEncoder().encode(str));
-const fileName = (b: any) => `Knox View Invoice ${b.number} - ${String(b.address || '').replace(/[^\w ,.-]+/g, '').trim().slice(0, 60)}.pdf`;
+const fileName = (b: any) => `Knox View Invoice ${b.order_no || b.number} - ${String(b.address || '').replace(/[^\w ,.-]+/g, '').trim().slice(0, 60)}.pdf`;
 
 /* ---------------- invoice email ---------------- */
 const F = 'font-family:Arial,Helvetica,sans-serif;';
@@ -254,14 +254,14 @@ function invoiceEmail(b: any, client: any) {
   <p style="margin:0 0 16px 0;${F}font-size:15px;line-height:24px;color:#44546b;">Hi ${esc(first)},</p>
   <p style="margin:0 0 20px 0;${F}font-size:15px;line-height:24px;color:#44546b;">${inv.paid ? 'Thank you for ordering with Knox View! Your invoice is paid in full.' : 'Thank you for ordering with Knox View! Your invoice is below.'} A PDF copy is attached.</p>
   <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#e7edf6" style="border-radius:12px;margin:0 0 22px 0;"><tr><td style="padding:16px 20px;"><table width="100%" cellpadding="0" cellspacing="0" border="0">
-    ${row('Invoice', '#' + inv.number)}${row('Invoice total', money(inv.total))}${inv.credit ? row('Credit applied', '-' + money(inv.credit)) : ''}${row('Balance due', money(inv.due))}${row(inv.paid ? 'Date paid' : 'Due', esc(fmtLong(inv.paid ? inv.paid_at : inv.due_date)))}</table></td></tr></table>
+    ${row('Invoice', inv.order_no)}${row('Invoice total', money(inv.total))}${inv.credit ? row('Credit applied', '-' + money(inv.credit)) : ''}${row('Balance due', money(inv.due))}${row(inv.paid ? 'Date paid' : 'Due', esc(fmtLong(inv.paid ? inv.paid_at : inv.due_date)))}</table></td></tr></table>
   <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;"><tr><td bgcolor="#1d3250" style="border-radius:8px;"><a href="${esc(link)}" style="display:inline-block;padding:13px 26px;${F}font-size:13px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#ffffff;text-decoration:none;">${inv.paid ? 'View invoice' : 'View &amp; pay invoice'}</a></td></tr></table>
   <p style="margin:0;${F}font-size:15px;line-height:22px;color:#44546b;">Questions? Call or text <a href="tel:+18658555669" style="color:#1f3c66;">${BIZ.phone}</a> or email <a href="mailto:${BIZ.email}" style="color:#1f3c66;">${BIZ.email}</a>.<br /><br />${BIZ.owner}<br /><span style="color:#1f3c66;">${BIZ.name}</span></p>
 </td></tr>
 <tr><td align="center" style="padding:18px 24px;"><p style="margin:0;${F}font-size:11px;line-height:17px;color:#8a96a8;">${BIZ.legal} &middot; ${BIZ.address.slice(1).join(', ')}</p></td></tr>
 </table></td></tr></table></body></html>`;
-  const text = `${heading}\n${inv.address}${inv.place ? ', ' + inv.place : ''}\n\nHi ${first},\n\nInvoice #${inv.number}\nInvoice total: ${money(inv.total)}\n${inv.credit ? `Credit applied: -${money(inv.credit)}\n` : ''}Balance due: ${money(inv.due)}\n\nView ${inv.paid ? '' : 'and pay '}your invoice: ${link}\nA PDF copy is attached.\n\nQuestions? ${BIZ.phone} · ${BIZ.email}\n${BIZ.owner}\n${BIZ.name}\n`;
-  return { html, text, subject: `${inv.paid ? 'Paid invoice' : 'Invoice'} #${inv.number} · ${inv.address}` };
+  const text = `${heading}\n${inv.address}${inv.place ? ', ' + inv.place : ''}\n\nHi ${first},\n\nInvoice ${inv.order_no}\nInvoice total: ${money(inv.total)}\n${inv.credit ? `Credit applied: -${money(inv.credit)}\n` : ''}Balance due: ${money(inv.due)}\n\nView ${inv.paid ? '' : 'and pay '}your invoice: ${link}\nA PDF copy is attached.\n\nQuestions? ${BIZ.phone} · ${BIZ.email}\n${BIZ.owner}\n${BIZ.name}\n`;
+  return { html, text, subject: `${inv.paid ? 'Paid invoice' : 'Invoice'} ${inv.order_no} · ${inv.address}` };
 }
 async function ownerGmailToken() {
   if (!G_ID || !G_SECRET) return null;
@@ -370,7 +370,7 @@ Deno.serve(async (req) => {
       if (list.some(b => !!b.stripe_livemode !== live)) list = list.filter(b => !!b.stripe_livemode === live);
       const amount = r2(list.reduce((a, b) => a + dueOf(b), 0));
       const customers = [...new Set(list.map(b => b.stripe_customer_id).filter(Boolean))];
-      const nums = list.map(b => '#' + b.number).join(', ');
+      const nums = list.map(b => b.order_no || '#' + b.number).join(', ');
       const pi = await stripe('/payment_intents', live, {
         amount: Math.round(amount * 100), currency: 'usd', ...(customers.length === 1 ? { customer: customers[0] } : {}),
         'automatic_payment_methods[enabled]': 'true', description: `Knox View invoice${list.length > 1 ? 's' : ''} ${nums}`,

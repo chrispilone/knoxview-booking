@@ -16,6 +16,8 @@ function logAct(kind, summary, booking) {
   if (viaTeam() && kind !== 'team_view') { kind = 'team_view'; summary = 'Knox View (Access agent): ' + summary; }
   try { sb.rpc('log_client_activity', { p_kind: kind, p_summary: summary, p_device: deviceName(), p_booking: /^[0-9a-f-]{36}$/i.test(booking || '') ? booking : null }).then(() => {}, () => {}); } catch (_) {}
 }
+// Order / invoice number shown to people: KV-YYMM-### (order_no). number stays the internal key for links.
+const ono = x => x?.order_no || (x?.number ? '#' + x.number : '');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
@@ -634,7 +636,7 @@ function vDone() {
   const ok = ['scheduled'].includes(d.status);
   return `<div class="panel done-box"><div class="big" style="${ok ? '' : 'background:#c08a1e'}">${CHECK}</div>
     <h2 style="font-size:28px">${ok ? "You're booked" : 'Almost done'}</h2>
-    <p>${ok ? `Order #${esc(d.number)} · ${esc(when)}` : 'We received your order but the payment is still processing. We\'ll confirm by email.'}</p>
+    <p>${ok ? `Order ${esc(ono(d))} · ${esc(when)}` : 'We received your order but the payment is still processing. We\'ll confirm by email.'}</p>
     <p class="hint">${d.creditUsed ? `${money2(d.creditUsed)} of your account credit was used. ` : ''}${d.paymentStatus === 'paid' ? 'Paid in full. ' : d.paymentStatus === 'card_saved' ? 'Your card is saved and will be charged when your media is delivered. ' : 'Payment is due when your media is delivered. '}A confirmation is on its way.</p>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px">
       <a class="btn" href="#listings" style="text-decoration:none">View my listings</a>
@@ -851,7 +853,7 @@ function listingsAll() {
   }));
   for (const l of d.listings || []) out.push({ key: l.id, line1: l.address || 'Listing', line2: l.city || '', date: l.date, status: st(l.media, null), cover: null, media: l.media });
   const q = UI.q.trim().toLowerCase();
-  const list = q ? out.filter(x => `${x.line1} ${x.line2} ${x.b ? '#' + x.b.number : ''}`.toLowerCase().includes(q)) : out;
+  const list = q ? out.filter(x => `${x.line1} ${x.line2} ${x.b ? ono(x.b) : ''}`.toLowerCase().includes(q)) : out;
   const t = x => Date.parse(x.date || 0) || 0;
   return list.sort(UI.sort === 'old' ? (a, b) => t(a) - t(b) : UI.sort === 'addr' ? (a, b) => a.line1.localeCompare(b.line1, 'en', { numeric: true }) : (a, b) => t(b) - t(a));
 }
@@ -918,13 +920,13 @@ function invRows() {
   const since = { '30': 30, '90': 90, 'year': 365 }[INV.range];
   let rows = UI.itab === 'paid' ? paid : pend;
   if (since) rows = rows.filter(i => Date.parse(i.invoice_date) > Date.now() - since * 864e5);
-  if (q) rows = rows.filter(i => `${i.number} ${i.address} ${i.place} ${i.items.map(x => x.name).join(' ')}`.toLowerCase().includes(q));
+  if (q) rows = rows.filter(i => `${i.number} ${i.order_no || ''} ${i.address} ${i.place} ${i.items.map(x => x.name).join(' ')}`.toLowerCase().includes(q));
   return { pend, paid, rows };
 }
 function invActs(i) {
-  return `<div class="iacts"><a class="iact" href="#invoices/${i.number}" title="View invoice & media" aria-label="View invoice ${i.number}">${ic(I.eye)}</a>
-    <button class="iact" onclick="kv.invPdf(${i.number},'download')" title="Download PDF" aria-label="Download invoice ${i.number} as PDF">${ic(I.dl)}</button>
-    <button class="iact" onclick="kv.invEmail(${i.number})" title="Email invoice" aria-label="Email invoice ${i.number}">${ic(I.mail)}</button></div>`;
+  return `<div class="iacts"><a class="iact" href="#invoices/${i.number}" title="View invoice & media" aria-label="View invoice ${esc(ono(i))}">${ic(I.eye)}</a>
+    <button class="iact" onclick="kv.invPdf(${i.number},'download')" title="Download PDF" aria-label="Download invoice ${esc(ono(i))} as PDF">${ic(I.dl)}</button>
+    <button class="iact" onclick="kv.invEmail(${i.number})" title="Email invoice" aria-label="Email invoice ${esc(ono(i))}">${ic(I.mail)}</button></div>`;
 }
 function vInvoices() {
   if (UI.inv) return vInvoiceDetail(UI.inv);
@@ -943,7 +945,7 @@ function vInvoices() {
   if (!rows.length) return head + empty(UI.iq || INV.range !== 'all' ? 'No invoices match your search.' : UI.itab === 'paid' ? 'No paid invoices yet.' : "You're all paid up. There are no pending invoices.", false);
   const paidTab = UI.itab === 'paid';
   return head + `<div class="tbl-w"><table class="tbl itbl"><thead><tr><th>Invoice #</th><th>Address</th><th class="r">Invoice total</th><th class="r">Amount due</th><th>Invoice date</th><th>Date due</th>${paidTab ? '<th>Date paid</th>' : ''}<th class="r">Actions</th></tr></thead><tbody>
-    ${rows.map(i => `<tr><td class="inum"><a href="#invoices/${i.number}">#${esc(i.number)}</a>${!i.paid && i.payment_status === 'processing' ? ' <span class="pill">Processing</span>' : ''}</td>
+    ${rows.map(i => `<tr><td class="inum"><a href="#invoices/${i.number}">${esc(ono(i))}</a>${!i.paid && i.payment_status === 'processing' ? ' <span class="pill">Processing</span>' : ''}</td>
       <td class="iaddr"><b>${esc(i.address)}</b><div class="hint">${esc(i.place)}</div></td>
       <td class="r" data-l="Invoice total">${money2(i.total)}</td><td class="r" data-l="Amount due"><b>${money2(i.due)}</b>${i.credit ? `<div class="hint">${money2(i.credit)} credit used</div>` : ''}</td>
       <td data-l="Invoice date">${esc(fmtInv(i.invoice_date))}</td><td data-l="Date due">${esc(fmtInv(i.due_date))}</td>${paidTab ? `<td data-l="Date paid">${esc(fmtInv(i.paid_at))}</td>` : ''}
@@ -964,7 +966,7 @@ function vInvoiceDetail(n) {
   return `<a class="dl-back" href="#invoices">‹ Invoices</a>
   <div class="idet">
     <div class="idet-main">
-      <div class="panel ihead"><div><small>Order</small><h2>#${esc(i.number)}</h2></div>${st}</div>
+      <div class="panel ihead"><div><small>Order</small><h2>${esc(ono(i))}</h2></div>${st}</div>
       ${vApptPanel(i)}
       <div class="panel">
         <div class="iorder"><div><small>Order</small><b>${esc(i.address)}</b><div class="hint">${esc(i.place)}${i.shoot_start ? ' · Shoot ' + esc(fmtShort(i.shoot_start)) : ''}</div></div>
@@ -1002,13 +1004,13 @@ async function invPdf(n, how) {
     const { blob, name } = await invPdfBlob(n);
     const url = URL.createObjectURL(blob);
     if (how === 'view') { if (w) w.location.href = url; else location.href = url; }
-    else { const a = Object.assign(document.createElement('a'), { href: url, download: name }); document.body.appendChild(a); a.click(); a.remove(); logAct('download', `Downloaded invoice #${n} (PDF)`); }
+    else { const a = Object.assign(document.createElement('a'), { href: url, download: name }); document.body.appendChild(a); a.click(); a.remove(); logAct('download', `Downloaded invoice ${ono(invFind(n) || { number: n })} (PDF)`); }
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   } catch (e) { w?.close(); alertModal(e.message); }
 }
 function invEmail(n) {
   const i = invFind(n), own = INV.data?.client?.email || S.session?.user?.email || '';
-  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">Email invoice #${esc(n)}</h2>
+  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel"><h2 style="font-size:22px">Email invoice ${esc(ono(i || { number: n }))}</h2>
     <p class="hint" style="margin:0 0 14px">${esc(i?.address || '')} · the PDF is attached.</p>
     ${own ? `<label class="check-row"><input type="checkbox" id="ieSelf" checked> Send to me (${esc(own)})</label>` : ''}
     <label for="ieTo" style="margin-top:12px">Also send to</label><p class="hint" style="margin:0 0 6px">Optional. Up to 3 email addresses, separated by commas.</p>
@@ -1031,7 +1033,7 @@ function invPay(numbers, opts = {}) {
   if (!cr || opts.useCredits !== undefined) return invPayGo(numbers, { ...opts, useCredits: cr ? opts.useCredits !== false : false });
   const list = invAll().filter(i => !i.paid && i.due > 0 && (!numbers?.length || numbers.map(String).includes(String(i.number))));
   const due = Math.round(list.reduce((a, i) => a + i.due, 0) * 100) / 100;
-  const label = list.length === 1 ? `invoice #${list[0].number}` : `${list.length} invoices`;
+  const label = list.length === 1 ? `invoice ${ono(list[0])}` : `${list.length} invoices`;
   const paint = () => {
     const use = $('icrUse')?.checked !== false, credit = use ? Math.min(cr, due) : 0, left = Math.round((due - credit) * 100) / 100;
     $('icrSum').innerHTML = `<div class="iline"><span>Amount due</span><span>${money2(due)}</span></div>${credit ? `<div class="iline"><span>Account credit</span><span class="cr-txt">-${money2(credit)}</span></div>` : ''}<div class="iline big"><span>You pay</span><span>${money2(left)}</span></div>`;
@@ -1054,7 +1056,7 @@ async function invPayGo(numbers, opts = {}) {
       $('modal').innerHTML = `<div class="modal"><div class="panel"><h2 style="font-size:22px">${r.paidByCredit ? 'Paid with your credit' : 'Already paid'}</h2><p>${r.paidByCredit ? 'Your account credit covered this. Thank you!' : 'This invoice is already paid.'}</p><div class="ph-nav"><span></span><button class="btn" onclick="kv.closeModal()">Done</button></div></div></div>`;
       return;
     }
-    const label = r.numbers.length > 1 ? `${r.numbers.length} invoices (${r.numbers.map(x => '#' + x).join(', ')})` : `Invoice #${r.numbers[0]}`;
+    const label = r.numbers.length > 1 ? `${r.numbers.length} invoices (${r.numbers.map(x => ono(invFind(x) || { number: x })).join(', ')})` : `Invoice ${ono(invFind(r.numbers[0]) || { number: r.numbers[0] })}`;
     $('modal').innerHTML = `<div class="modal"><div class="panel"><h2 style="font-size:22px">Pay ${esc(label)}</h2>
       <div class="tot" style="padding:6px 0 0"><span>Amount due</span><span>${money2(r.amount)}</span></div>
       <div id="pay-el3" style="margin-top:14px"></div><div id="payErr"></div>
@@ -1381,7 +1383,7 @@ function vDelivery() {
   const when = d.head.date ? fmtDate(d.head.date) : '';
   let out = `${dlBack()}
     <header class="dl-head"><h1>${esc(d.head.title || d.head.address)}</h1><p>${esc([d.head.title ? d.head.address : '', d.head.line2, d.head.brokerage].filter(Boolean).join(' · '))}</p>
-      <p class="hint">${when ? esc(when) : ''}${d.head.number ? ` · Order #${esc(d.head.number)}` : ''}</p></header>`;
+      <p class="hint">${when ? esc(when) : ''}${d.head.number ? ` · Order ${esc(ono(d.head))}` : ''}</p></header>`;
   // "Ready" only once something has actually been delivered (photos, video, floor plans, tour, a website or marketing)
   const delivered = tabs.length > 0 || d.websites.some(w => !w.soon) || !!d.marketing;
   if (d.locked && delivered) out += `<div class="dl-lock ready">${ic('<path d="M20 6L9 17l-5-5"/>', 22)}<div><b>Your media is ready!</b> Preview it below, then pay to unlock and download all your media.</div>
@@ -1571,7 +1573,7 @@ Object.assign(window.kv, {
     const l = findListing(key); if (!l) return; const b = l.b;
     const media = l.media.some(m => m.delivered) ? `<p style="margin:0"><a class="btn" href="#delivery/${l.key}" onclick="kv.closeModal()" style="text-decoration:none">Open media & downloads</a></p>` : '<p class="hint">Media will appear here once it is delivered.</p>';
     $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel" style="max-width:540px">
-      <h2 style="font-size:24px">${esc(l.line1)}</h2><div class="hint" style="margin:2px 0 12px">${esc(l.line2)}${b ? ` · Order #${esc(b.number)}` : ''}</div>
+      <h2 style="font-size:24px">${esc(l.line1)}</h2><div class="hint" style="margin:2px 0 12px">${esc(l.line2)}${b ? ` · Order ${esc(ono(b))}` : ''}</div>
       <span class="pill ${l.status[1]}">${esc(l.status[0])}</span>
       <dl class="review">${l.date ? `<dt>${b ? 'Shoot' : 'Date'}</dt><dd>${esc(new Date(l.date).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', ...(b ? { hour: 'numeric', minute: '2-digit' } : {}) }))}</dd>` : ''}
         ${b ? `<dt>Services</dt><dd>${(b.items || []).map(i => `<div class="line"><span>${esc(i.name)}</span><span>${money(i.price)}</span></div>`).join('')}<div class="tot"><span>Total</span><span>${money(b.total)}</span></div></dd>` : ''}
@@ -1720,7 +1722,7 @@ const PAYTOK = (location.pathname.match(/^\/pay\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-
 const PL = { data: null, err: '', loading: false, paying: false, elements: null, secret: null, done: false };
 async function loadPayLink() {
   PL.loading = true; render();
-  try { PL.data = await api('share-invoice', { token: PAYTOK }); if (PL.data) document.title = `Invoice #${PL.data.number} · Knox View`; } catch (e) { PL.err = e.message; }
+  try { PL.data = await api('share-invoice', { token: PAYTOK }); if (PL.data) document.title = `Invoice ${ono(PL.data)} · Knox View`; } catch (e) { PL.err = e.message; }
   PL.loading = false; render();
 }
 function vPayLink() {
@@ -1729,7 +1731,7 @@ function vPayLink() {
   const d = PL.data, paid = d.paid || PL.done;
   const line = (k, v, cls = '') => `<div class="pl-row ${cls}"><span>${k}</span><span>${v}</span></div>`;
   return `<section class="panel pl">
-    <div class="pl-top"><div><p class="pl-k">Invoice #${esc(d.number)}</p><h1>${esc(d.title || d.address)}</h1>
+    <div class="pl-top"><div><p class="pl-k">Invoice ${esc(ono(d))}</p><h1>${esc(d.title || d.address)}</h1>
       <p class="hint">${esc([d.title ? d.address : '', d.line2].filter(Boolean).join(', '))}${d.client ? ` · ${esc(d.client)}` : ''}</p></div>
       <span class="pl-badge ${paid ? 'ok' : ''}">${paid ? 'Paid' : 'Due'}</span></div>
     <div class="pl-amt"><span>${paid ? 'Amount paid' : 'Amount due'}</span><b>${money2(paid ? d.total - d.credit : d.due)}</b></div>
