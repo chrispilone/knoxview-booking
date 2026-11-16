@@ -844,8 +844,9 @@ function listingsAll() {
     return ['Pending', 'y'];
   };
   const out = (d.bookings || []).map(b => ({
-    key: b.id, line1: b.address + (b.unit ? ', ' + b.unit : ''),
-    line2: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+    // media title (set in HQ) names the listing; otherwise the address
+    key: b.id, line1: (b.media_title || '').trim() || b.address + (b.unit ? ', ' + b.unit : ''),
+    line2: [(b.media_title || '').trim() ? b.address + (b.unit ? ', ' + b.unit : '') : '', b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '),
     date: b.shoot_start, status: st(b.media || [], b), cover: b.cover_url, media: b.media || [], b,
   }));
   for (const l of d.listings || []) out.push({ key: l.id, line1: l.address || 'Listing', line2: l.city || '', date: l.date, status: st(l.media, null), cover: null, media: l.media });
@@ -1353,7 +1354,7 @@ const DL_TABS = ['photos', 'video', 'floorplan', 'tour'];
 async function loadDelivery(key) {
   Object.assign(D, { key, data: null, loading: true, error: '', sel: new Set() }); render();
   try { D.data = SHARE ? await api('share-delivery', { token: SHARE }) : await api('delivery', { key }); } catch (e) { D.error = e.message; }
-  if (SHARE && D.data?.head?.address) document.title = `${D.data.head.address} · Knox View`;
+  if (SHARE && D.data?.head?.address) document.title = `${D.data.head.title || D.data.head.address} · Knox View`;
   D.loading = false; render();
 }
 // "‹ Listings" only for the client who owns this order (a forwarded share link has no listings to go back to)
@@ -1379,7 +1380,7 @@ function vDelivery() {
   const d = D.data, tabs = dTabs(d), tab = (tabs.find(t => t[0] === D.tab) || tabs[0] || [])[0];
   const when = d.head.date ? fmtDate(d.head.date) : '';
   let out = `${dlBack()}
-    <header class="dl-head"><h1>${esc(d.head.address)}</h1><p>${esc([d.head.line2, d.head.brokerage].filter(Boolean).join(' · '))}</p>
+    <header class="dl-head"><h1>${esc(d.head.title || d.head.address)}</h1><p>${esc([d.head.title ? d.head.address : '', d.head.line2, d.head.brokerage].filter(Boolean).join(' · '))}</p>
       <p class="hint">${when ? esc(when) : ''}${d.head.number ? ` · Order #${esc(d.head.number)}` : ''}</p></header>`;
   // "Ready" only once something has actually been delivered (photos, video, floor plans, tour, a website or marketing)
   const delivered = tabs.length > 0 || d.websites.some(w => !w.soon) || !!d.marketing;

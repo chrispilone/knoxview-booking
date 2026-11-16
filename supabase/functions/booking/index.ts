@@ -323,7 +323,7 @@ async function deliveryFor(agent: any, key: string) {
       if (!data || data.status === 'cancelled') throw new UserError('Delivery not found', 404);
       b = data;
       if ((b.project_ids ?? []).length) projects = (await admin.from('projects').select(projCols).in('id', b.project_ids)).data ?? [];
-      head = { address: b.address + (b.unit ? ', ' + b.unit : ''), line2: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '), date: b.shoot_start, number: b.number };
+      head = { title: (b.media_title || '').trim() || null, address: b.address + (b.unit ? ', ' + b.unit : ''), line2: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '), date: b.shoot_start, number: b.number };
     }
     const locked = !!b && !b.paid && b.require_payment !== false; // pay before download (switch per order in HQ; HQ deliveries outside the portal are paid elsewhere)
     const done = projects.filter(p => p.status === 'delivered');
@@ -557,7 +557,7 @@ async function handle(req: Request) {
     if (action === 'portal') {
       const { data: agent } = await admin.from('agents').select('id, full_name, email, phone, brokerage').eq('auth_user_id', user.id).maybeSingle();
       if (!agent) return json(req, { agent: null, bookings: [], listings: [] });
-      const { data: bks } = await admin.from('bookings').select('id, number, status, address, unit, city, state, zip, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, photo_files, videos, tour_url, floorplan_url, website_url, media_files, require_payment')
+      const { data: bks } = await admin.from('bookings').select('id, number, status, address, unit, city, state, zip, media_title, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, photo_files, videos, tour_url, floorplan_url, website_url, media_files, require_payment')
         .eq('agent_id', agent.id).neq('status', 'cancelled').order('shoot_start', { ascending: false }).limit(200);
       // deliveries made outside the portal (HQ / Spiro era) for this client, not tied to a portal booking
       const { data: own } = await admin.from('projects').select('id, name, address, city, media, status, dropbox_url, vimeo_url, delivered_at, created_at, parent_project_id')
