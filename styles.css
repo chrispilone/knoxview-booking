@@ -1046,3 +1046,27 @@ s.was{color:var(--slate);font-weight:400;margin-right:6px;font-size:.85em;text-d
 .zs-bars>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px}
 .zs-bars i{display:block;width:100%;max-width:34px;border-radius:5px 5px 2px 2px;background:#1d3250}.zs-bars small{font-size:10.5px;color:var(--slate)}
 @media (max-width:520px){.zs-big b{font-size:22px}.zs-line{gap:8px;font-size:12.5px}}
+/* Google reviews strip (sign-in page) */
+.rv{margin-top:34px}
+.rv-head{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--mute);font-size:.66rem;font-weight:600;letter-spacing:.2em;text-transform:uppercase;margin-bottom:12px}
+.rv-head b{font-family:'Cormorant Garamond',Georgia,serif;font-size:1.35rem;font-weight:500;letter-spacing:0;color:var(--ink);line-height:1}
+.rv-g{width:16px;height:16px;flex:none}
+.rv-stars{display:inline-flex;gap:2px;color:#c9a227}
+.rv-stars svg{width:12px;height:12px;fill:currentColor}
+.rv-track{display:flex;align-items:flex-start;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:20px;margin:0 -20px;padding:2px 20px 8px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;outline:none}
+.rv-track::-webkit-scrollbar{display:none}
+.rv-card{flex:0 0 min(280px,78vw);scroll-snap-align:start;margin:0;background:#fff;border:1px solid var(--line);border-radius:4px;padding:16px 16px 14px;display:flex;flex-direction:column;gap:10px}
+.rv-card.long{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.rv-card blockquote{margin:0;color:var(--soft);font-size:.86rem;line-height:1.55;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;overflow:hidden}
+.rv-card blockquote p{margin:0;display:inline}
+.rv-card blockquote p+p::before{content:" "}
+.rv-card.open blockquote{display:block;-webkit-line-clamp:unset}
+.rv-card.open blockquote p{display:block}
+.rv-card.open blockquote p+p{margin-top:8px}
+.rv-card.open blockquote p+p::before{content:none}
+.rv-more{align-self:flex-start;margin-top:-4px;color:var(--ink);font-size:.62rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;border-bottom:1px solid currentColor;padding-bottom:2px}
+.rv-more::after{content:"Read more"}
+.rv-card.open .rv-more::after{content:"Show less"}
+.rv-card figcaption{border-top:1px solid var(--line);padding-top:10px;font-family:'Cormorant Garamond',Georgia,serif;font-size:1.02rem;font-weight:600;color:var(--ink)}
+.rv + .lp-foot{margin-top:18px}
+@media (max-width:400px){.rv-track{margin:0 -14px;padding-inline:14px;scroll-padding-inline:14px}}
