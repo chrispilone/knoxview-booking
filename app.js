@@ -1880,39 +1880,6 @@ function acHookOrderForm() {
   });
 }
 
-// ===== Pull to refresh (sign-in page): pull down from the top, the page follows your finger, an arrow turns
-// as you pull, and past the line it says "Release to refresh". Works in Safari and the home-screen app.
-(() => {
-  const LIMIT = 72, MAX = 120;
-  const el = document.createElement('div'); el.id = 'ptr';
-  el.innerHTML = '<span class="ptr-c"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></span><span class="ptr-t">Pull to refresh</span>';
-  document.body.appendChild(el);
-  let y0 = null, d = 0, busy = false;
-  const on = () => document.body.classList.contains('landing') && !busy;
-  const set = (px, anim) => {
-    const pg = $('landing'); el.style.transition = pg.style.transition = anim ? 'transform .25s ease' : 'none';
-    pg.style.transform = px ? `translateY(${px}px)` : '';
-    el.style.transform = `translate(-50%, ${px - 48}px)`; el.style.opacity = Math.min(1, px / 40);
-    el.querySelector('svg').style.transform = `rotate(${Math.min(px / LIMIT, 1) * 300}deg)`;
-    el.classList.toggle('ready', px >= LIMIT);
-    el.querySelector('.ptr-t').textContent = busy ? 'Refreshing…' : px >= LIMIT ? 'Release to refresh' : 'Pull to refresh';
-  };
-  document.addEventListener('touchstart', e => { y0 = on() && window.scrollY <= 0 && e.touches.length === 1 ? e.touches[0].clientY : null; d = 0; }, { passive: true });
-  document.addEventListener('touchmove', e => {
-    if (y0 === null) return;
-    const dy = e.touches[0].clientY - y0;
-    if (dy <= 0 || window.scrollY > 0) { if (d) set(0); d = 0; return; }
-    d = Math.min(MAX, dy * 0.55); // resistance: the page moves slower than the finger
-    e.cancelable && e.preventDefault(); set(d);
-  }, { passive: false });
-  document.addEventListener('touchend', () => {
-    if (y0 === null) return; y0 = null;
-    if (d >= LIMIT) { busy = true; el.classList.add('spin'); set(LIMIT, true); setTimeout(() => location.reload(), 350); }
-    else set(0, true);
-    d = 0;
-  });
-})();
-
 /* ================= keeping portal data fresh ================= */
 // After an order or payment, forget what was loaded so Listings and Invoices show it right away.
 function freshAfterOrder() { S.pdata = null; if (typeof INV !== 'undefined') { INV.data = null; INV.pdf = {}; INV.dmedia = {}; } }
@@ -1925,28 +1892,116 @@ async function refreshView() {
   else if (PORTAL_VIEWS.includes(v)) { jobs.push(loadPortal()); INV.data = null; }
   await Promise.all(jobs.map(j => Promise.resolve(j).catch(() => {})));
 }
-// Pull down from the top of the page to refresh (phones / home-screen app)
+// Pull down from the top to refresh (phones / home-screen app). Same feel as HQ: the page and the indicator move
+// together frame by frame, the arrow turns as you pull, then a spinner and a drawn checkmark.
+// Sign-in page: reloads the page. Portal pages (Listings, Invoices, Profile, Delivery): reloads that page's data.
 (function pullToRefresh() {
   if (!('ontouchstart' in window)) return;
-  const ind = document.createElement('div'); ind.className = 'ptr'; ind.innerHTML = '<span class="ptr-i"></span>'; document.body.appendChild(ind);
-  const MAX = 90, GO = 64;
-  let y0 = null, d = 0, busy = false;
-  const can = () => S.session && (PORTAL_VIEWS.includes(S.view)) && !$('modal').innerHTML && !document.querySelector('.lb') && window.scrollY <= 0;
-  const set = (h, spin) => { ind.style.transform = `translate(-50%, ${Math.min(h, MAX) - 46}px)`; ind.style.opacity = Math.min(1, h / GO); ind.classList.toggle('spin', !!spin); ind.querySelector('.ptr-i').style.transform = spin ? '' : `rotate(${h * 4}deg)`; };
-  window.addEventListener('touchstart', e => { if (busy || e.touches.length !== 1 || !can()) { y0 = null; return; } y0 = e.touches[0].clientY; d = 0; }, { passive: true });
-  window.addEventListener('touchmove', e => {
-    if (y0 == null) return;
-    d = (e.touches[0].clientY - y0) * 0.55;
-    if (d <= 0 || window.scrollY > 0) { set(0); return; }
-    if (e.cancelable) e.preventDefault(); // stop the page bouncing while pulling
-    set(d);
-  }, { passive: false });
-  window.addEventListener('touchend', async () => {
-    if (y0 == null) return; y0 = null;
-    if (d < GO) { ind.classList.add('back'); set(0); setTimeout(() => ind.classList.remove('back'), 250); return; }
-    busy = true; ind.classList.add('back'); set(GO, true);
-    try { await refreshView(); } finally { setTimeout(() => { set(0); busy = false; setTimeout(() => ind.classList.remove('back'), 250); }, 300); }
+  const el = document.createElement('div');
+  el.id = 'ptr'; el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = `<svg class="ptr-ring" viewBox="0 0 40 40"><circle class="ptr-track" cx="20" cy="20" r="15"/><circle class="ptr-prog" cx="20" cy="20" r="15"/></svg>
+    <svg class="ptr-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+    <svg class="ptr-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 12.5l4.2 4.2 8.8-9.2"/></svg>`;
+  document.body.appendChild(el);
+  const prog = el.querySelector('.ptr-prog'), arrow = el.querySelector('.ptr-arrow'), C = 2 * Math.PI * 15;
+  prog.style.strokeDasharray = C; prog.style.strokeDashoffset = C;
+  const TRIGGER = 70, HOLD = 64, MAX = 150, R = 0.6, SOFT = MAX - TRIGGER;
+  let startY = null, startX = 0, carry = 0, dist = 0, pulling = false, busy = false, armed = false, raf = 0, anim = 0, page = null, landing = false;
+  // Which page can be pulled right now (null = none)
+  const target = () => {
+    if (document.body.classList.contains('landing')) return $('landing');
+    if (S.session && PORTAL_VIEWS.includes(S.view) && !$('modal').innerHTML && !document.querySelector('.lb')) return $('main');
+    return null;
+  };
+  const scrolledParent = n => {
+    for (; n && n !== document.body; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if (/(auto|scroll)/.test(cs.overflowY) && n.scrollHeight > n.clientHeight + 1 && n.scrollTop > 0) return true;
+    }
+    return false;
+  };
+  // Finger travel -> pull distance: tracks the finger 1:R up to the trigger point, then eases into a soft stop.
+  const resist = dy => { const d = Math.max(0, dy) * R; return d <= TRIGGER ? d : TRIGGER + SOFT * (1 - Math.exp(-(d - TRIGGER) / SOFT)); };
+  const unresist = v => (v <= TRIGGER ? v : TRIGGER - SOFT * Math.log(1 - Math.min(v - TRIGGER, SOFT - 0.5) / SOFT)) / R;
+  const paint = () => {
+    raf = 0;
+    if (!page) return;
+    const p = Math.min(1, dist / TRIGGER);
+    page.style.transform = dist > 0.5 ? `translate3d(0, ${dist.toFixed(2)}px, 0)` : '';
+    // The indicator rises out from under the header with the page, then stays centred in the gap it opens.
+    const y = Math.min(dist / 2 - 20, dist - 44);
+    el.style.transform = `translate3d(-50%, ${y.toFixed(2)}px, 0) scale(${(0.72 + 0.28 * p).toFixed(3)})`;
+    el.style.opacity = Math.max(0, Math.min(1, (dist - 6) / 30)).toFixed(3);
+    if (!busy) {
+      prog.style.strokeDashoffset = C * (1 - p);
+      arrow.style.transform = `rotate(${(p * 180).toFixed(1)}deg)`;
+      const ready = dist >= TRIGGER;
+      if (ready !== armed) { armed = ready; el.classList.toggle('ready', ready); if (ready && navigator.vibrate) navigator.vibrate(8); }
+    }
+  };
+  const schedule = () => { if (!raf) raf = requestAnimationFrame(paint); };
+  const stop = () => { if (anim) cancelAnimationFrame(anim); anim = 0; };
+  const tween = (to, ms) => new Promise(done => {
+    stop();
+    const from = dist, t0 = performance.now();
+    const step = now => {
+      const t = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - t, 3);
+      dist = from + (to - from) * e; paint();
+      if (t < 1) anim = requestAnimationFrame(step); else { anim = 0; done(); }
+    };
+    anim = requestAnimationFrame(step);
   });
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const reset = () => {
+    if (page) page.style.transform = page.style.willChange = '';
+    el.classList.remove('ready', 'spinning', 'done');
+    el.style.opacity = 0; prog.style.transition = ''; armed = false;
+  };
+  window.addEventListener('touchstart', e => {
+    if (busy || e.touches.length !== 1 || window.scrollY > 0) return;
+    const pg = target();
+    if (!pg || e.target.closest('input, textarea, select, [contenteditable], iframe, .no-ptr') || scrolledParent(e.target)) return;
+    if (pg !== page) { stop(); reset(); dist = 0; page = pg; }
+    landing = pg.id === 'landing';
+    // the gap opens just under the header (or the top of the screen on the sign-in page)
+    const hd = document.querySelector('header.top');
+    el.style.top = (landing || !hd ? 0 : Math.max(0, hd.getBoundingClientRect().bottom)) + 'px';
+    stop(); carry = dist > 0.5 ? unresist(dist) : 0; // catching it while it springs back continues from where it is
+    startY = e.touches[0].clientY; startX = e.touches[0].clientX; pulling = carry > 0;
+  }, { passive: true });
+  window.addEventListener('touchmove', e => {
+    if (startY === null) return;
+    const dy = e.touches[0].clientY - startY, dx = e.touches[0].clientX - startX;
+    if (!pulling) {
+      if (dy < 6 || Math.abs(dx) > dy || window.scrollY > 0) { if (dy < 0 || Math.abs(dx) > 10) startY = null; return; }
+      pulling = true; startY += 6; // start from zero so nothing jumps
+      page.style.willChange = 'transform';
+    }
+    if (e.cancelable) e.preventDefault();
+    dist = resist(carry + e.touches[0].clientY - startY); schedule();
+  }, { passive: false });
+  const end = async () => {
+    if (startY === null) return;
+    startY = null;
+    if (!pulling) return;
+    pulling = false;
+    if (dist < TRIGGER) { await tween(0, 260); if (!pulling && !anim) reset(); return; }
+    busy = true;
+    el.classList.add('spinning');
+    prog.style.transition = 'stroke-dashoffset .35s ease';
+    prog.style.strokeDashoffset = C * 0.72;
+    const t0 = Date.now();
+    await tween(HOLD, 300);
+    if (landing) { await wait(150); location.reload(); return; }
+    try { await refreshView(); } catch (err) { console.warn(err); }
+    await wait(Math.max(0, 600 - (Date.now() - t0))); // let the spinner read as a refresh
+    el.classList.remove('spinning'); el.classList.add('done');
+    prog.style.strokeDashoffset = 0;
+    await wait(420);
+    await tween(0, 340);
+    reset(); busy = false;
+  };
+  window.addEventListener('touchend', end); window.addEventListener('touchcancel', end);
 })();
 // Coming back to the app (switching apps, unlocking the phone): refresh if it's been a minute
 let hiddenAt = 0;
