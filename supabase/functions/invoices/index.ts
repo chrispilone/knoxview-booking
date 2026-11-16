@@ -320,6 +320,14 @@ Deno.serve(async (req) => {
       const { data: client } = b.agent_id ? await admin.from('agents').select('id, full_name, email, phone, brokerage, team_name').eq('id', b.agent_id).maybeSingle() : { data: null };
       return json(req, { filename: fileName(b), base64: b64bytes(await invoicePdf(b, client)) });
     }
+    if (action === 'share_pdf') { // the payment link page (/pay/<token>): anyone with the order's link can open its invoice PDF
+      const token = String(body.token || '');
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) throw new UserError('Invoice not found', 404);
+      const { data: b } = await admin.from('bookings').select(COLS + ', agent_id').eq('public_token', token).maybeSingle();
+      if (!b || !isInvoice(b)) throw new UserError('Invoice not found', 404);
+      const { data: client } = b.agent_id ? await admin.from('agents').select('id, full_name, email, phone, brokerage, team_name').eq('id', b.agent_id).maybeSingle() : { data: null };
+      return json(req, { filename: fileName(b), base64: b64bytes(await invoicePdf(b, client)) });
+    }
     if (action === 'hq_email') { // HQ (owner / super admins): email an order's invoice PDF to the client and anyone else
       const { user } = await me(req);
       const { data: tm } = await admin.from('team_members').select('role, active, permissions').eq('id', user.id).maybeSingle();

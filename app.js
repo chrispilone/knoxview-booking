@@ -1732,12 +1732,10 @@ function vPayLink() {
     <div class="pl-top"><div><p class="pl-k">Invoice #${esc(d.number)}</p><h1>${esc(d.title || d.address)}</h1>
       <p class="hint">${esc([d.title ? d.address : '', d.line2].filter(Boolean).join(', '))}${d.client ? ` · ${esc(d.client)}` : ''}</p></div>
       <span class="pl-badge ${paid ? 'ok' : ''}">${paid ? 'Paid' : 'Due'}</span></div>
-    <div class="pl-lines">${d.items.map(i => line(esc(i.name), money2(i.price))).join('')}
-      ${d.discount ? line('Discount', '-' + money2(d.discount)) : ''}${d.tax ? line('Tax', money2(d.tax)) : ''}
-      ${line('Total', money2(d.total), 'tot')}${d.credit ? line('Account credit', '-' + money2(d.credit)) : ''}
-      ${line(paid ? 'Amount paid' : 'Amount due', money2(paid ? d.total - d.credit : d.due), 'due')}</div>
+    <div class="pl-amt"><span>${paid ? 'Amount paid' : 'Amount due'}</span><b>${money2(paid ? d.total - d.credit : d.due)}</b></div>
+    <div class="pl-links"><button type="button" class="pl-link" id="plPdf" onclick="kv.plPdf()">${ic(I.inv, 16)} View invoice PDF</button><a class="pl-link" href="/d/${PAYTOK}">${ic(I.dl, 16)} View download page</a></div>
     ${paid ? `<div class="msg ok pl-done"><b>${PL.done ? 'Payment received. Thank you!' : 'This invoice is paid. Thank you!'}</b> A receipt is on its way by email.</div>
-        <a class="btn" href="/d/${PAYTOK}" style="text-decoration:none">View & download the media</a>`
+        `
       : `<div id="plPay">${PL.secret ? '' : `<button class="btn pl-go" id="plStart" onclick="kv.plStart()">Pay ${money2(d.due)}</button>`}</div>
         <div id="plErr"></div>
         <p class="hint pl-sec">${ic(I.lock, 13)} Secure payment by Stripe. No account or sign-in needed.</p>`}
@@ -1745,6 +1743,15 @@ function vPayLink() {
   <p class="hint" style="text-align:center;margin-top:14px">Questions? Call or text <a href="tel:+18658555669">865-855-5669</a></p>`;
 }
 Object.assign(window.kv, {
+  async plPdf() { // invoice PDF, opened in a new tab (or downloaded where tabs aren't allowed)
+    const btn = $('plPdf'), win = window.open('about:blank', '_blank'); btn.disabled = true;
+    try {
+      const r = await api('share_pdf', { token: PAYTOK }, 'invoices');
+      const url = URL.createObjectURL(new Blob([Uint8Array.from(atob(r.base64), c => c.charCodeAt(0))], { type: 'application/pdf' }));
+      if (win) win.location.href = url; else Object.assign(document.createElement('a'), { href: url, download: r.filename || 'invoice.pdf' }).click();
+    } catch (e) { if (win) win.close(); alert(e.message); }
+    btn.disabled = false;
+  },
   async plStart() {
     if (!stripeReady()) { $('plErr').innerHTML = '<div class="msg err">Online payments are not switched on yet. Please call 865-855-5669.</div>'; return; }
     const b = $('plStart'); if (b) { b.disabled = true; b.textContent = 'Loading…'; }

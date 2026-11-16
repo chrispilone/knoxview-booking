@@ -1063,3 +1063,10 @@ s.was{color:var(--slate);font-weight:400;margin-right:6px;font-size:.85em;text-d
 .pl-done{margin:0 0 12px}
 .msg.ok{background:#e3f1e8;color:#1e6b40}
 .pl-top h1{text-transform:none;letter-spacing:0}
+
+.pl-amt{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:16px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.pl-amt span{font-size:15px;color:var(--slate,#5f7389)}
+.pl-amt b{font-size:32px;font-weight:700;color:var(--ink,#1d3250)}
+.pl-links{display:flex;flex-wrap:wrap;gap:8px 18px;margin:12px 0 4px}
+.pl-link{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:4px 0;font:inherit;font-size:14px;font-weight:600;color:var(--primary,#1d3250);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.pl-link:disabled{opacity:.6}
