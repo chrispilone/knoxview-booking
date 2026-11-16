@@ -771,11 +771,12 @@ function vLanding() {
       <div class="lp-in">
         <section class="lp-hero">
           <h1>${tab === 'price' ? 'Let’s make your listing <em>shine.</em>' : 'Client <em>login.</em>'}</h1>
-          ${tab === 'price' ? '<p>Enter the address and home size to see <b>your exact price</b>.</p>' : `<a class="lp-go lp-book" href="#order">Book a shoot ${svg(IC_ARROW)}</a>`}
+          ${tab === 'price' ? '<p>Enter the address and home size to see <b>your exact price</b>.</p>' : ''}
         </section>
         <div class="lp-card">
           <div class="lp-body">${tab === 'price' ? vLandingPrice() : vLandingSignin()}</div>
         </div>
+        ${tab === 'price' ? '' : `<a class="lp-go lp-book" href="#order">Book a shoot ${svg(IC_ARROW)}</a>`}
         <p class="lp-foot">Questions? Call or text <a href="tel:+18658555669">865-855-5669</a><br><a class="lp-terms" href="javascript:kv.showTerms()">Terms &amp; Conditions</a></p>
       </div>
     </div>
