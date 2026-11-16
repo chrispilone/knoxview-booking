@@ -3,6 +3,19 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const CFG = window.KV_CONFIG;
 const sb = createClient(CFG.supabaseUrl, CFG.supabaseKey, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'pkce' } });
 const $ = id => document.getElementById(id);
+/* ----- Activity history (shown on the agent's profile in HQ): sign-ins with device, visits, downloads ----- */
+function deviceName() {
+  const u = navigator.userAgent || '', mob = /Mobi|Android|iPhone|iPad/i.test(u);
+  const os = /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) || (/Macintosh/.test(u) && navigator.maxTouchPoints > 1) ? 'iPad' : /Android/.test(u) ? 'Android' : /Mac OS X|Macintosh/.test(u) ? 'Mac' : /Windows/.test(u) ? 'Windows' : /CrOS/.test(u) ? 'Chromebook' : /Linux/.test(u) ? 'Linux' : 'Unknown device';
+  const br = /Edg\//.test(u) ? 'Edge' : /OPR\//.test(u) ? 'Opera' : /CriOS|Chrome\//.test(u) ? 'Chrome' : /FxiOS|Firefox\//.test(u) ? 'Firefox' : /Safari\//.test(u) ? 'Safari' : 'browser';
+  return `${os} · ${br}${mob && !/iPhone|iPad|Android/.test(os) ? ' (mobile)' : ''}`;
+}
+// HQ "Access agent" sessions: remembered on this browser so their visits/downloads are labeled as Knox View, not the client
+const viaTeam = () => { try { return sessionStorage.getItem('kv.team') === '1' || (!!localStorage.getItem('kv.teamUid') && localStorage.getItem('kv.teamUid') === S?.session?.user?.id); } catch (_) { return false; } };
+function logAct(kind, summary, booking) {
+  if (viaTeam() && kind !== 'team_view') { kind = 'team_view'; summary = 'Knox View (Access agent): ' + summary; }
+  try { sb.rpc('log_client_activity', { p_kind: kind, p_summary: summary, p_device: deviceName(), p_booking: /^[0-9a-f-]{36}$/i.test(booking || '') ? booking : null }).then(() => {}, () => {}); } catch (_) {}
+}
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
@@ -288,6 +301,8 @@ async function verifyCode(ev) {
     const r = await api('verify', { ref: LP().ref, code }, 'auth-code');
     const { error } = await sb.auth.setSession(r.session);
     if (error) throw error;
+    try { sessionStorage.removeItem('kv.team'); localStorage.removeItem('kv.teamUid'); sessionStorage.setItem('kv.visit', '1'); } catch (_) {}
+    logAct('signin', `Signed in with a ${LP().method === 'phone' ? 'text' : 'email'} code`);
     S.login = null; S.pdata = null; // the auth listener links the client record; then we go to their listings
     location.hash = S.after || '#listings';
   } catch (e) { S.error = e.message; }
@@ -985,7 +1000,7 @@ async function invPdf(n, how) {
     const { blob, name } = await invPdfBlob(n);
     const url = URL.createObjectURL(blob);
     if (how === 'view') { if (w) w.location.href = url; else location.href = url; }
-    else { const a = Object.assign(document.createElement('a'), { href: url, download: name }); document.body.appendChild(a); a.click(); a.remove(); }
+    else { const a = Object.assign(document.createElement('a'), { href: url, download: name }); document.body.appendChild(a); a.click(); a.remove(); logAct('download', `Downloaded invoice #${n} (PDF)`); }
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   } catch (e) { w?.close(); alertModal(e.message); }
 }
@@ -1470,6 +1485,7 @@ async function fetchAsFile(url, name, onBytes) {
 }
 // list: [{ url, name }]. Phones share in batches (iOS asks once per batch); computers download each file.
 async function saveFiles(list, what) {
+  logAct('download', `Downloaded ${list.length === 1 ? (what === 'video' ? 'a video' : '1 file') : list.length + ' files'}${D?.data?.head?.address ? ' · ' + D.data.head.address : ''}`, D?.data?.bookingId || D?.key);
   const canShareFiles = isPhone() && navigator.canShare && navigator.canShare({ files: [new File(['x'], 'x.jpg', { type: 'image/jpeg' })] });
   if (!canShareFiles) {
     list.forEach((f, i) => setTimeout(() => anchorDownload(f.url, f.name), i * 450));
@@ -1762,7 +1778,9 @@ window.addEventListener('hashchange', route);
     // (never sent to a server). Optional &go= says where to land: delivery/<order id> or invoice/<order number>.
     const hand = location.hash.match(/^#ts=([\w-]+)(?:&go=([\w\/-]+))?$/);
     if (hand) {
-      try { const t = JSON.parse(atob(hand[1].replace(/-/g, '+').replace(/_/g, '/'))); await sb.auth.setSession({ access_token: t.a, refresh_token: t.r }); }
+      try { const t = JSON.parse(atob(hand[1].replace(/-/g, '+').replace(/_/g, '/'))); await sb.auth.setSession({ access_token: t.a, refresh_token: t.r });
+        try { sessionStorage.setItem('kv.team', '1'); sessionStorage.setItem('kv.visit', '1'); const u = (await sb.auth.getUser()).data?.user?.id; if (u) localStorage.setItem('kv.teamUid', u); } catch (_) {}
+        logAct('team_view', 'Knox View opened the portal as this client (Access agent)'); }
       catch (e) { console.warn('session handoff failed', e); }
       const go = hand[2] || '', inv = go.match(/^invoice\/(\d+)(\/paid)?$/);
       if (inv) UI.itab = inv[2] ? 'paid' : 'pending';
@@ -1786,6 +1804,7 @@ window.addEventListener('hashchange', route);
     S.services = S.baseServices = svcs.data; S.upsells = ups.data || []; S.config = cfg; S.session = sess.data.session; applyPage();
     if (cfg.stripe?.mode === 'test') $('testbar').hidden = false;
     if (S.session) {
+      try { if (!sessionStorage.getItem('kv.visit')) { sessionStorage.setItem('kv.visit', '1'); logAct('visit', 'Opened the portal (already signed in)'); } } catch (_) {}
       const l = await api('link').catch(() => ({}));
       S.agent = l.agent; fillContact(); loadPhoto();
     }
