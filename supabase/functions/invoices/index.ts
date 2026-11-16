@@ -240,7 +240,7 @@ const fileName = (b: any) => `Knox View Invoice ${b.number} - ${String(b.address
 /* ---------------- invoice email ---------------- */
 const F = 'font-family:Arial,Helvetica,sans-serif;';
 function invoiceEmail(b: any, client: any) {
-  const inv = shape(b), link = `${PORTAL}/#invoices/${inv.number}`, first = String(client?.full_name || b.client_name || '').split(' ')[0] || 'there';
+  const inv = shape(b), link = !inv.paid && b.public_token ? `${PORTAL}/pay/${b.public_token}` : `${PORTAL}/#invoices/${inv.number}`, first = String(client?.full_name || b.client_name || '').split(' ')[0] || 'there';
   const heading = inv.paid ? 'Invoice paid' : 'Your invoice';
   const row = (k: string, v: string) => `<tr><td style="padding:6px 0;${F}font-size:12px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#1f3c66;width:120px;">${k}</td><td style="padding:6px 0;${F}font-size:15px;color:#44546b;">${v}</td></tr>`;
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /></head>
@@ -319,6 +319,23 @@ Deno.serve(async (req) => {
       if (!b) throw new UserError('Invoice not found', 404);
       const { data: client } = b.agent_id ? await admin.from('agents').select('id, full_name, email, phone, brokerage, team_name').eq('id', b.agent_id).maybeSingle() : { data: null };
       return json(req, { filename: fileName(b), base64: b64bytes(await invoicePdf(b, client)) });
+    }
+    if (action === 'hq_email') { // HQ (owner / super admins): email an order's invoice PDF to the client and anyone else
+      const { user } = await me(req);
+      const { data: tm } = await admin.from('team_members').select('role, active, permissions').eq('id', user.id).maybeSingle();
+      if (!tm?.active || !(tm.role === 'owner' || tm.permissions?.super_admin === true)) throw new UserError('Only HQ super admins can email invoices.', 403);
+      const { data: b } = await admin.from('bookings').select(COLS + ', agent_id').eq('id', String(body.bookingId || '')).maybeSingle();
+      if (!b) throw new UserError('Invoice not found', 404);
+      const to = [...new Set((Array.isArray(body.to) ? body.to : []).map((x: unknown) => String(x || '').trim().toLowerCase()).filter(Boolean))];
+      if (!to.length) throw new UserError('Add an email address to send it to.');
+      if (to.length > 6) throw new UserError('Send to 6 people at most.');
+      for (const e of to) if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[a-z]{2,}$/i.test(e)) throw new UserError(`"${e}" doesn't look like an email address.`);
+      const { data: client } = b.agent_id ? await admin.from('agents').select('id, full_name, email, phone, brokerage, team_name').eq('id', b.agent_id).maybeSingle() : { data: null };
+      const m = invoiceEmail(b, client);
+      const provider = await sendEmail(to, m.subject, m.html, m.text, { name: fileName(b), b64: b64bytes(await invoicePdf(b, client)) });
+      await admin.from('invoice_emails').insert({ booking_id: b.id, agent_id: b.agent_id, recipients: to, provider });
+      await admin.from('bookings').update({ invoice_sent_at: b.invoice_sent_at || new Date().toISOString() }).eq('id', b.id);
+      return json(req, { sent: to });
     }
     const { agent } = await me(req);
 

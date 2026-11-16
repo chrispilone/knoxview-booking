@@ -408,17 +408,19 @@ async function deliveryFor(agent: any, key: string) {
       setup: { dropbox: dropboxConfigured(), vimeo: vimeoConfigured() },
     };
 }
-async function payFor(b: any) { // Stripe payment for an unpaid order (portal or share link)
+const amountDue = (b: any) => Math.max(0, Math.round((+b.total - +(b.credit_applied || 0)) * 100) / 100);
+async function payFor(b: any) { // Stripe payment for an unpaid order (portal, share link or payment link). Charges what's due after any account credit.
   if (b.paid) return { alreadyPaid: true };
-  const bl = !!b.stripe_livemode;
+  const bl = !!b.stripe_livemode, cents = Math.round(amountDue(b) * 100);
+  if (cents < 50) throw new UserError('Nothing is due on this invoice.');
   const piId = b.stripe_payment_intent_id;
   let pi = piId ? await stripe(`/payment_intents/${piId}`, undefined, 'GET', undefined, bl) : null;
-  if (!pi || ['canceled', 'succeeded'].includes(pi.status)) {
-    pi = await stripe('/payment_intents', { amount: Math.round(+b.total * 100), currency: 'usd', customer: b.stripe_customer_id,
+  if (!pi || ['canceled', 'succeeded'].includes(pi.status) || pi.amount !== cents) {
+    pi = await stripe('/payment_intents', { amount: cents, currency: 'usd', customer: b.stripe_customer_id,
       automatic_payment_methods: { enabled: true }, description: `Knox View #${b.number} · ${b.address}`, receipt_email: b.client_email, metadata: { booking_id: b.id, booking_number: String(b.number) } }, 'POST', undefined, bl);
     await admin.from('bookings').update({ stripe_payment_intent_id: pi.id }).eq('id', b.id);
   }
-  return { clientSecret: pi.client_secret, intentType: 'payment', booking: { id: b.id, token: b.public_token, total: +b.total } };
+  return { clientSecret: pi.client_secret, intentType: 'payment', booking: { id: b.id, token: b.public_token, total: amountDue(b) } };
 }
 
 /* ---------------- Handler ---------------- */
@@ -522,7 +524,7 @@ async function handle(req: Request) {
 
     /* ----- share link: the delivery page is its own page (/d/<token>). Anyone with the link (forwarded email, text)
        can view it; downloads still unlock only after payment when the order requires it. ----- */
-    if (action === 'share-delivery' || action === 'share-pay' || action === 'share-meta') {
+    if (action === 'share-delivery' || action === 'share-pay' || action === 'share-meta' || action === 'share-invoice') {
       const token = String(body.token || '');
       const gone = 'This download page is no longer available. Call or text 865-855-5669.';
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) throw new UserError(gone, 404);
@@ -534,6 +536,14 @@ async function handle(req: Request) {
           cover: /^https:\/\//.test(b.cover_url || '') ? b.cover_url : pic ? (pic.preview || pic.url) : null });
       }
       if (action === 'share-pay') return json(req, await payFor(b));
+      if (action === 'share-invoice') { // the payment link page (/pay/<token>): invoice summary, no sign-in
+        const { data: ag } = await admin.from('agents').select('full_name, brokerage, team_name').eq('id', b.agent_id).maybeSingle();
+        return json(req, { number: b.number, title: (b.media_title || '').trim() || null, address: b.address + (b.unit ? ', ' + b.unit : ''),
+          line2: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '), client: ag?.full_name || b.client_name || '',
+          items: (b.items || []).map((i: any) => ({ name: i.name, price: +i.price })), discount: +(b.discount || 0), tax: +(b.tax || 0),
+          total: +b.total, credit: +(b.credit_applied || 0), due: b.paid ? 0 : amountDue(b), paid: !!b.paid, paid_at: b.paid_at,
+          invoice_date: b.invoice_sent_at || b.created_at, cover: /^https:\/\//.test(b.cover_url || '') ? b.cover_url : null, live: !!b.stripe_livemode });
+      }
       const { data: agent } = await admin.from('agents').select('id, full_name, brokerage, team_name, company_id, auth_user_id').eq('id', b.agent_id).maybeSingle();
       if (!agent) throw new UserError(gone, 404);
       const viewer = await userFrom(req).catch(() => null);

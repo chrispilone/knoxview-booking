@@ -1713,7 +1713,67 @@ document.addEventListener('change', e => { // when the address becomes complete 
   if (ok) setTimeout(() => document.getElementById('o-time')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
 });
 
+/* ================= payment link page (/pay/<order share token>) =================
+   An invoice anyone can pay without signing in (e.g. an agent forwards it to their office or the seller).
+   Shows the invoice, takes the card through Stripe, then thanks them and links to the download page. */
+const PAYTOK = (location.pathname.match(/^\/pay\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i) || [])[1] || null;
+const PL = { data: null, err: '', loading: false, paying: false, elements: null, secret: null, done: false };
+async function loadPayLink() {
+  PL.loading = true; render();
+  try { PL.data = await api('share-invoice', { token: PAYTOK }); if (PL.data) document.title = `Invoice #${PL.data.number} · Knox View`; } catch (e) { PL.err = e.message; }
+  PL.loading = false; render();
+}
+function vPayLink() {
+  if (PL.loading || (!PL.data && !PL.err)) return '<div class="panel loading"><span class="spin"></span> Getting the invoice…</div>';
+  if (PL.err) return `<div class="msg err">${esc(PL.err)}</div>`;
+  const d = PL.data, paid = d.paid || PL.done;
+  const line = (k, v, cls = '') => `<div class="pl-row ${cls}"><span>${k}</span><span>${v}</span></div>`;
+  return `<section class="panel pl">
+    <div class="pl-top"><div><p class="pl-k">Invoice #${esc(d.number)}</p><h1>${esc(d.title || d.address)}</h1>
+      <p class="hint">${esc([d.title ? d.address : '', d.line2].filter(Boolean).join(', '))}${d.client ? ` · ${esc(d.client)}` : ''}</p></div>
+      <span class="pl-badge ${paid ? 'ok' : ''}">${paid ? 'Paid' : 'Due'}</span></div>
+    <div class="pl-lines">${d.items.map(i => line(esc(i.name), money2(i.price))).join('')}
+      ${d.discount ? line('Discount', '-' + money2(d.discount)) : ''}${d.tax ? line('Tax', money2(d.tax)) : ''}
+      ${line('Total', money2(d.total), 'tot')}${d.credit ? line('Account credit', '-' + money2(d.credit)) : ''}
+      ${line(paid ? 'Amount paid' : 'Amount due', money2(paid ? d.total - d.credit : d.due), 'due')}</div>
+    ${paid ? `<div class="msg ok pl-done"><b>${PL.done ? 'Payment received. Thank you!' : 'This invoice is paid. Thank you!'}</b> A receipt is on its way by email.</div>
+        <a class="btn" href="/d/${PAYTOK}" style="text-decoration:none">View & download the media</a>`
+      : `<div id="plPay">${PL.secret ? '' : `<button class="btn pl-go" id="plStart" onclick="kv.plStart()">Pay ${money2(d.due)}</button>`}</div>
+        <div id="plErr"></div>
+        <p class="hint pl-sec">${ic(I.lock, 13)} Secure payment by Stripe. No account or sign-in needed.</p>`}
+  </section>
+  <p class="hint" style="text-align:center;margin-top:14px">Questions? Call or text <a href="tel:+18658555669">865-855-5669</a></p>`;
+}
+Object.assign(window.kv, {
+  async plStart() {
+    if (!stripeReady()) { $('plErr').innerHTML = '<div class="msg err">Online payments are not switched on yet. Please call 865-855-5669.</div>'; return; }
+    const b = $('plStart'); if (b) { b.disabled = true; b.textContent = 'Loading…'; }
+    try {
+      const r = await api('share-pay', { token: PAYTOK });
+      if (r.alreadyPaid) { PL.done = true; return loadPayLink(); }
+      PL.secret = r.clientSecret; PL.bk = r.booking;
+      $('plPay').innerHTML = `<div id="plEl" style="margin-top:6px"></div><button class="btn pl-go" id="plGo">Pay ${money2(r.booking.total)}</button>`;
+      PL.elements = stripe.elements({ clientSecret: r.clientSecret, appearance });
+      PL.elements.create('payment').mount('#plEl');
+      $('plGo').onclick = async () => {
+        $('plGo').disabled = true; $('plErr').innerHTML = '';
+        const { error } = await stripe.confirmPayment({ elements: PL.elements, confirmParams: { return_url: location.origin + location.pathname }, redirect: 'if_required' });
+        if (error) { $('plErr').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; $('plGo').disabled = false; return; }
+        await api('confirm', { bookingId: PL.bk.id, token: PL.bk.token }).catch(() => {});
+        PL.done = true; PL.secret = null; loadPayLink();
+      };
+    } catch (e) { $('plErr').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; if (b) { b.disabled = false; b.textContent = 'Try again'; } }
+  },
+});
+
 function render() {
+  if (S.view === 'paylink') { // payment link page: its own simple page
+    document.body.classList.remove('landing'); $('landing').innerHTML = ''; vHeader();
+    document.body.classList.add('in-portal'); $('main').classList.add('one'); $('main').classList.remove('wide');
+    $('side').style.display = 'none'; $('steps').style.display = 'none'; $('bar').style.visibility = 'hidden';
+    if (!PL.secret || !$('plEl')) $('view').innerHTML = vPayLink(); // don't re-render over the card form
+    return;
+  }
   const portal = PORTAL_VIEWS.includes(S.view), acct = S.view === 'account' || portal, done = S.view === 'done';
   const landing = S.view === 'account' && !S.loading;
   document.body.classList.toggle('landing', landing);
@@ -1761,6 +1821,14 @@ $('sheet').onclick = e => { if (e.target.id === 'sheet') e.currentTarget.classLi
 
 function route() {
   S.error = '';
+  // Payment link page (/pay/<token>): links clicked from it (Book now, Sign in…) go to the portal.
+  if (PAYTOK) {
+    const t = location.hash.replace('#', '');
+    if (t) { location.href = '/#' + t; return; }
+    UI.menu = false; S.view = 'paylink';
+    if (!PL.data && !PL.loading && !PL.err) loadPayLink(); else render();
+    return;
+  }
   // Share link page (/d/<token>): always the delivery page. Other links clicked from it (Book now, Sign in…) go to the portal.
   if (SHARE) {
     const t = location.hash.replace('#', '');

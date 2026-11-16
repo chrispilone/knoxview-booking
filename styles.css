@@ -1046,3 +1046,19 @@ s.was{color:var(--slate);font-weight:400;margin-right:6px;font-size:.85em;text-d
 .zs-bars>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px}
 .zs-bars i{display:block;width:100%;max-width:34px;border-radius:5px 5px 2px 2px;background:#1d3250}.zs-bars small{font-size:10.5px;color:var(--slate)}
 @media (max-width:520px){.zs-big b{font-size:22px}.zs-line{gap:8px;font-size:12.5px}}
+
+/* payment link page (/pay/<token>) */
+.pl{max-width:560px;margin:0 auto;padding:24px}
+.pl-top{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:14px}
+.pl-top h1{font-family:'Cormorant Garamond',Georgia,serif;font-weight:600;font-size:28px;line-height:1.15;margin:2px 0 4px;color:var(--ink,#1d3250)}
+.pl-k{margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--slate,#5f7389)}
+.pl-badge{flex:none;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:5px 10px;border-radius:999px;background:#f6ecd9;color:#8a5a12}
+.pl-badge.ok{background:#e3f1e8;color:#1e6b40}
+.pl-lines{border-top:1px solid var(--line);margin-bottom:16px}
+.pl-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:15px}
+.pl-row.tot span{font-weight:600}
+.pl-row.due{border-bottom:0;font-size:18px}.pl-row.due span{font-weight:700;color:var(--ink,#1d3250)}
+.pl-go{width:100%;margin-top:12px}
+.pl-sec{display:flex;align-items:center;gap:6px;justify-content:center;margin:12px 0 0}
+.pl-done{margin:0 0 12px}
+.msg.ok{background:#e3f1e8;color:#1e6b40}
