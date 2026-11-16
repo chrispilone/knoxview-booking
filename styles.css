@@ -1062,3 +1062,4 @@ s.was{color:var(--slate);font-weight:400;margin-right:6px;font-size:.85em;text-d
 .pl-sec{display:flex;align-items:center;gap:6px;justify-content:center;margin:12px 0 0}
 .pl-done{margin:0 0 12px}
 .msg.ok{background:#e3f1e8;color:#1e6b40}
+.pl-top h1{text-transform:none;letter-spacing:0}
