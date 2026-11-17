@@ -443,9 +443,10 @@ async function deliveryFor(agent: any, key: string) {
     return {
       head: { ...head, brokerage: co?.name || [agent.team_name, agent.brokerage].filter(Boolean).join(' - ') || agent.full_name },
       locked, bookingId: b?.id ?? null, total: b ? +b.total : null,
-      websites: b && b.websites_enabled !== false ? [
-        { label: 'Branded property website', url: gate(b.website_url), soon: !b.website_url },
-        { label: 'Unbranded property website', url: gate(b.website_unbranded_url), soon: !b.website_unbranded_url }] : [],
+      // the order's own property website (listing.knoxview.com); Spiro-era website links are never shown
+      websites: b && b.websites_enabled !== false ? (() => { const u = b.site_slug ? `https://listing.knoxview.com/${b.site_slug}` : null;
+        return [{ label: 'Branded property website', url: gate(u), soon: !u, preview: !!u },
+          { label: 'Unbranded property website (MLS)', url: gate(u && u + '/mls'), soon: !u }]; })() : [],
       tour: b?.tour_url ? { url: gate(b.tour_url) } : null, marketing: b?.marketing_url ? { url: gate(b.marketing_url) } : null,
       photos, folders, videos, floorplans,
       setup: { dropbox: dropboxConfigured(), vimeo: vimeoConfigured() },
@@ -639,7 +640,7 @@ async function handle(req: Request) {
         // (only true/false flags reach the client here; real file links come from the delivery page's signed links)
         if (b.photos_url || ((b.photo_files as any[]) ?? []).length || ((b.media_files as any[]) ?? []).some(f => (f?.kind || 'photo') === 'photo')) media.push({ name: 'Photos', media: 'photo', delivered: true, deliveredAt: null, dropbox: b.paid || b.require_payment === false ? 'delivery' : null, vimeo: null });
         for (const v of ((b.videos as any[]) ?? []).filter(v => v?.url)) media.push({ name: v.label || 'Video', media: 'video', delivered: true, deliveredAt: null, dropbox: null, vimeo: b.paid || b.require_payment === false ? 'delivery' : null });
-        const extras = !!(b.tour_url || b.floorplan_url || ((b.floorplan_files as any[]) ?? []).length || b.website_url);
+        const extras = !!(b.tour_url || b.floorplan_url || ((b.floorplan_files as any[]) ?? []).length || (b.site_slug && b.websites_enabled !== false));
         const out = { ...b, project_ids: undefined, photos_url: undefined, photo_files: undefined, floorplan_files: undefined, videos: undefined, tour_url: undefined, floorplan_url: undefined, website_url: undefined, media_files: undefined, media, hasDelivery: media.some((m: any) => m.delivered) || extras };
         return { ...out, require_payment: undefined, locked: out.hasDelivery && !b.paid && b.require_payment !== false };
       });

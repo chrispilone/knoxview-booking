@@ -1399,6 +1399,12 @@ function linkCard(title, url, icon, soon) {
       <button class="btn o" onclick="kv.dShare(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title))})">${ic(I.share, 16)} Share</button>
       <button class="btn o wide" onclick="kv.dQR(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title))})">${ic(I.qr, 16)} QR code</button></div></div>`;
 }
+// the property website preview is drawn at desktop width (1280×800) and scaled down to fit the card
+function fitSitePreview() {
+  document.querySelectorAll('.site-pv-frame').forEach(f => { const i = f.querySelector('iframe'); if (!i) return;
+    const k = f.clientWidth / 1280; i.style.transform = `scale(${k})`; f.style.height = Math.round(800 * k) + 'px'; });
+}
+window.addEventListener('resize', fitSitePreview);
 function vDelivery() {
   if (D.loading || !D.data) return D.error ? `${dlBack()}<div class="msg err">${esc(D.error)}</div>` : '<div class="panel loading"><span class="spin"></span> Getting your media…</div>';
   const d = D.data, tabs = dTabs(d), tab = (tabs.find(t => t[0] === D.tab) || tabs[0] || [])[0];
@@ -1412,6 +1418,9 @@ function vDelivery() {
       <button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay to download</button></div>`;
   const cards = d.websites.map(w => linkCard(w.label, w.url, null, w.soon)).join('');
   if (cards) out += `<section class="dl-cards">${cards}</section>`;
+  const pv = d.websites.find(w => w.preview && w.url); // live preview of the branded property website
+  if (pv) { out += `<section class="site-pv"><div class="site-pv-h"><b>Your property website</b><a href="${esc(pv.url)}" target="_blank" rel="noopener">Open ${ic(I.ext, 14)}</a></div>
+    <div class="site-pv-frame"><iframe title="Property website preview" loading="lazy" src="${esc(pv.url)}"></iframe></div></section>`; setTimeout(fitSitePreview, 0); }
   if (!tabs.length && !d.marketing) return out + `<div class="empty-st">${ic(I.photo, 56)}<p>Your media isn't delivered yet. We'll text and email you as soon as it is.</p></div>`;
   out += `<section class="dl-media"><nav class="dl-tabs">${tabs.map(([k, i, l]) => `<button class="${k === tab ? 'on' : ''}" onclick="kv.dTab('${k}')">${ic(i, 20)}<span>${l}</span></button>`).join('')}
     ${d.marketing ? (d.marketing.url ? `<a class="dl-tabx" href="${esc(d.marketing.url)}" target="_blank" rel="noopener">${ic(I.ext, 20)}<span>Marketing<span class="t-mid"> content</span></span></a>` : `<span class="dl-tabx off">${ic(I.lock, 18)}<span>Marketing<span class="t-mid"> content</span></span></span>`) : ''}</nav>`;

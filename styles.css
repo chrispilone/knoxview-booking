@@ -1103,3 +1103,8 @@ s.was{color:var(--slate);font-weight:400;margin-right:6px;font-size:.85em;text-d
   .se-link{flex-wrap:wrap}.se-lbtns{width:100%}.se-lbtns .btn{flex:1;justify-content:center}
   .se-fact{grid-template-columns:1fr 1fr;padding:10px;border:1px solid var(--line,#dfe3ea);border-radius:12px}.se-fact select{grid-column:1/-1}.se-fbtns{grid-column:1/-1;justify-content:flex-end}
 }
+
+/* property website preview on the download page */
+.site-pv{margin:14px 0 22px}.site-pv-h{display:flex;align-items:center;justify-content:space-between;margin:0 0 8px}.site-pv-h a{display:inline-flex;align-items:center;gap:4px;font-size:14px}
+.site-pv-frame{position:relative;overflow:hidden;border-radius:14px;border:1px solid var(--line,#dfe3ea);background:#14130f;height:300px}
+.site-pv-frame iframe{position:absolute;top:0;left:0;width:1280px;height:800px;border:0;transform-origin:0 0}
