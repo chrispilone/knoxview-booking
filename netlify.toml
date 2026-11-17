@@ -5,6 +5,13 @@
 [build.environment]
   SECRETS_SCAN_OMIT_PATHS = "app.js"
 
+# Download pages' own domain: its home page goes to the portal (the /d/<token> pages are served below like everywhere else)
+[[redirects]]
+  from = "https://downloadbeta.knoxview.com/"
+  to = "https://bookbeta.knoxview.com/"
+  status = 302
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

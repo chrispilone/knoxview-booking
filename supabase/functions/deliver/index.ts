@@ -19,6 +19,7 @@ const RESEND_KEY = env('RESEND_API_KEY');
 const MAIL_FROM = env('DELIVERY_MAIL_FROM') || 'Knox View <bookings@mail.knoxview.com>';
 const REPLY_TO = env('DELIVERY_REPLY_TO') || 'chris@knoxview.com';
 const PORTAL = (env('PORTAL_URL') || 'https://bookbeta.knoxview.com').replace(/\/$/, '');
+const DL_URL = (env('DOWNLOAD_URL') || PORTAL).replace(/\/$/, ''); // download pages' own domain (downloadbeta.knoxview.com) once it's set up
 const BCC = env('DELIVERY_BCC') || 'chris@knoxview.com';
 const QUO_KEY = env('QUO_API_KEY'), QUO_FROM = env('QUO_FROM_NUMBER') || '+18658555669';
 const G_ID = env('GOOGLE_CLIENT_ID'), G_SECRET = env('GOOGLE_CLIENT_SECRET');
@@ -31,7 +32,7 @@ const cors = (req: Request) => {
 };
 // The delivery page is its own page: anyone with this link (forwarded email, text) can view it. No sign-in needed;
 // downloads still unlock only after payment when the order requires it.
-const shareLink = (b: any) => b.public_token ? `${PORTAL}/d/${b.public_token}` : `${PORTAL}/#delivery/${b.id}`;
+const shareLink = (b: any) => b.public_token ? `${DL_URL}/d/${b.public_token}` : `${PORTAL}/#delivery/${b.id}`;
 const json = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors(req), 'Content-Type': 'application/json' } });
 class Bad extends Error { constructor(m: string, public status = 400) { super(m); } }
 const esc = (s: string) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));

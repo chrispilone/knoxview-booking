@@ -22,6 +22,7 @@ const RESEND_KEY = env('RESEND_API_KEY');
 const MAIL_FROM = env('DELIVERY_MAIL_FROM') || 'Knox View <bookings@mail.knoxview.com>';
 const REPLY_TO = env('DELIVERY_REPLY_TO') || 'chris@knoxview.com';
 const PORTAL = (env('PORTAL_URL') || 'https://bookbeta.knoxview.com').replace(/\/$/, '');
+const DL_URL = (env('DOWNLOAD_URL') || PORTAL).replace(/\/$/, ''); // download pages' own domain (downloadbeta.knoxview.com) once it's set up
 const G_ID = env('GOOGLE_CLIENT_ID'), G_SECRET = env('GOOGLE_CLIENT_SECRET');
 const BIZ = { name: 'Knox View Real Estate Media', legal: 'Knox View Media LLC', address: ['Knox View Media LLC', '3912 Papermill Square NW', 'Knoxville, TN 37909'], owner: 'Chris Pilone', phone: '865-855-5669', email: 'chris@knoxview.com', web: 'knoxview.com', city: 'Knoxville, Tennessee' };
 const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://bookbeta.knoxview.com', 'https://knoxview-booking.netlify.app', 'https://hq.knoxview.com', 'http://localhost:8888', 'http://localhost:5173'];
@@ -192,7 +193,7 @@ async function invoicePdf(b: any, client: any) {
   link(portalLink, M, ly - 3, M + w('View All Details', R, 10), ly + 10);
   const dx = M + w('View All Details', R, 10) + 18;
   text('Download Media', dx, ly, { c: ACC }); page.drawLine({ start: { x: dx, y: ly - 2 }, end: { x: dx + w('Download Media', R, 10), y: ly - 2 }, thickness: 0.6, color: ACC });
-  link(b.public_token ? `${PORTAL}/d/${b.public_token}` : `${PORTAL}/#delivery/${b.id}`, dx, ly - 3, dx + w('Download Media', R, 10), ly + 10);
+  link(b.public_token ? `${DL_URL}/d/${b.public_token}` : `${PORTAL}/#delivery/${b.id}`, dx, ly - 3, dx + w('Download Media', R, 10), ly + 10);
   y = ly - 10;
   // table: Description | Cost Breakdown | Order Total (order total cell spans the rows)
   const c1 = M, c2 = M + 300, c3 = M + 400, c4 = RX, head = 30;

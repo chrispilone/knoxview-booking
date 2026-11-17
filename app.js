@@ -1390,9 +1390,13 @@ async function loadDelivery(key) {
 // This download page's own link (/d/<token>): works for anyone it's sent to, no sign-in. HQ-only deliveries have none.
 // The link preview image (iMessage etc.) is rendered on first request; ask for it early so it's ready when the link is pasted
 const dlWarmPreview = () => { const t = SHARE || D.data?.shareToken; if (!t || D.warmed === t) return; D.warmed = t; fetch(`${CFG.supabaseUrl}/functions/v1/media?og=${t}`, { method: 'HEAD', mode: 'no-cors' }).catch(() => {}); };
-const dlShareUrl = () => { const t = SHARE || D.data?.shareToken; return t ? `${location.origin}/d/${t}` : null; };
+// The portal's home and the download pages' own domain (config.js). On the download domain, everything but /d/ pages goes to the portal.
+const PORTAL_ORIGIN = (CFG.portalUrl || location.origin).replace(/\/$/, ''), DL_ORIGIN = (CFG.downloadUrl || PORTAL_ORIGIN).replace(/\/$/, '');
+const onPortal = () => location.origin === PORTAL_ORIGIN || /netlify\.app$|localhost|127\.0\.0\.1|\.test$/.test(location.hostname);
+if (!SHARE && !onPortal() && !/^\/pay\//.test(location.pathname)) location.replace(PORTAL_ORIGIN + location.pathname + location.search + location.hash); // download domain: only download pages live here
+const dlShareUrl = () => { const t = SHARE || D.data?.shareToken; return t ? `${DL_ORIGIN}/d/${t}` : null; };
 // "‹ Listings" only for the client who owns this order (a forwarded share link has no listings to go back to)
-const dlBack = () => !SHARE ? '<a class="dl-back" href="#listings">‹ Listings</a>' : D.data?.mine ? '<a class="dl-back" href="/#listings">‹ Listings</a>' : '';
+const dlBack = () => !SHARE ? '<a class="dl-back" href="#listings">‹ Listings</a>' : D.data?.mine ? `<a class="dl-back" href="${onPortal() ? '' : PORTAL_ORIGIN}/#listings">‹ Listings</a>` : '';
 const dTabs = d => [
   (d.photos.length || d.folders.length) && ['photos', I.photo, 'Photos'],
   d.videos.length && ['video', I.film, d.videos.length > 1 ? 'Videos' : 'Video'],
@@ -2044,7 +2048,7 @@ function route() {
   // Share link page (/d/<token>): always the delivery page. Other links clicked from it (Book now, Sign in…) go to the portal.
   if (SHARE) {
     const t = location.hash.replace('#', '');
-    if (t && !DL_TABS.includes(t)) { location.href = '/#' + t; return; }
+    if (t && !DL_TABS.includes(t)) { location.href = (onPortal() ? '' : PORTAL_ORIGIN) + '/#' + t; return; }
     UI.menu = false; S.view = 'delivery'; if (t) D.tab = t;
     if (D.key !== SHARE || (!D.data && !D.loading)) loadDelivery(SHARE); else render();
     return;
