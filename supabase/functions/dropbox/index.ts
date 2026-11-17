@@ -320,16 +320,48 @@ async function spiro(path: string, tries = 3): Promise<any> {
   }
 }
 // every page of a list endpoint
-async function spiroAll(path: string, max = 2000) {
+async function spiroAll(path: string, max = 5000) {
   const out: any[] = [];
   for (let page = 1; out.length < max; page++) {
     const j = await spiro(`${path}${path.includes('?') ? '&' : '?'}page=${page}&pageSize=100`);
-    const rows = j?.data ?? [];
-    out.push(...rows);
-    const m = j?.meta?.pagination ?? j?.meta ?? {};
-    if (rows.length < 100 || (m.totalPages && page >= m.totalPages)) break;
+    out.push(...(j?.data ?? []));
+    if (!j?.meta?.hasNextPage) break;
   }
   return out;
+}
+// Spiro's order list only covers the last 30 days unless a start date is given
+const SPIRO_SINCE = 'filter[dateSubmitted][gte]=2015-01-01';
+// Everything spiroImport needs for one Spiro order, read from the Spiro API
+async function spiroPayload(orderId: string) {
+  const o = (await spiro(`/orders/${orderId}`))?.data;
+  if (!o) throw new Bad('That order is not in Spiro.', 404);
+  const base = `/orders/${orderId}`;
+  const services = (await spiro(base + '/services'))?.data ?? [];
+  const appts = ((await spiro(base + '/appointments'))?.data ?? []).filter((a: any) => !a.events?.cancelledAt && a.status !== 'Cancelled');
+  const invoices = (await spiro(base + '/invoices'))?.data ?? [];
+  const photos = (await spiroAll(base + '/media/photos')).sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  const videos = (await spiro(base + '/media/videos'))?.data ?? [];
+  const plans = (await spiro(base + '/media/floor-plans'))?.data ?? [];
+  const tours = (await spiro(base + '/media/virtual-tours'))?.data ?? [];
+  const a = o.agent ?? {};
+  let agentPhoto: string | null = null, company: any = null;
+  const { data: known } = await admin.from('agents').select('photo_url').eq('spiro_agent_id', a.agentId).maybeSingle();
+  if (!known?.photo_url) agentPhoto = (await spiro(`/agents/${a.agentId}`))?.data?.media?.profilePictureUrl || null;
+  if (a.companyId) {
+    const { data: co } = await admin.from('companies').select('id').eq('spiro_company_id', a.companyId).maybeSingle();
+    if (!co) { const c = (await spiro(`/companies/${a.companyId}`))?.data; company = { adminEmail: c?.contact?.emailAddress || c?.adminEmail || null, adminPhone: c?.contact?.phoneNumber || c?.adminPhone || null }; }
+  }
+  const first = appts.sort((x: any, y: any) => String(x.events?.arrivalWindowStart).localeCompare(String(y.events?.arrivalWindowStart)))[0];
+  const delivered = !!o.website?.deliveredAt;
+  return {
+    order: o, company, agentPhoto, invoices, services,
+    status: o.lifecycle?.isCancelled ? 'cancelled' : delivered ? 'delivered' : 'confirmed',
+    appointment: first ? { start: first.events?.arrivalWindowStart || null, photographer: first.photographer?.name || null } : null,
+    photos: photos.filter((x: any) => x.displayPageActive !== false).map((x: any) => x.name),
+    videos: videos.filter((v: any) => v.displayPageActive !== false),
+    floorplans: plans.filter((f: any) => f.downloadUrl).map((f: any) => ({ url: f.downloadUrl, name: f.name })),
+    tours: tours.map((t: any) => t.url || t.brandedUrl || t.tourUrl || t.unbrandedUrl).filter(Boolean),
+  };
 }
 
 // ---- CubiCasa ----
@@ -421,6 +453,28 @@ Deno.serve(async (req) => {
     if (body.action === 'spiro_import') {
       if (!body.payload?.order?.identity?.orderId) throw new Bad('Spiro order data is missing.');
       return json(req, await spiroImport(set, body.payload));
+    }
+    // Import / resync one delivered Spiro order (by Spiro order id, or the HQ order it was imported into)
+    if (body.action === 'spiro_pull') {
+      let id = String(body.orderId || '');
+      if (!id && body.bookingId) { const { data: b } = await admin.from('bookings').select('spiro_order_id').eq('id', body.bookingId).maybeSingle(); id = b?.spiro_order_id || ''; }
+      if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Bad('This order did not come from Spiro.');
+      const p = await spiroPayload(id);
+      if (p.status !== 'delivered') throw new Bad('Only delivered Spiro orders are imported (this one is not delivered yet).', 409);
+      return json(req, await spiroImport(set, p));
+    }
+    // Every delivered Spiro order, with the HQ order it was imported into (if any)
+    if (body.action === 'spiro_delivered') {
+      const rows = await spiroAll(`/orders?filter[status][eq]=delivered&${SPIRO_SINCE}`);
+      const ids = rows.map((r: any) => r.orderId);
+      const have = new Map<string, any>();
+      for (let i = 0; i < ids.length; i += 500) {
+        const { data } = await admin.from('bookings').select('id, number, spiro_order_id, imported_at').in('spiro_order_id', ids.slice(i, i + 500));
+        (data ?? []).forEach(b => have.set(b.spiro_order_id, b));
+      }
+      return json(req, { orders: rows.map((r: any) => ({ orderId: r.orderId, code: r.trackingCode, date: r.dateSubmitted, address: r.property?.address?.fullAddress || r.mediaTitle,
+        agentId: r.client?.agentId, agent: r.client?.agentName, company: r.client?.companyName, total: r.totalSalePrice,
+        hq: have.get(r.orderId) ? { id: have.get(r.orderId).id, number: have.get(r.orderId).number, imported_at: have.get(r.orderId).imported_at } : null })) });
     }
     if (body.action === 'spiro_raw') { // super-admin debugging: one GET against the Spiro API
       const p = String(body.path || '');
