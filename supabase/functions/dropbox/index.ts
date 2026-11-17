@@ -8,8 +8,9 @@ import { sign, dbxApi, dropboxFolderImages, dropboxConfigured, dropboxToken, for
 //   connect { code, redirect }     -> saves the connection (refresh token in app_secrets, never sent to a browser)
 //   disconnect
 //   create_folders { bookingId }   -> makes <root>/<folder name>/<subfolders> and saves bookings.dropbox_path
-//   sync { bookingId }             -> reads <dropbox_path>/<final photos>, keeps the order already set, adds new photos at the end
-//   gallery { bookingId }          -> the synced photos with preview thumbnails (links expire)
+//   sync { bookingId }             -> reads <dropbox_path>/<final photos>, keeps the order already set, adds new photos at the end;
+//                                     also reads <dropbox_path>/<final floor plans> (images + PDFs) into bookings.floorplan_files
+//   gallery { bookingId }          -> the synced photos and floor plans with preview thumbnails (links expire)
 //   preview_path { bookingId }     -> the folder path this order gets (nothing is created)
 // Folder name fill-ins: {year} {quarter} {photographer} {date_dots} {day_seq} {address_slug} {client_lower} + more (see HQ settings).
 // Needs secrets DROPBOX_APP_KEY + DROPBOX_APP_SECRET (from the Dropbox app). The lib.ts here is a copy of booking/lib.ts.
@@ -58,6 +59,25 @@ async function folderPath(set: any, b: any, agent: any) {
 }
 async function gallery(b: any) {
   return Promise.all(((b.photo_files as any[]) ?? []).map(async f => ({ ...f, thumb: await sign({ src: 'dbxp', path: f.path, v: 'thumb', name: f.name }, 6) })));
+}
+// Floor plans synced from <dropbox_path>/<final floor plans folder>: images get a preview thumbnail, PDFs don't.
+const PLAN_RE = /\.(jpe?g|png|webp|pdf)$/i;
+async function planGallery(b: any) {
+  return Promise.all(((b.floorplan_files as any[]) ?? []).map(async f => ({ ...f, thumb: /\.pdf$/i.test(f.name) ? null : await sign({ src: 'dbxp', path: f.path, v: 'thumb', name: f.name }, 6) })));
+}
+// Files in a Dropbox folder (top level) whose names match `re`, sorted by name. null = the folder doesn't exist.
+async function folderFiles(path: string, re: RegExp): Promise<{ name: string; path: string; size: number }[] | null> {
+  let r = await dbxApi('files/list_folder', { path, limit: 2000 });
+  if (r.status === 409) return null;
+  const out: { name: string; path: string; size: number }[] = [];
+  for (let guard = 0; guard < 10; guard++) {
+    if (!r.ok) throw new Error('Dropbox list failed: ' + r.status + ' ' + (await r.text()).slice(0, 200));
+    const j = await r.json();
+    for (const e of j.entries) if (e['.tag'] === 'file' && re.test(e.name)) out.push({ name: e.name, path: e.path_display, size: e.size });
+    if (!j.has_more) break;
+    r = await dbxApi('files/list_folder/continue', { cursor: j.cursor });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
 }
 
 Deno.serve(async (req) => {
@@ -126,11 +146,15 @@ Deno.serve(async (req) => {
       const kept = prev.filter(n => byName.has(n)).map(n => byName.get(n)!);
       const added = files.filter(f => !prev.includes(f.name));
       const photo_files = [...kept, ...added];
+      // floor plans: everything in the final floor plans folder (images + PDFs); a missing folder just means none yet
+      const planDir = set.dropbox_final_floorplans ? `${b.dropbox_path}/${clean(set.dropbox_final_floorplans)}` : null;
+      const floorplan_files = planDir ? (await folderFiles(planDir, PLAN_RE)) ?? [] : ((b.floorplan_files as any[]) ?? []);
       const now = new Date().toISOString();
-      await admin.from('bookings').update({ photo_files, photos_synced_at: now, updated_at: now }).eq('id', b.id);
-      return json(req, { ok: true, folder: dir, added: added.length, removed: prev.length - kept.length, photos: await gallery({ photo_files }), synced_at: now });
+      await admin.from('bookings').update({ photo_files, floorplan_files, photos_synced_at: now, updated_at: now }).eq('id', b.id);
+      return json(req, { ok: true, folder: dir, added: added.length, removed: prev.length - kept.length, photos: await gallery({ photo_files }),
+        planFolder: planDir, floorplans: await planGallery({ floorplan_files }), synced_at: now });
     }
-    if (body.action === 'gallery') return json(req, { photos: await gallery(b), synced_at: b.photos_synced_at, path: b.dropbox_path });
+    if (body.action === 'gallery') return json(req, { photos: await gallery(b), floorplans: await planGallery(b), synced_at: b.photos_synced_at, path: b.dropbox_path });
     throw new Bad('Unknown action');
   } catch (e) {
     const status = e instanceof Bad ? e.status : 500;

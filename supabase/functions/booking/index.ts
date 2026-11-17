@@ -431,6 +431,14 @@ async function deliveryFor(agent: any, key: string) {
         view: f.kind === 'image' ? await sign({ src: 'dbx', link, path: f.path, v: 'preview', name: f.name, ...wm }) : null,
         web: null, high: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'high', name: f.name, dl: 1 }) });
     } else if (b?.floorplan_url) floorplans.push({ name: 'Floor plan', open: locked ? null : b.floorplan_url });
+    // floor plans synced from the order's Dropbox final floor plans folder
+    for (const f of ((b?.floorplan_files as any[]) ?? []).filter(f => f?.path)) {
+      const wm = locked ? { wm: 1 as const } : {}, img = !/\.pdf$/i.test(f.name);
+      floorplans.push({ name: f.name,
+        thumb: img ? await sign({ src: 'dbxp', path: f.path, v: 'thumb', name: f.name, ...wm }) : null,
+        view: img ? await sign({ src: 'dbxp', path: f.path, v: 'preview', name: f.name, ...wm }) : null,
+        web: null, high: locked ? null : await sign({ src: 'dbxp', path: f.path, v: 'high', name: f.name, dl: 1 }) });
+    }
     const gate = (u: string | null) => locked ? null : u || null;
     return {
       head: { ...head, brokerage: co?.name || [agent.team_name, agent.brokerage].filter(Boolean).join(' - ') || agent.full_name },
@@ -612,7 +620,7 @@ async function handle(req: Request) {
     if (action === 'portal') {
       const { data: agent } = await admin.from('agents').select('id, full_name, email, phone, brokerage').eq('auth_user_id', user.id).maybeSingle();
       if (!agent) return json(req, { agent: null, bookings: [], listings: [] });
-      const { data: bks } = await admin.from('bookings').select('id, number, order_no, status, address, unit, city, state, zip, media_title, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, photo_files, videos, tour_url, floorplan_url, website_url, media_files, require_payment, invoice')
+      const { data: bks } = await admin.from('bookings').select('id, number, order_no, status, address, unit, city, state, zip, media_title, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, photo_files, floorplan_files, videos, tour_url, floorplan_url, website_url, media_files, require_payment, invoice')
         .eq('agent_id', agent.id).neq('status', 'cancelled').order('shoot_start', { ascending: false }).limit(200);
       // deliveries made outside the portal (HQ / Spiro era) for this client, not tied to a portal booking
       const { data: own } = await admin.from('projects').select('id, name, address, city, media, status, dropbox_url, vimeo_url, delivered_at, created_at, parent_project_id')
@@ -631,8 +639,8 @@ async function handle(req: Request) {
         // (only true/false flags reach the client here; real file links come from the delivery page's signed links)
         if (b.photos_url || ((b.photo_files as any[]) ?? []).length || ((b.media_files as any[]) ?? []).some(f => (f?.kind || 'photo') === 'photo')) media.push({ name: 'Photos', media: 'photo', delivered: true, deliveredAt: null, dropbox: b.paid || b.require_payment === false ? 'delivery' : null, vimeo: null });
         for (const v of ((b.videos as any[]) ?? []).filter(v => v?.url)) media.push({ name: v.label || 'Video', media: 'video', delivered: true, deliveredAt: null, dropbox: null, vimeo: b.paid || b.require_payment === false ? 'delivery' : null });
-        const extras = !!(b.tour_url || b.floorplan_url || b.website_url);
-        const out = { ...b, project_ids: undefined, photos_url: undefined, photo_files: undefined, videos: undefined, tour_url: undefined, floorplan_url: undefined, website_url: undefined, media_files: undefined, media, hasDelivery: media.some((m: any) => m.delivered) || extras };
+        const extras = !!(b.tour_url || b.floorplan_url || ((b.floorplan_files as any[]) ?? []).length || b.website_url);
+        const out = { ...b, project_ids: undefined, photos_url: undefined, photo_files: undefined, floorplan_files: undefined, videos: undefined, tour_url: undefined, floorplan_url: undefined, website_url: undefined, media_files: undefined, media, hasDelivery: media.some((m: any) => m.delivered) || extras };
         return { ...out, require_payment: undefined, locked: out.hasDelivery && !b.paid && b.require_payment !== false };
       });
       // group outside deliveries by address into one listing each
