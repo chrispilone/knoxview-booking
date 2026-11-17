@@ -445,8 +445,8 @@ async function deliveryFor(agent: any, key: string) {
       locked, bookingId: b?.id ?? null, total: b ? +b.total : null,
       // the order's own property website (listing.knoxview.com); Spiro-era website links are never shown
       websites: b && b.websites_enabled !== false ? (() => { const u = b.site_slug ? `https://listing.knoxview.com/${b.site_slug}` : null;
-        return [{ label: 'Branded property website', url: gate(u), soon: !u, preview: !!u },
-          { label: 'Unbranded property website (MLS)', url: gate(u && u + '/mls'), soon: !u }]; })() : [],
+        return [{ label: 'Branded Property Website', url: gate(u), soon: !u, preview: !!u },
+          { label: 'Unbranded Property Website (MLS)', url: gate(u && u + '/mls'), soon: !u }]; })() : [],
       tour: b?.tour_url ? { url: gate(b.tour_url) } : null, marketing: b?.marketing_url ? { url: gate(b.marketing_url) } : null,
       photos, folders, videos, floorplans,
       setup: { dropbox: dropboxConfigured(), vimeo: vimeoConfigured() },

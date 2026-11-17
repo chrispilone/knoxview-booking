@@ -1388,9 +1388,9 @@ const dlBack = () => !SHARE ? '<a class="dl-back" href="#listings">‹ Listings<
 const dTabs = d => [
   (d.photos.length || d.folders.length) && ['photos', I.photo, 'Photos'],
   d.videos.length && ['video', I.film, d.videos.length > 1 ? 'Videos' : 'Video'],
-  d.tour && ['tour', I.cube, '3D tour'],
-  d.floorplans.length && ['floorplan', I.plan, d.floorplans.length > 1 ? 'Floor plans' : 'Floor plan'],
-  d.websites.length && ['website', I.globe2, 'Property website'],
+  d.tour && ['tour', I.cube, '3D Tour'],
+  d.floorplans.length && ['floorplan', I.plan, d.floorplans.length > 1 ? 'Floor Plans' : 'Floor Plan'],
+  d.websites.length && ['website', I.globe2, 'Property Website'],
 ].filter(Boolean);
 
 function linkCard(title, url, icon, soon) {
@@ -1401,7 +1401,7 @@ function linkCard(title, url, icon, soon) {
     <div class="dl-btns"><a class="btn o" href="${esc(url)}" target="_blank" rel="noopener">${ic(I.eye, 16)} View</a>
       <button class="btn o" onclick="kv.dCopy(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title + ' link'))})">${ic(I.copy, 16)} Copy</button>
       <button class="btn o" onclick="kv.dShare(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title))})">${ic(I.share, 16)} Share</button>
-      <button class="btn o wide" onclick="kv.dQR(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title))})">${ic(I.qr, 16)} QR code</button></div></div>`;
+      <button class="btn o wide" onclick="kv.dQR(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title))})">${ic(I.qr, 16)} QR Code</button></div></div>`;
 }
 // the property website preview is drawn at desktop width (1280×800) and scaled down to fit the card
 function fitSitePreview() {
@@ -1416,7 +1416,7 @@ function dWebsite(d) {
   const pv = ws.find(w => w.preview && w.url);
   if (pv) setTimeout(fitSitePreview, 0);
   return `<section class="dl-cards site-cards">${ws.map(w => linkCard(w.label, w.url, null, w.soon)).join('')}</section>
-    ${pv ? `<section class="site-pv"><div class="site-pv-h"><b>Preview: branded website</b><a href="${esc(pv.url)}" target="_blank" rel="noopener">Open ${ic(I.ext, 14)}</a></div>
+    ${pv ? `<section class="site-pv"><div class="site-pv-h"><b>Preview: Branded Website</b><a href="${esc(pv.url)}" target="_blank" rel="noopener">Open ${ic(I.ext, 14)}</a></div>
       <div class="site-pv-frame"><iframe title="Property website preview" loading="lazy" src="${esc(pv.url)}"></iframe></div></section>` : ''}`;
 }
 function vDelivery() {
@@ -1437,9 +1437,9 @@ function vDelivery() {
       ${place ? `<p class="dlx-place">${esc(place)}</p>` : ''}
       <p class="dlx-meta">${[when && esc(when), h.number && `Order ${esc(ono(h))}`].filter(Boolean).join('<i>·</i>')}</p>
       <div class="dlx-acts">
-        ${d.locked && delivered ? `<button class="dlx-btn solid" onclick="kv.payBooking('${d.bookingId}')">${ic(I.lock, 16)} Pay to download</button>` : ''}
-        ${site ? `<a class="dlx-btn ${d.locked && delivered ? '' : 'solid'}" href="${esc(site.url)}" target="_blank" rel="noopener">${ic(I.globe2, 17)} View property website</a>` : ''}
-        ${!d.locked && d.folders.find(f => f.zip) && !isPhone() ? `<a class="dlx-btn" href="${esc(d.folders.find(f => f.zip).zip)}">${ic(I.dl, 16)} Download all photos</a>` : ''}
+        ${d.locked && delivered ? `<button class="dlx-btn solid" onclick="kv.payBooking('${d.bookingId}')">${ic(I.lock, 16)} Pay to Download</button>` : ''}
+        ${site ? `<a class="dlx-btn ${d.locked && delivered ? '' : 'solid'}" href="${esc(site.url)}" target="_blank" rel="noopener">${ic(I.globe2, 17)} View Property Website</a>` : ''}
+        ${!d.locked && d.folders.find(f => f.zip) && !isPhone() ? `<a class="dlx-btn" href="${esc(d.folders.find(f => f.zip).zip)}">${ic(I.dl, 16)} Download All Photos</a>` : ''}
       </div>
       ${d.locked && delivered ? `<p class="dlx-note">Your media is ready. Preview everything below, then pay to unlock full-quality downloads.</p>` : ''}
     </div>
@@ -1469,6 +1469,7 @@ function dlxWire() {
   if (D.tab && !D.jumped) { D.jumped = true; const el = document.getElementById('dl-' + D.tab); if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth' }), 120); }
   fitSitePreview();
 }
+const cap1 = t => String(t).replace(/\b\w/g, c => c.toUpperCase()); // "floor plans" -> "Floor Plans" (buttons and headings)
 const SET_LABEL = { photos: ['photo', 'photos'], floorplans: ['floor plan', 'floor plans'] };
 const curSet = () => D.data[D.cur] || [];
 const isDoc = p => /\.pdf$/i.test(p?.name || ''); // PDF floor plans: file tile, tap to download
@@ -1477,19 +1478,19 @@ function dGrid(d, key) {
   const list = d[key], n = sel.size, all = list.length, [one, many] = SET_LABEL[key];
   // long galleries show the first rows, then "Show all" (keeps the page short and quick; Select all still means all)
   const cap = isPhone() ? 12 : 16, open = (D.open ||= {})[key] || all <= cap + 4, shown = open ? list : list.slice(0, cap);
-  const more = open ? '' : `<button class="dlx-more" onclick="kv.dMore('${key}')">Show all ${all} ${many} ${ic('<path d="M6 9l6 6 6-6"/>', 16)}</button>`;
+  const more = open ? '' : `<button class="dlx-more" onclick="kv.dMore('${key}')">Show All ${all} ${cap1(many)} ${ic('<path d="M6 9l6 6 6-6"/>', 16)}</button>`;
   const zip = key === 'photos' ? d.folders.find(f => f.zip)?.zip : null;
   const tile = (p, i, inner) => p.thumb && !isDoc(p) ? `<img src="${esc(p.thumb)}" alt="" loading="lazy" draggable="false" ${d.locked ? 'oncontextmenu="return false"' : ''}>` : `<span class="dl-file">${ic(I.plan, 34)}<small>${esc((p.name.split('.').pop() || '').toUpperCase())}</small></span>`;
   if (!all) return `<p class="hint" style="margin:14px 2px">${d.locked ? `Your ${many} unlock after payment.` : `Your ${many} are being prepared. Check back shortly.`}</p>
-    ${zip ? `<a class="btn" href="${esc(zip)}">${ic(I.dl, 16)} Download all ${many} (zip)</a>` : ''}`;
+    ${zip ? `<a class="btn" href="${esc(zip)}">${ic(I.dl, 16)} Download All ${cap1(many)} (Zip)</a>` : ''}`;
   if (d.locked) return `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> ${all === 1 ? `Your ${one} downloads` : `All ${all} ${many} download`} in full resolution, without the watermark, after payment.</span>
 </div>
     <div class="dl-grid preview ${key}">${shown.map((p, i) => `<figure class="dl-ph"><button class="dl-img" onclick="${K}kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
       <figcaption><span>${esc(p.label || p.name)}</span></figcaption></figure>`).join('')}</div>${more}`;
   const bar = `<div class="dl-bar">
-      ${all > 1 ? `<button class="btn o" onclick="${K}kv.dSelAll()">${n === all ? 'Clear selection' : 'Select all'}</button>
+      ${all > 1 ? `<button class="btn o" onclick="${K}kv.dSelAll()">${n === all ? 'Clear Selection' : 'Select All'}</button>
       <button class="btn" ${n ? '' : 'disabled'} onclick="${K}kv.dPick()">${ic(I.dl, 16)} ${isPhone() && key === 'photos' ? `${ROLL}${n ? ` (${n})` : ''}` : `Download${n ? ` ${n}` : ''}`}</button>` : ''}
-      ${zip && !isPhone() ? `<a class="btn o" href="${esc(zip)}">${ic(I.dl, 16)} Download all (zip)</a>` : `<button class="btn ${all > 1 ? 'o' : ''}" onclick="${K}kv.dAll()">${ic(I.dl, 16)} Download${all > 1 ? ` all ${all}` : ''}</button>`}</div>
+      ${zip && !isPhone() ? `<a class="btn o" href="${esc(zip)}">${ic(I.dl, 16)} Download All (Zip)</a>` : `<button class="btn ${all > 1 ? 'o' : ''}" onclick="${K}kv.dAll()">${ic(I.dl, 16)} Download${all > 1 ? ` All ${all}` : ''}</button>`}</div>
       <p class="hint dl-tip">Tap ${all > 1 ? `a ${one}` : `the ${one}`} to see it full size.${all > 1 ? ' Tap the box in the corner to select it.' : ''}${isPhone() ? ' After Download, choose <b>Save Images</b> to put it in Photos.' : ''}</p>`;
   return bar + `<div class="dl-grid ${key}">${shown.map((p, i) => `<figure class="dl-ph ${sel.has(i) ? 'sel' : ''}">
       <div class="dl-img"><button class="dl-open" onclick="${K}kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
@@ -1535,26 +1536,26 @@ function dVideos(d) {
       : v.poster ? `<img src="${esc(v.poster)}" alt="">` : `<div class="dl-ph-empty">${ic(d.locked ? I.lock : I.film, 40)}${v.pending ? '<p>Your video is being prepared.</p>' : ''}</div>`}</div>
     ${d.locked ? `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> Download and sharing unlock after payment.</span></div>` : `
     <div class="dl-vbtns">
-      ${v.download ? `<button class="btn" onclick="kv.dVideo(${i})">${ic(I.dl, 16)} ${isPhone() ? ROLL : 'Download'}</button>` : v.open ? `<a class="btn" href="${esc(v.open)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open video</a>` : ''}
+      ${v.download ? `<button class="btn" onclick="kv.dVideo(${i})">${ic(I.dl, 16)} ${isPhone() ? ROLL : 'Download'}</button>` : v.open ? `<a class="btn" href="${esc(v.open)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open Video</a>` : ''}
       ${v.share && !d.locked ? `<button class="btn o" onclick="kv.dShare(${esc(JSON.stringify(v.share))}, ${esc(JSON.stringify(v.title))})">${ic(I.share, 16)} Share</button>` : ''}
       ${v.embed && !d.locked ? `<button class="btn o" onclick="kv.dEmbed(${i})">${ic(I.code, 16)} Embed</button>` : ''}
-      ${v.share && !d.locked ? `<button class="btn o" onclick="kv.dCopy(${esc(JSON.stringify(v.share))}, 'Video link')">${ic(I.copy, 16)} Copy video link</button>` : ''}
+      ${v.share && !d.locked ? `<button class="btn o" onclick="kv.dCopy(${esc(JSON.stringify(v.share))}, 'Video link')">${ic(I.copy, 16)} Copy Video Link</button>` : ''}
     </div>`}${v.download && isPhone() ? `<p class="hint dl-tip">Tap <b>${ROLL}</b> to add it to the Photos app on this phone.</p>` : ''}</article>`).join('');
 }
 function dPlans(d) {
   const files = d.floorplans.filter(f => !f.open), links = d.floorplans.filter(f => f.open);
   return (files.length ? dGrid({ ...d, floorplans: files }, 'floorplans') : '') +
-    links.map(f => `<a class="btn o" style="margin-top:12px" href="${esc(f.open)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open floor plan</a>`).join('');
+    links.map(f => `<a class="btn o" style="margin-top:12px" href="${esc(f.open)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open Floor Plan</a>`).join('');
 }
 function dTour(d) {
   const u = d.tour.url;
   if (!u) return `<p class="hint" style="margin:14px 2px">${ic(I.lock, 14)} Your 3D tour unlocks after payment.</p>`;
   const embed = /matterport|zillow|cupix|iguide|my\.matterport/i.test(u);
   return `<div class="dl-player">${embed ? `<iframe src="${esc(u)}" allow="fullscreen; xr-spatial-tracking" allowfullscreen loading="lazy" title="3D tour"></iframe>` : `<div class="dl-ph-empty">${ic(I.cube, 44)}</div>`}</div>
-    <div class="dl-vbtns"><a class="btn" href="${esc(u)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open 3D tour</a>
+    <div class="dl-vbtns"><a class="btn" href="${esc(u)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open 3D Tour</a>
       <button class="btn o" onclick="kv.dShare(${esc(JSON.stringify(u))}, '3D tour')">${ic(I.share, 16)} Share</button>
       <button class="btn o" onclick="kv.dCopy(${esc(JSON.stringify(`<iframe src="${u}" width="100%" height="480" frameborder="0" allow="fullscreen; xr-spatial-tracking" allowfullscreen></iframe>`))}, 'Embed code')">${ic(I.code, 16)} Embed</button>
-      <button class="btn o" onclick="kv.dCopy(${esc(JSON.stringify(u))}, 'Tour link')">${ic(I.copy, 16)} Copy link</button></div>`;
+      <button class="btn o" onclick="kv.dCopy(${esc(JSON.stringify(u))}, 'Tour link')">${ic(I.copy, 16)} Copy Link</button></div>`;
 }
 
 /* ----- saving files (phones: share sheet → camera roll / Photos; computers: normal downloads) ----- */
@@ -1614,8 +1615,8 @@ Object.assign(window.kv, {
     const n = D.sel.size, [one, many] = SET_LABEL[D.cur], roll = isPhone() && D.cur === 'photos';
     dModal(`<h2 style="font-size:22px;margin-bottom:12px">${roll ? `Save ${n} ${n === 1 ? one : many} to your Camera Roll?` : `Download ${n} ${n === 1 ? one : many}`}</h2>
       ${roll ? `<p class="hint" style="margin:-4px 0 12px">${n === 1 ? 'It saves' : 'They save'} straight to the Photos app on this phone.</p>` : ''}
-      ${curSet().some(p => p.web) ? `<label class="radio sel"><input type="radio" name="dq" value="web" checked> <span><b>Web quality</b> <span class="dq-rec">Recommended</span> <span class="hint">(MLS, online &amp; social media)</span><br><small class="hint">Smaller files, ready to upload</small></span></label>` : ''}
-      <label class="radio ${curSet().some(p => p.web) ? '' : 'sel'}"><input type="radio" name="dq" value="high" ${curSet().some(p => p.web) ? '' : 'checked'}> <span><b>Full resolution</b> <span class="hint">(print &amp; large displays)</span><br><small class="hint">Original size, the largest files</small></span></label>
+      ${curSet().some(p => p.web) ? `<label class="radio sel"><input type="radio" name="dq" value="web" checked> <span><b>Web Quality</b> <span class="dq-rec">Recommended</span> <span class="hint">(MLS, online &amp; social media)</span><br><small class="hint">Smaller files, ready to upload</small></span></label>` : ''}
+      <label class="radio ${curSet().some(p => p.web) ? '' : 'sel'}"><input type="radio" name="dq" value="high" ${curSet().some(p => p.web) ? '' : 'checked'}> <span><b>Full Resolution</b> <span class="hint">(print &amp; large displays)</span><br><small class="hint">Original size, the largest files</small></span></label>
       <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" onclick="kv.dSave([...kv._sel()], document.querySelector('[name=dq]:checked').value)">${ic(I.dl, 16)} ${roll ? ROLL : 'Download'}</button></div>`);
     document.querySelectorAll('[name=dq]').forEach(r => r.onchange = () => document.querySelectorAll('.dl-modal .radio').forEach(l => l.classList.toggle('sel', l.querySelector('input').checked)));
   },
