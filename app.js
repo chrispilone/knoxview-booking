@@ -1423,7 +1423,8 @@ function vDelivery() {
   const when = d.head.date ? fmtDate(d.head.date) : '';
   let out = `${dlBack()}
     <header class="dl-head"><h1>${esc(d.head.title || d.head.address)}</h1><p>${esc([d.head.title ? d.head.address : '', d.head.line2, d.head.brokerage].filter(Boolean).join(' · '))}</p>
-      <p class="hint">${when ? esc(when) : ''}${d.head.number ? ` · Order ${esc(ono(d.head))}` : ''}</p></header>`;
+      <p class="hint">${when ? esc(when) : ''}${d.head.number ? ` · Order ${esc(ono(d.head))}` : ''}</p>
+      ${(() => { const w = d.websites.find(w => w.preview && w.url); return w ? `<a class="dl-sitelink" href="${esc(w.url)}" target="_blank" rel="noopener">${ic(I.globe2, 16)} View property website ${ic(I.ext, 13)}</a>` : ''; })()}</header>`;
   // "Ready" only once something has actually been delivered (photos, video, floor plans, tour, a website or marketing)
   const delivered = tabs.length > 0 || d.websites.some(w => !w.soon) || !!d.marketing;
   if (d.locked && delivered) out += `<div class="dl-lock ready">${ic('<path d="M20 6L9 17l-5-5"/>', 22)}<div><b>Your media is ready!</b> Preview it below, then pay to unlock and download all your media.</div>
