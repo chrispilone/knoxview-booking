@@ -130,6 +130,176 @@ async function folderFiles(path: string, re: RegExp): Promise<{ name: string; pa
   return out.sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
 }
 
+// Read the order's Dropbox final photos + floor plans into the Media Library (see `sync` above)
+async function syncOrder(set: any, b: any) {
+  if (!b.dropbox_path) throw new Bad("This order doesn't have a Dropbox folder yet. Mark it completed (or tap Create folders) first.");
+  const photosDir = b.dropbox_photos_dir || clean(set.dropbox_final_photos || 'Final Photos');
+  const dir = `${b.dropbox_path}/${photosDir}`;
+  const files = await dropboxFolderImages(dir);
+  if (files === null) throw new Bad(`There's no "${photosDir}" folder in ${b.dropbox_path} yet.`, 404);
+  const lc = (n: any) => String(n ?? '').toLowerCase();
+  const prev = ((b.photo_files as any[]) ?? []).filter(f => f?.name);
+  const hidden = new Set(((b.photo_hidden as any[]) ?? []).map(lc));
+  const byName = new Map(files.map(f => [lc(f.name), f]));
+  const prevNames = new Set(prev.map(f => lc(f.name)));
+  const kept = prev.filter(f => f.src === 'upload' || byName.has(lc(f.name))).map(f => f.src === 'upload' ? f : byName.get(lc(f.name))!);
+  const added = files.filter(f => !prevNames.has(lc(f.name)) && !hidden.has(lc(f.name)));
+  const photo_files = [...kept, ...added];
+  const removed = prev.filter(f => f.src !== 'upload').length - kept.filter(f => f.src !== 'upload').length;
+  const planDir = b.dropbox_plans_dir ? `${b.dropbox_path}/${b.dropbox_plans_dir}` : set.dropbox_final_floorplans ? `${b.dropbox_path}/${clean(set.dropbox_final_floorplans)}` : null;
+  const planHidden = new Set(((b.floorplan_hidden as any[]) ?? []).map(lc));
+  const floorplan_files = planDir ? ((await folderFiles(planDir, PLAN_RE)) ?? []).filter(f => !planHidden.has(lc(f.name))) : ((b.floorplan_files as any[]) ?? []);
+  const now = new Date().toISOString();
+  await admin.from('bookings').update({ photo_files, floorplan_files, photos_synced_at: now, updated_at: now }).eq('id', b.id);
+  const cover_url = await setCover(b, photo_files).catch(e => { console.error('cover', String(e)); return b.cover_url; });
+  return { dir, planDir, files, added, removed, photo_files, floorplan_files, cover_url, now };
+}
+
+// ---- Spiro import ----
+// One Spiro order -> one HQ order: client + company, services and price, shoot date, status, Spiro invoices (paid state),
+// Vimeo videos, 3D tour, and the Dropbox order folder. Only the photos Spiro delivered are shown (other Dropbox photos are
+// hidden, not deleted), in Spiro's order; Spiro's floor plans are copied into the folder when it has none.
+// No Spiro property website and no CubiCasa draft. Re-running it updates the same HQ order (matched on the Spiro order id).
+const SPIRO_ROOT = '/Chris Pilone/CCREP (Spiro Uploads)';
+const STATUS: Record<string, string> = { delivered: 'completed', editing: 'completed', appointmentCompleted: 'completed', inProgress: 'scheduled',
+  confirmed: 'scheduled', rescheduled: 'scheduled', pending: 'requested', awaitingConfirmation: 'requested', cancelled: 'cancelled' };
+const nameKey = (s: string) => String(s || '').toLowerCase().replace(/\.[a-z0-9]+$/, '').replace(/[^a-z0-9]+/g, '');
+async function listDir(path: string) {
+  let r = await dbxApi('files/list_folder', { path, limit: 2000 });
+  if (r.status === 409) return null;
+  const out: any[] = [];
+  for (let g = 0; g < 20; g++) {
+    if (!r.ok) throw new Error('Dropbox list failed: ' + r.status);
+    const j = await r.json(); out.push(...j.entries);
+    if (!j.has_more) break;
+    r = await dbxApi('files/list_folder/continue', { cursor: j.cursor });
+  }
+  return out;
+}
+// The Spiro-era folder: <root>/<year>/Q<q>/<photographer>/<MM.DD.YYYY> <nn> <address-slug>  (<client>)
+async function findSpiroFolder(shoot: string | null, photographer: string, address: string) {
+  const sl = slug(address);
+  const tz = 'America/New_York';
+  const tries: string[] = [];
+  const d = shoot ? new Date(shoot) : null;
+  if (d) {
+    const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit' }).formatToParts(d);
+    const y = p.find(x => x.type === 'year')!.value, q = Math.ceil(+p.find(x => x.type === 'month')!.value / 3);
+    for (const who of [photographer, 'Chris Pilone']) tries.push(`${SPIRO_ROOT}/${y}/Q${q}/${who}`);
+  }
+  for (const dir of [...new Set(tries)]) {
+    const ents = await listDir(dir); if (!ents) continue;
+    const hit = ents.filter(e => e['.tag'] === 'folder' && e.name.toLowerCase().includes(sl));
+    if (hit.length) return hit.sort((a, b) => b.name.localeCompare(a.name))[0].path_display as string;
+  }
+  // fallback: Dropbox search by the address slug inside the Spiro uploads root
+  const r = await dbxApi('files/search_v2', { query: sl, options: { path: SPIRO_ROOT, file_status: 'active', filename_only: true, max_results: 20 } });
+  if (r.ok) { const j = await r.json(); const f = (j.matches ?? []).map((m: any) => m.metadata?.metadata).find((m: any) => m?.['.tag'] === 'folder' && m.name.toLowerCase().includes(sl));
+    if (f) return f.path_display as string; }
+  return null;
+}
+async function copyToStorage(url: string, path: string) {
+  try {
+    const r = await fetch(url); if (!r.ok) return null;
+    const up = await admin.storage.from('agent-photos').upload(path, new Uint8Array(await r.arrayBuffer()), { contentType: r.headers.get('content-type') || 'image/jpeg', upsert: true, cacheControl: '31536000' });
+    if (up.error) return null;
+    return admin.storage.from('agent-photos').getPublicUrl(path).data.publicUrl;
+  } catch (_) { return null; }
+}
+async function spiroImport(set: any, p: any) {
+  const o = p.order, a = o.agent, addr = o.property.address, pr = o.pricing;
+  const log: string[] = [];
+  // company + client
+  let companyId: string | null = null;
+  if (a.companyId) {
+    const { data: co } = await admin.from('companies').select('id').eq('spiro_company_id', a.companyId).maybeSingle();
+    if (co) companyId = co.id;
+    else {
+      const { data: byName } = await admin.from('companies').select('id').ilike('name', a.companyName).maybeSingle();
+      const row = { name: a.companyName, spiro_company_id: a.companyId, admin_email: p.company?.adminEmail || null, admin_phone: p.company?.adminPhone || null };
+      if (byName) { await admin.from('companies').update({ spiro_company_id: a.companyId }).eq('id', byName.id); companyId = byName.id; }
+      else { const { data: c, error } = await admin.from('companies').insert(row).select('id').single(); if (error) throw new Error('company: ' + error.message); companyId = c.id; log.push('Added company ' + a.companyName); }
+    }
+  }
+  let { data: ag } = await admin.from('agents').select('id, photo_url').eq('spiro_agent_id', a.agentId).maybeSingle();
+  if (!ag && a.emailAddress) ({ data: ag } = await admin.from('agents').select('id, photo_url').ilike('email', a.emailAddress).maybeSingle());
+  const agentRow: any = { spiro_agent_id: a.agentId, full_name: `${a.firstName} ${a.lastName}`.trim(), first_name: a.firstName, last_name: a.lastName,
+    email: (a.emailAddress || '').toLowerCase() || null, phone: a.phoneNumber || null, company_id: companyId, brokerage: a.companyName || null };
+  if (ag) { const { full_name, first_name, last_name, ...keep } = agentRow; await admin.from('agents').update({ ...keep }).eq('id', ag.id); }
+  else { const { data: n, error } = await admin.from('agents').insert({ ...agentRow, preferences: 'Imported from Spiro' }).select('id, photo_url').single(); if (error) throw new Error('client: ' + error.message); ag = n; log.push('Added client ' + agentRow.full_name); }
+  if (!ag!.photo_url && p.agentPhoto) {
+    const url = await copyToStorage(p.agentPhoto, `spiro/${a.agentId}.jpg`);
+    if (url) { await admin.from('agents').update({ photo_url: url, photo_path: `spiro/${a.agentId}.jpg` }).eq('id', ag!.id); log.push('Copied profile photo'); }
+  }
+  // invoices: the order is paid once the invoice that bills it (company or agent, whichever pays) is paid in full
+  const companyPays = !!pr.companyPaysAllInvoices;
+  const inv = (p.invoices ?? []).map((i: any) => ({ id: i.invoiceId, ref: i.referenceNumber, status: i.status, payee: i.payee?.payeeType, payee_name: i.payee?.companyName || i.payee?.agentName,
+    total: i.amount?.total ?? null, due: i.amount?.amountDue ?? null, created: i.dateCreated, paid_at: i.dateFullyPaid, orders: i.orderCount }));
+  const billing = inv.filter((i: any) => companyPays ? i.payee === 'Company' : i.payee === 'Agent');
+  const settled = billing.find((i: any) => i.status === 'Paid' && i.paid_at);
+  const total = +pr.totalSalePrice || 0;
+  // services: the package (with its price) and each included service
+  const items = [{ kind: 'package', name: o.bundle?.name || 'Spiro order', price: total, includes: (p.services ?? []).map((s: any) => String(s.name).trim()) },
+    ...(o.addOns ?? []).map((x: any) => ({ kind: 'service', name: String(x.name || '').trim(), price: 0 }))];
+  const status = STATUS[p.status] || 'scheduled';
+  const videos = (p.videos ?? []).flatMap((v: any) => [v.brandedUrl && { url: v.brandedUrl.split('?')[0].replace('player.vimeo.com/video/', 'vimeo.com/'), label: 'Branded' },
+    v.unbrandedUrl && { url: v.unbrandedUrl.split('?')[0].replace('player.vimeo.com/video/', 'vimeo.com/'), label: 'Unbranded' }]).filter(Boolean);
+  const row: any = {
+    spiro_order_id: o.identity.orderId, order_no: o.identity.trackingCode, source: 'spiro', status, agent_id: ag!.id,
+    client_name: agentRow.full_name, client_email: agentRow.email, client_phone: agentRow.phone,
+    address: addr.streetAddress, unit: addr.unitNumber || null, city: addr.city, state: addr.stateOrProvince, zip: addr.postalCode,
+    sqft: o.property.specs?.squareFeet || null, shoot_start: p.appointment?.start || null, items, subtotal: total, total,
+    created_at: o.identity.dateSubmitted, delivered_at: o.website?.deliveredAt || (status === 'completed' ? o.identity.dateSubmitted : null),
+    invoice: true, require_payment: false, bill_to: companyPays ? 'company' : 'agent', spiro_invoices: inv,
+    paid: !!settled || total === 0, paid_at: settled?.paid_at || null, paid_method: settled ? 'spiro' : null,
+    paid_note: settled ? `Paid in Spiro · invoice ${settled.ref}` : null, payment_status: settled || total === 0 ? 'paid' : 'unpaid',
+    videos, tour_url: (p.tours ?? [])[0] || null, imported_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+  };
+  const { data: existing } = await admin.from('bookings').select('*').eq('spiro_order_id', row.spiro_order_id).maybeSingle();
+  let b: any;
+  if (existing) { const { created_at, ...upd } = row; const { data, error } = await admin.from('bookings').update(upd).eq('id', existing.id).select('*').single(); if (error) throw new Error(error.message); b = data; log.push('Updated order'); }
+  else { const { data, error } = await admin.from('bookings').insert(row).select('*').single(); if (error) throw new Error(error.message); b = data; log.push('Created order #' + data.number); }
+  // Dropbox: the order folder, its photo / floor plan subfolders, delivered photos only, Spiro floor plans if missing
+  let dropbox: any = { found: false };
+  if (dropboxConfigured() && (await dropboxToken().catch(() => null))) {
+    const path = b.dropbox_path || await findSpiroFolder(p.appointment?.start || o.identity.dateSubmitted, p.appointment?.photographer || 'Chris Pilone', addr.streetAddress);
+    if (path) {
+      const subs = ((await listDir(path)) ?? []).filter(e => e['.tag'] === 'folder').map(e => e.name as string);
+      const photosDir = subs.find(n => /final.*photo/i.test(n)) || subs.find(n => /photo/i.test(n) && !/raw/i.test(n)) || null;
+      const plansDir = subs.find(n => /floor/i.test(n)) || null;
+      const images = photosDir ? ((await dropboxFolderImages(`${path}/${photosDir}`)) ?? []) : [];
+      const want = (p.photos ?? []) as string[];
+      const wantKeys = new Map(want.map((n, i) => [nameKey(n), i]));
+      const photo_hidden = images.filter(f => !wantKeys.has(nameKey(f.name))).map(f => f.name.toLowerCase());
+      let planDirName = plansDir;
+      if (!planDirName) { planDirName = clean(set.dropbox_final_floorplans || '06-Final-FloorPlan'); await dbxApi('files/create_folder_v2', { path: `${path}/${planDirName}`, autorename: false }); }
+      const plans = (await folderFiles(`${path}/${planDirName}`, PLAN_RE)) ?? [];
+      let copied = 0;
+      if (!plans.length) for (const f of (p.floorplans ?? [])) {
+        const r = await fetch(f.url); if (!r.ok) continue;
+        const nm = clean(f.name) || `Floor Plan ${copied + 1}.jpg`;
+        const up = await dropboxUpload(`${path}/${planDirName}/${nm}`, new Uint8Array(await r.arrayBuffer())); if (up.ok) copied++;
+      }
+      await admin.from('bookings').update({ dropbox_path: path, dropbox_photos_dir: photosDir, dropbox_plans_dir: planDirName, photo_hidden, photo_files: [] }).eq('id', b.id);
+      Object.assign(b, { dropbox_path: path, dropbox_photos_dir: photosDir, dropbox_plans_dir: planDirName, photo_hidden, photo_files: [] });
+      let synced: any = null;
+      if (photosDir) {
+        synced = await syncOrder(set, b);
+        // Spiro's photo order
+        const ordered = [...synced.photo_files].sort((x: any, y: any) => (wantKeys.get(nameKey(x.name)) ?? 1e6) - (wantKeys.get(nameKey(y.name)) ?? 1e6));
+        await admin.from('bookings').update({ photo_files: ordered }).eq('id', b.id);
+        b.photo_files = ordered; b.cover_src = null;
+        await setCover(b, ordered).catch(() => null);
+      }
+      const matched = images.length - photo_hidden.length;
+      dropbox = { found: true, path, photosDir, plansDir: planDirName, inDropbox: images.length, delivered: want.length, matched, hidden: photo_hidden.length,
+        missing: want.filter(n => !images.some(f => nameKey(f.name) === nameKey(n))), plansCopied: copied, floorplans: synced?.floorplan_files?.length ?? plans.length };
+      log.push(`Dropbox: ${matched} of ${want.length} delivered photos found`);
+    } else log.push('Dropbox folder not found');
+  }
+  return { ok: true, bookingId: b.id, number: b.number, order_no: b.order_no, status, paid: row.paid, billTo: row.bill_to, invoices: inv.map((i: any) => `${i.ref} (${i.payee}, ${i.status})`), dropbox, log };
+}
+
 // ---- CubiCasa ----
 const CC_BASE = 'https://app.cubi.casa/api/integrate/v3';
 const CC_OWNER = 'chris@knoxview.com';
@@ -216,6 +386,10 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const { data: set } = await admin.from('booking_settings').select('*').eq('id', 1).single();
 
+    if (body.action === 'spiro_import') {
+      if (!body.payload?.order?.identity?.orderId) throw new Bad('Spiro order data is missing.');
+      return json(req, await spiroImport(set, body.payload));
+    }
     if (body.action === 'cubicasa_info') {
       const r = await cc('GET', '/companies/info');
       if (!r.ok) throw new Bad(`CubiCasa said ${r.status}: ${JSON.stringify(r.j).slice(0, 200)}`, 502);
@@ -330,30 +504,9 @@ Deno.serve(async (req) => {
     }
     if (body.action === 'sync') {
       await needDbx();
-      if (!b.dropbox_path) throw new Bad("This order doesn't have a Dropbox folder yet. Mark it completed (or tap Create folders) first.");
-      const dir = `${b.dropbox_path}/${clean(set.dropbox_final_photos || 'Final Photos')}`;
-      const files = await dropboxFolderImages(dir);
-      if (files === null) throw new Bad(`There's no "${set.dropbox_final_photos || 'Final Photos'}" folder in ${b.dropbox_path} yet.`, 404);
-      // Keep HQ's order and HQ uploads; Dropbox photos deleted from the folder drop off; new ones go at the end (by name),
-      // except photos removed in HQ (photo_hidden) and names an HQ upload already replaced.
-      const lc = (n: any) => String(n ?? '').toLowerCase();
-      const prev = ((b.photo_files as any[]) ?? []).filter(f => f?.name);
-      const hidden = new Set(((b.photo_hidden as any[]) ?? []).map(lc));
-      const byName = new Map(files.map(f => [lc(f.name), f]));
-      const prevNames = new Set(prev.map(f => lc(f.name)));
-      const kept = prev.filter(f => f.src === 'upload' || byName.has(lc(f.name))).map(f => f.src === 'upload' ? f : byName.get(lc(f.name))!);
-      const added = files.filter(f => !prevNames.has(lc(f.name)) && !hidden.has(lc(f.name)));
-      const photo_files = [...kept, ...added];
-      const removed = prev.filter(f => f.src !== 'upload').length - kept.filter(f => f.src !== 'upload').length;
-      // floor plans: everything in the final floor plans folder (images + PDFs) except ones removed in HQ; a missing folder = none yet
-      const planDir = set.dropbox_final_floorplans ? `${b.dropbox_path}/${clean(set.dropbox_final_floorplans)}` : null;
-      const planHidden = new Set(((b.floorplan_hidden as any[]) ?? []).map(lc));
-      const floorplan_files = planDir ? ((await folderFiles(planDir, PLAN_RE)) ?? []).filter(f => !planHidden.has(lc(f.name))) : ((b.floorplan_files as any[]) ?? []);
-      const now = new Date().toISOString();
-      await admin.from('bookings').update({ photo_files, floorplan_files, photos_synced_at: now, updated_at: now }).eq('id', b.id);
-      const cover_url = await setCover(b, photo_files).catch(e => { console.error('cover', String(e)); return b.cover_url; });
-      return json(req, { ok: true, folder: dir, added: added.length, removed, photos: await gallery({ photo_files }),
-        planFolder: planDir, floorplans: await planGallery({ floorplan_files }), cover_url, synced_at: now });
+      const r = await syncOrder(set, b);
+      return json(req, { ok: true, folder: r.dir, added: r.added.length, removed: r.removed, photos: await gallery({ photo_files: r.photo_files }),
+        planFolder: r.planDir, floorplans: await planGallery({ floorplan_files: r.floorplan_files }), cover_url: r.cover_url, synced_at: r.now });
     }
     if (body.action === 'cover') return json(req, { cover_url: await setCover(b, (b.photo_files as any[]) ?? []) });
     if (body.action === 'video_dl') {
