@@ -10,7 +10,7 @@ import { sign, verify, galleryEntries, galleryAddress, parseVimeo, vimeoEmbed, v
 //   editor  { bookingId }                   -> the editable fields + links + a preview token (the order's client, or HQ staff)
 //   save    { bookingId, site }             -> saves title / subtitle / description / facts (the order's client, or HQ staff)
 //   enable  { bookingId, enabled }          -> turns the order's property websites on/off (HQ only; same switch as the Media Library)
-// bookings.site = { title, subtitle, description, facts: [{ k, icon, label, value, show }], template }
+// bookings.site = { title, subtitle, description, facts: [{ k, icon, label, value, show }], template ('cooper' = The Cooper, the default design) }
 const env = (k: string) => (Deno.env.get(k) ?? '').trim();
 const admin = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
 const RESEND_KEY = env('RESEND_API_KEY'), MAIL_FROM = env('DELIVERY_MAIL_FROM') || 'Knox View <bookings@mail.knoxview.com>';
@@ -26,12 +26,14 @@ class Bad extends Error { constructor(m: string, public status = 400) { super(m)
 const clean = (v: unknown, n: number) => String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, n);
 const esc = (s: string) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 
+// Website designs. The Cooper is the default; add new designs here and in the edge function's TEMPLATES.
+export const TEMPLATES: Record<string, string> = { cooper: 'The Cooper' };
 export const FACT_ICONS = ['price', 'bed', 'bath', 'size', 'lot', 'year', 'garage', 'home', 'pool', 'view', 'star'];
 function defaults(b: any) {
   const line = galleryAddress(b);
   const sub = [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   return {
-    title: line, subtitle: sub, description: '', template: 'signature',
+    title: line, subtitle: sub, description: '', template: 'cooper',
     facts: [
       { k: 'price', icon: 'price', label: 'Price', value: '', show: true },
       { k: 'beds', icon: 'bed', label: 'Beds', value: '', show: true },
@@ -42,13 +44,13 @@ function defaults(b: any) {
   };
 }
 const siteOf = (b: any) => { const d = defaults(b), s = (b.site && typeof b.site === 'object') ? b.site : {};
-  return { ...d, ...s, facts: Array.isArray(s.facts) && s.facts.length ? s.facts : d.facts }; };
+  return { ...d, ...s, template: Object.hasOwn(TEMPLATES, String(s.template)) ? s.template : 'cooper', facts: Array.isArray(s.facts) && s.facts.length ? s.facts : d.facts }; };
 function sanitize(input: any, b: any) {
   const d = defaults(b);
   const facts = (Array.isArray(input?.facts) ? input.facts : d.facts).slice(0, 12).map((f: any, i: number) => ({
     k: clean(f?.k, 24) || `f${i}`, icon: FACT_ICONS.includes(f?.icon) ? f.icon : 'star', label: clean(f?.label, 40), value: clean(f?.value, 60), show: f?.show !== false }));
   return { title: clean(input?.title, 140) || d.title, subtitle: clean(input?.subtitle, 160), description: clean(input?.description, 6000),
-    template: ['signature'].includes(input?.template) ? input.template : 'signature', facts };
+    template: Object.hasOwn(TEMPLATES, String(input?.template)) ? input.template : 'cooper', facts };
 }
 // Price "450000" -> "$450,000"; anything with words stays as typed
 const money = (v: string) => /^\$?\s*[\d,]+(\.\d{1,2})?$/.test(v.trim()) ? '$' + Number(v.replace(/[^\d.]/g, '')).toLocaleString('en-US', { maximumFractionDigits: 0 }) : v;
@@ -167,7 +169,7 @@ Deno.serve(async (req) => {
     const who = await whoCanEdit(req, b);
 
     if (action === 'editor') {
-      return json(req, { site: siteOf(b), slug: b.site_slug, icons: FACT_ICONS, enabled: b.websites_enabled !== false, live: live(b),
+      return json(req, { site: siteOf(b), slug: b.site_slug, icons: FACT_ICONS, templates: TEMPLATES, enabled: b.websites_enabled !== false, live: live(b),
         completed: b.status === 'completed', locked: !(b.paid || b.require_payment === false),
         links: b.site_slug ? { branded: `${SITE_BASE}/${b.site_slug}`, mls: `${SITE_BASE}/${b.site_slug}/mls` } : null,
         preview: b.site_slug ? await previewToken(b.site_slug) : null, canToggle: who.staff, views: b.site_views || 0 });

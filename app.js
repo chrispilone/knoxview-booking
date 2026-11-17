@@ -1857,6 +1857,7 @@ function siteDraw() {
     ${note}
     ${d.links ? siteLink('Branded', 'With your photo, logo and contact info', d.links.branded) + siteLink('MLS', 'Unbranded, safe for the MLS', d.links.mls) : ''}
     <h3 class="se-h">Listing details</h3>
+    <label class="se-f">Design<select id="seTpl">${Object.entries(d.templates || { cooper: 'The Cooper' }).map(([k, l]) => `<option value="${k}" ${s.template === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
     <label class="se-f">Title<input id="seTitle" maxlength="140" value="${esc(s.title || '')}" placeholder="123 Main St"></label>
     <label class="se-f">Subtitle<input id="seSub" maxlength="160" value="${esc(s.subtitle || '')}" placeholder="Gatlinburg, TN 37738"></label>
     <div class="se-facts" id="seFacts">${s.facts.map((f, i) => `<div class="se-fact ${f.show === false ? 'off' : ''}" data-i="${i}">
@@ -1873,7 +1874,7 @@ function siteDraw() {
 }
 function siteRead() { // the form back into SE.data.site
   const s = SE.data.site;
-  s.title = $('seTitle').value; s.subtitle = $('seSub').value; s.description = $('seDesc').value;
+  s.title = $('seTitle').value; s.subtitle = $('seSub').value; s.description = $('seDesc').value; if ($('seTpl')) s.template = $('seTpl').value;
   document.querySelectorAll('.se-fact').forEach(row => { const f = s.facts[+row.dataset.i];
     row.querySelectorAll('[data-k]').forEach(el => { f[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value; }); });
 }
