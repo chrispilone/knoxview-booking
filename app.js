@@ -1480,11 +1480,11 @@ function dVideos(d) {
       : v.poster ? `<img src="${esc(v.poster)}" alt="">` : `<div class="dl-ph-empty">${ic(d.locked ? I.lock : I.film, 40)}${v.pending ? '<p>Your video is being prepared.</p>' : ''}</div>`}</div>
     ${d.locked ? `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> Download and sharing unlock after payment.</span></div>` : `
     <div class="dl-vbtns">
-      ${v.download ? `<button class="btn" onclick="kv.dVideo(${i})">${ic(I.dl, 16)} ${isPhone() ? 'Save to phone' : 'Download'}</button>` : v.open ? `<a class="btn" href="${esc(v.open)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open video</a>` : ''}
+      ${v.download ? `<button class="btn" onclick="kv.dVideo(${i})">${ic(I.dl, 16)} ${isPhone() ? ROLL : 'Download'}</button>` : v.open ? `<a class="btn" href="${esc(v.open)}" target="_blank" rel="noopener">${ic(I.ext, 16)} Open video</a>` : ''}
       ${v.share && !d.locked ? `<button class="btn o" onclick="kv.dShare(${esc(JSON.stringify(v.share))}, ${esc(JSON.stringify(v.title))})">${ic(I.share, 16)} Share</button>` : ''}
       ${v.embed && !d.locked ? `<button class="btn o" onclick="kv.dEmbed(${i})">${ic(I.code, 16)} Embed</button>` : ''}
       ${v.share && !d.locked ? `<button class="btn o" onclick="kv.dCopy(${esc(JSON.stringify(v.share))}, 'Video link')">${ic(I.copy, 16)} Copy video link</button>` : ''}
-    </div>`}${v.download && isPhone() ? '<p class="hint dl-tip">Tap <b>Save to phone</b>, then <b>Save Video</b> to add it to your camera roll.</p>' : ''}</article>`).join('');
+    </div>`}${v.download && isPhone() ? `<p class="hint dl-tip">Tap <b>${ROLL}</b> to add it to the Photos app on this phone.</p>` : ''}</article>`).join('');
 }
 function dPlans(d) {
   const files = d.floorplans.filter(f => !f.open), links = d.floorplans.filter(f => f.open);
@@ -1565,7 +1565,15 @@ Object.assign(window.kv, {
   dAll() { const l = curSet(); D.sel = new Set(l.map((_, i) => i)); render(); if (l.some(p => p.web)) kv.dPick(); else kv.dSave([...kv._sel()], 'high'); },
   dSave(idx, q) { const list = idx.map(i => curSet()[i]).map(p => ({ url: p[q], name: p.name })).filter(f => f.url); if (list.length) saveFiles(list, 'photo'); },
   dSaveUrl(url, name) { saveFiles([{ url, name }], /\.(mp4|mov|m4v)$/i.test(name) ? 'video' : 'photo'); },
-  dVideo(i) { const v = D.data.videos[i]; saveFiles([{ url: v.download, name: `${D.data.head.address}.mp4` }], 'video'); },
+  dVideo(i) {
+    const v = D.data.videos[i], go = () => saveFiles([{ url: v.download, name: `${D.data.head.address}.mp4` }], 'video');
+    if (!isPhone()) return go();
+    // phones: confirm first, then the video is fetched and the share sheet saves it to Photos
+    dModal(`<h2 style="font-size:22px;margin-bottom:8px">Save this video to your Camera Roll?</h2>
+      <p class="hint" style="margin:0 0 14px">It saves straight to the Photos app on this phone. Videos can take a minute to get ready.</p>
+      <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" id="dlVidGo">${ic(I.dl, 16)} ${ROLL}</button></div>`);
+    $('dlVidGo').onclick = go;
+  },
   async dShare(url, title) {
     if (navigator.share) { try { await navigator.share({ title, url }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
     kv.dCopy(url, 'Link');

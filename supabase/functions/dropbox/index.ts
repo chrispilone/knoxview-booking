@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import { sign, dbxApi, dropboxFolderImages, dropboxConfigured, dropboxToken, forgetDropboxToken, dropboxPathStream } from './lib.ts';
+import { sign, dbxApi, dropboxFolderImages, dropboxConfigured, dropboxToken, forgetDropboxToken, dropboxPathStream, parseVimeo, vimeoConfigured, vimeoInfo, pickPhoneMp4, galleryAddress } from './lib.ts';
 
 // Dropbox for HQ (super admins only). Orders get a folder structure in Dropbox when they're completed; the
 // "Final Photos" folder is what the client's delivery page shows, in the order set on the order page in HQ.
@@ -14,6 +14,7 @@ import { sign, dbxApi, dropboxFolderImages, dropboxConfigured, dropboxToken, for
 //                                     PDFs) into bookings.floorplan_files, minus bookings.floorplan_hidden. Refreshes the cover.
 //   gallery { bookingId }          -> every gallery photo and Dropbox floor plan with thumb / view (large) / dl (original) links (expire)
 //   cover { bookingId }            -> makes the order's cover (bookings.cover_url) from the first gallery photo
+//   video_dl { bookingId, url }    -> a download link for a Vimeo video's phone-friendly MP4 (for "Save to Camera Roll" in HQ)
 //   preview_path { bookingId }     -> the folder path this order gets (nothing is created)
 // Folder name fill-ins: {year} {quarter} {photographer} {date_dots} {day_seq} {address_slug} {client_lower} + more (see HQ settings).
 // Needs secrets DROPBOX_APP_KEY + DROPBOX_APP_SECRET (from the Dropbox app). The lib.ts here is a copy of booking/lib.ts.
@@ -202,6 +203,15 @@ Deno.serve(async (req) => {
         planFolder: planDir, floorplans: await planGallery({ floorplan_files }), cover_url, synced_at: now });
     }
     if (body.action === 'cover') return json(req, { cover_url: await setCover(b, (b.photo_files as any[]) ?? []) });
+    if (body.action === 'video_dl') {
+      const vm = parseVimeo(String(body.url || ''));
+      if (!vm) throw new Bad("That isn't a Vimeo video link.");
+      if (!vimeoConfigured()) throw new Bad("Vimeo isn't connected, so videos can't be saved from here yet.", 409);
+      const info = await vimeoInfo(vm.id);
+      if (!pickPhoneMp4(info?.download)) throw new Bad('This video has no downloadable file on Vimeo yet.', 404);
+      const label = String(body.label || '').trim(), addr = galleryAddress(b);
+      return json(req, { url: await sign({ src: 'vimeo', vid: vm.id, name: `${addr || 'Video'}${label ? ' - ' + label : ''}.mp4`, dl: 1 }, 6), title: info?.name || null });
+    }
     if (body.action === 'gallery') return json(req, { photos: await gallery(b), floorplans: await planGallery(b), synced_at: b.photos_synced_at, path: b.dropbox_path });
     throw new Bad('Unknown action');
   } catch (e) {
