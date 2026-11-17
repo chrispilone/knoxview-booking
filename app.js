@@ -1475,23 +1475,26 @@ const isDoc = p => /\.pdf$/i.test(p?.name || ''); // PDF floor plans: file tile,
 function dGrid(d, key) {
   const sel = (D.sels[key] ||= new Set()), K = `kv.dUse('${key}');`;
   const list = d[key], n = sel.size, all = list.length, [one, many] = SET_LABEL[key];
+  // long galleries show the first rows, then "Show all" (keeps the page short and quick; Select all still means all)
+  const cap = isPhone() ? 12 : 16, open = (D.open ||= {})[key] || all <= cap + 4, shown = open ? list : list.slice(0, cap);
+  const more = open ? '' : `<button class="dlx-more" onclick="kv.dMore('${key}')">Show all ${all} ${many} ${ic('<path d="M6 9l6 6 6-6"/>', 16)}</button>`;
   const zip = key === 'photos' ? d.folders.find(f => f.zip)?.zip : null;
   const tile = (p, i, inner) => p.thumb && !isDoc(p) ? `<img src="${esc(p.thumb)}" alt="" loading="lazy" draggable="false" ${d.locked ? 'oncontextmenu="return false"' : ''}>` : `<span class="dl-file">${ic(I.plan, 34)}<small>${esc((p.name.split('.').pop() || '').toUpperCase())}</small></span>`;
   if (!all) return `<p class="hint" style="margin:14px 2px">${d.locked ? `Your ${many} unlock after payment.` : `Your ${many} are being prepared. Check back shortly.`}</p>
     ${zip ? `<a class="btn" href="${esc(zip)}">${ic(I.dl, 16)} Download all ${many} (zip)</a>` : ''}`;
   if (d.locked) return `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> ${all === 1 ? `Your ${one} downloads` : `All ${all} ${many} download`} in full resolution, without the watermark, after payment.</span>
 </div>
-    <div class="dl-grid preview ${key}">${list.map((p, i) => `<figure class="dl-ph"><button class="dl-img" onclick="${K}kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
-      <figcaption><span>${esc(p.label || p.name)}</span></figcaption></figure>`).join('')}</div>`;
+    <div class="dl-grid preview ${key}">${shown.map((p, i) => `<figure class="dl-ph"><button class="dl-img" onclick="${K}kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
+      <figcaption><span>${esc(p.label || p.name)}</span></figcaption></figure>`).join('')}</div>${more}`;
   const bar = `<div class="dl-bar">
       ${all > 1 ? `<button class="btn o" onclick="${K}kv.dSelAll()">${n === all ? 'Clear selection' : 'Select all'}</button>
       <button class="btn" ${n ? '' : 'disabled'} onclick="${K}kv.dPick()">${ic(I.dl, 16)} ${isPhone() && key === 'photos' ? `${ROLL}${n ? ` (${n})` : ''}` : `Download${n ? ` ${n}` : ''}`}</button>` : ''}
       ${zip && !isPhone() ? `<a class="btn o" href="${esc(zip)}">${ic(I.dl, 16)} Download all (zip)</a>` : `<button class="btn ${all > 1 ? 'o' : ''}" onclick="${K}kv.dAll()">${ic(I.dl, 16)} Download${all > 1 ? ` all ${all}` : ''}</button>`}</div>
       <p class="hint dl-tip">Tap ${all > 1 ? `a ${one}` : `the ${one}`} to see it full size.${all > 1 ? ' Tap the box in the corner to select it.' : ''}${isPhone() ? ' After Download, choose <b>Save Images</b> to put it in Photos.' : ''}</p>`;
-  return bar + `<div class="dl-grid ${key}">${list.map((p, i) => `<figure class="dl-ph ${sel.has(i) ? 'sel' : ''}">
+  return bar + `<div class="dl-grid ${key}">${shown.map((p, i) => `<figure class="dl-ph ${sel.has(i) ? 'sel' : ''}">
       <div class="dl-img"><button class="dl-open" onclick="${K}kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
         ${all > 1 ? `<button class="dl-chk" onclick="${K}kv.dSel(${i})" aria-label="${sel.has(i) ? 'Unselect' : 'Select'} ${esc(p.name)}" aria-pressed="${sel.has(i)}">${CHECK}</button>` : ''}</div>
-      <figcaption><span>${esc(p.label || p.name)}</span><span class="dl-q ${p.web ? '' : 'one'}">${p.web ? `<button title="Web quality: for MLS, online &amp; social media" onclick="${K}kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button>` : ''}<button title="Full resolution: for print &amp; large displays" onclick="${K}kv.dSave([${i}],'high')">${ic(I.dl, 14)} ${p.web ? 'High' : 'Download'}</button></span></figcaption></figure>`).join('')}</div>`;
+      <figcaption><span>${esc(p.label || p.name)}</span><span class="dl-q ${p.web ? '' : 'one'}">${p.web ? `<button title="Web quality: for MLS, online &amp; social media" onclick="${K}kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button>` : ''}<button title="Full resolution: for print &amp; large displays" onclick="${K}kv.dSave([${i}],'high')">${ic(I.dl, 14)} ${p.web ? 'High' : 'Download'}</button></span></figcaption></figure>`).join('')}</div>${more}`;
 }
 const dPhotos = d => dGrid(d, 'photos');
 /* ----- full-screen photo viewer: swipe / arrows, select from inside ----- */
@@ -1603,6 +1606,7 @@ Object.assign(window.kv, {
   dLbClose() { D.lb = null; document.body.style.overflow = ''; const el = document.getElementById('lb'); if (el) { el.className = 'lb'; el.innerHTML = ''; } },
   dTab(t) { D.tab = t; history.replaceState(null, '', SHARE ? `#${t}` : `#delivery/${D.key}/${t}`); document.getElementById('dl-' + t)?.scrollIntoView({ behavior: 'smooth' }); },
   dUse(k) { D.cur = k; },
+  dMore(k) { (D.open ||= {})[k] = true; render(); },
   dHeroIn(u) { D.heroIn = u; },
   dSel(i) { if (D.data.locked) return; D.sel.has(i) ? D.sel.delete(i) : D.sel.add(i); render(); },
   dSelAll() { const l = curSet(); D.sel = D.sel.size === l.length ? new Set() : new Set(l.map((_, i) => i)); render(); },

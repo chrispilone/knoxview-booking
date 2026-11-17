@@ -1173,3 +1173,5 @@ body.dlx .dl-ph,body.dlx .dl-grid>*{min-width:0}
   body.dlx .site-pv-frame{border-radius:12px}
 }
 @media (prefers-reduced-motion:reduce){.dlx-hero-img,.dlx-hero-in{animation:none}.dlx-hero-img{transition:none}}
+.dlx-more{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:14px;padding:14px;border:1.5px solid var(--line);border-radius:12px;background:#fff;color:var(--primary);font:600 15px var(--bf);cursor:pointer}
+.dlx-more:hover{border-color:var(--primary)}
