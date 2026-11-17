@@ -230,7 +230,8 @@ Deno.serve(async (req) => {
       const have: string[] = w.webhook_urls;
       const trig: string[] = w.webhook_triggers ?? [];
       const webhook_urls = [...new Set([...have, mine])];
-      const webhook_triggers = [...new Set([...trig, 'moved_to_draft', 'moved_to_pending', 'moved_to_ready', 'moved_to_fixing'])];
+      // only 'Ready' is added: triggers are shared with Spiro's webhook, so it keeps getting exactly what it got before
+      const webhook_triggers = [...new Set([...trig, 'moved_to_ready'])];
       if (body.dry) return json(req, { before: { webhook_urls: have, webhook_triggers: trig }, after: { webhook_urls, webhook_triggers }, raw: info.j });
       const r = await cc('PATCH', '/companies/webhook', { webhook_urls, webhook_triggers });
       if (!r.ok) throw new Bad(`CubiCasa said ${r.status}: ${JSON.stringify(r.j).slice(0, 200)}`, 502);
