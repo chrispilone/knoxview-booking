@@ -1112,3 +1112,48 @@ s.was{color:var(--slate);font-weight:400;margin-right:6px;font-size:.85em;text-d
 @media (max-width:640px){.site-cards .dl-btns{grid-template-columns:1fr 1fr}}
 .dl-sitelink{display:inline-flex;align-items:center;gap:7px;margin-top:10px;padding:8px 14px;border:1px solid currentColor;border-radius:999px;font-size:14px;font-weight:600;text-decoration:none;color:var(--navy,#1d3250)}
 .dl-sitelink:hover{background:var(--navy,#1d3250);color:#fff}
+
+/* ================= download page, property-website style (body.dlx) ================= */
+body.dlx{overflow-x:clip}
+body.dlx #main{padding-top:0}
+.dlx-hero{position:relative;width:100vw;margin-left:calc(50% - 50vw);min-height:min(78vh,760px);display:flex;align-items:flex-end;overflow:hidden;background:#141a24;color:#fff;isolation:isolate}
+.dlx-hero.plain{min-height:300px;background:linear-gradient(135deg,#1d3250,#141a24)}
+.dlx-hero-bg,.dlx-hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2}
+.dlx-hero-bg{filter:blur(18px);transform:scale(1.08)}
+.dlx-hero-img{opacity:0;transition:opacity .8s ease;animation:dlxkb 24s ease-out both}.dlx-hero-img.in{opacity:1}
+@keyframes dlxkb{from{transform:scale(1.07)}to{transform:scale(1)}}
+.dlx-shade{position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(10,14,22,.5) 0%,rgba(10,14,22,0) 26%,rgba(10,14,22,.08) 48%,rgba(10,14,22,.82) 100%)}
+.dlx-hero-in{width:100%;max-width:1240px;margin:0 auto;padding:28px 24px clamp(34px,6vh,64px);animation:dlxup 1s .1s cubic-bezier(.2,.7,.2,1) both}
+@keyframes dlxup{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+.dlx-back{position:absolute;top:18px;left:max(24px,calc(50% - 596px));color:#fff;text-decoration:none;font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;opacity:.9;padding:7px 12px;border-radius:999px;background:rgba(255,255,255,.12);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.dlx-eyebrow{margin:0 0 10px;font-size:12px;letter-spacing:.22em;text-transform:uppercase;opacity:.85}
+.dlx-hero h1{font-family:var(--hf);color:#fff;text-transform:none;letter-spacing:-.005em;font-weight:500;font-size:clamp(38px,6.6vw,84px);line-height:.98;margin:0;max-width:16ch;text-shadow:0 2px 30px rgba(0,0,0,.25)}
+.dlx-place{margin:12px 0 0;font-size:17px;opacity:.92}
+.dlx-meta{margin:6px 0 0;font-size:13px;letter-spacing:.06em;opacity:.75}.dlx-meta i{font-style:normal;margin:0 8px}
+.dlx-acts{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}
+.dlx-btn{display:inline-flex;align-items:center;gap:9px;height:46px;padding:0 20px;border-radius:999px;font:600 14px/1 var(--bf);letter-spacing:.02em;text-decoration:none;color:#fff;cursor:pointer;
+  background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.34);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:background .2s,transform .2s}
+.dlx-btn:hover{background:rgba(255,255,255,.26)}.dlx-btn.solid{background:#fff;color:var(--primary);border-color:#fff}.dlx-btn.solid:hover{transform:translateY(-1px)}
+.dlx-note{margin:14px 0 0;font-size:14px;opacity:.85;max-width:52ch}
+/* sticky menu */
+.dlx-nav{position:sticky;top:var(--toph,0px);z-index:30;width:100vw;margin-left:calc(50% - 50vw);background:rgba(245,244,240,.88);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line)}
+.dlx-nav-in{max-width:1240px;margin:0 auto;padding:10px 24px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}.dlx-nav-in::-webkit-scrollbar{display:none}
+.dlx-nav a,.dlx-nav .off{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:999px;font-size:14px;font-weight:500;color:var(--slate);text-decoration:none;white-space:nowrap;transition:background .2s,color .2s}
+.dlx-nav a:hover{background:rgba(29,50,80,.06);color:var(--primary)}.dlx-nav a.on{background:var(--primary);color:#fff}.dlx-nav .off{opacity:.55}
+/* sections */
+.dlx-sec{padding:clamp(36px,6vw,72px) 0 0;scroll-margin-top:calc(var(--toph,0px) + 64px)}
+.dlx-h{display:flex;align-items:baseline;gap:14px;margin:0 0 18px}
+.dlx-h h2{font-family:var(--hf);text-transform:none;letter-spacing:0;font-weight:500;color:var(--primary);font-size:clamp(32px,4vw,48px);line-height:1}
+.dlx-h span{font-size:13px;font-weight:600;letter-spacing:.12em;color:var(--slate)}
+body.dlx .dl-media{background:#fff;border:1px solid var(--line);border-radius:18px;padding:clamp(14px,2vw,22px);box-shadow:0 10px 40px rgba(29,50,80,.06)}
+body.dlx .dlx-sec:last-of-type{padding-bottom:30px}
+@media (max-width:640px){
+  .dlx-hero{min-height:72vh}
+  .dlx-hero-in{padding:24px 18px 30px}
+  .dlx-back{left:16px;top:14px}
+  .dlx-place{font-size:15px}
+  .dlx-btn{height:44px;padding:0 16px;font-size:13.5px}
+  .dlx-acts .dlx-btn{flex:1 1 auto;justify-content:center}
+  .dlx-nav-in{padding:8px 12px}.dlx-nav a,.dlx-nav .off{padding:8px 12px;font-size:13px}
+  body.dlx .dl-media{padding:12px;margin:0 -6px;border-radius:14px}
+}

@@ -1369,7 +1369,9 @@ I.code = '<path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/>';
 I.copy = '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
 const ROLL = 'Save to Camera Roll'; // phones: photos go straight to Photos via the share sheet
 const isPhone = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
-const D = (S.dl = { key: null, data: null, loading: false, error: '', tab: null, sel: new Set() });
+const D = (S.dl = { key: null, data: null, loading: false, error: '', tab: null, cur: 'photos', sels: {} });
+// every set (photos, floor plans) keeps its own selection; D.sel is the selection of the set in use (D.cur)
+Object.defineProperty(D, 'sel', { get() { return (D.sels[D.cur] ||= new Set()); }, set(v) { D.sels[D.cur] = v; } });
 // The delivery page is also its own page: /d/<order share token>. That's the link in delivery emails and texts, so it
 // works when forwarded to anyone (no sign-in). Downloads still unlock only after payment when the order requires it.
 const SHARE = (location.pathname.match(/^\/d\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i) || [])[1] || null;
@@ -1385,9 +1387,9 @@ async function loadDelivery(key) {
 const dlBack = () => !SHARE ? '<a class="dl-back" href="#listings">‹ Listings</a>' : D.data?.mine ? '<a class="dl-back" href="/#listings">‹ Listings</a>' : '';
 const dTabs = d => [
   (d.photos.length || d.folders.length) && ['photos', I.photo, 'Photos'],
-  d.videos.length && ['video', I.film, 'Video'],
-  d.floorplans.length && ['floorplan', I.plan, 'Floor plan'],
+  d.videos.length && ['video', I.film, d.videos.length > 1 ? 'Videos' : 'Video'],
   d.tour && ['tour', I.cube, '3D tour'],
+  d.floorplans.length && ['floorplan', I.plan, d.floorplans.length > 1 ? 'Floor plans' : 'Floor plan'],
   d.websites.length && ['website', I.globe2, 'Property website'],
 ].filter(Boolean);
 
@@ -1419,45 +1421,77 @@ function dWebsite(d) {
 }
 function vDelivery() {
   if (D.loading || !D.data) return D.error ? `${dlBack()}<div class="msg err">${esc(D.error)}</div>` : '<div class="panel loading"><span class="spin"></span> Getting your media…</div>';
-  const d = D.data, tabs = dTabs(d), tab = (tabs.find(t => t[0] === D.tab) || tabs[0] || [])[0];
-  const when = d.head.date ? fmtDate(d.head.date) : '';
-  let out = `${dlBack()}
-    <header class="dl-head"><h1>${esc(d.head.title || d.head.address)}</h1><p>${esc([d.head.title ? d.head.address : '', d.head.line2, d.head.brokerage].filter(Boolean).join(' · '))}</p>
-      <p class="hint">${when ? esc(when) : ''}${d.head.number ? ` · Order ${esc(ono(d.head))}` : ''}</p>
-      ${(() => { const w = d.websites.find(w => w.preview && w.url); return w ? `<a class="dl-sitelink" href="${esc(w.url)}" target="_blank" rel="noopener">${ic(I.globe2, 16)} View property website ${ic(I.ext, 13)}</a>` : ''; })()}</header>`;
-  // "Ready" only once something has actually been delivered (photos, video, floor plans, tour, a website or marketing)
-  const delivered = tabs.length > 0 || d.websites.some(w => !w.soon) || !!d.marketing;
-  if (d.locked && delivered) out += `<div class="dl-lock ready">${ic('<path d="M20 6L9 17l-5-5"/>', 22)}<div><b>Your media is ready!</b> Preview it below, then pay to unlock and download all your media.</div>
-      <button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay to download</button></div>`;
+  const d = D.data, tabs = dTabs(d), h = d.head;
+  const when = h.date ? fmtDate(h.date) : '', hero = d.photos[0];
+  const site = d.websites.find(w => w.preview && w.url);
+  const delivered = tabs.length > 0 || d.websites.some(w => !w.soon) || !!d.marketing; // "ready" only once something is delivered
+  const place = [h.title ? h.address : '', h.line2].filter(Boolean).join(' · ');
+  // 1. hero: the first photo of the gallery behind the address, like the property website
+  let out = `<header class="dlx-hero ${hero ? '' : 'plain'}">
+    ${hero ? `<img class="dlx-hero-bg" src="${esc(hero.thumb)}" alt="" aria-hidden="true"><img class="dlx-hero-img ${D.heroIn === hero.view ? 'in' : ''}" src="${esc(hero.view || hero.thumb)}" alt="" onload="this.classList.add('in');kv.dHeroIn(this.src)" ${d.locked ? 'oncontextmenu="return false"' : ''}>` : ''}
+    <div class="dlx-shade"></div>
+    <div class="dlx-hero-in">
+      ${dlBack().replace('class="dl-back"', 'class="dlx-back"')}
+      ${h.brokerage ? `<p class="dlx-eyebrow">${esc(h.brokerage)}</p>` : ''}
+      <h1>${esc(h.title || h.address)}</h1>
+      ${place ? `<p class="dlx-place">${esc(place)}</p>` : ''}
+      <p class="dlx-meta">${[when && esc(when), h.number && `Order ${esc(ono(h))}`].filter(Boolean).join('<i>·</i>')}</p>
+      <div class="dlx-acts">
+        ${d.locked && delivered ? `<button class="dlx-btn solid" onclick="kv.payBooking('${d.bookingId}')">${ic(I.lock, 16)} Pay to download</button>` : ''}
+        ${site ? `<a class="dlx-btn ${d.locked && delivered ? '' : 'solid'}" href="${esc(site.url)}" target="_blank" rel="noopener">${ic(I.globe2, 17)} View property website</a>` : ''}
+        ${!d.locked && d.folders.find(f => f.zip) && !isPhone() ? `<a class="dlx-btn" href="${esc(d.folders.find(f => f.zip).zip)}">${ic(I.dl, 16)} Download all photos</a>` : ''}
+      </div>
+      ${d.locked && delivered ? `<p class="dlx-note">Your media is ready. Preview everything below, then pay to unlock full-quality downloads.</p>` : ''}
+    </div>
+  </header>`;
   if (!tabs.length && !d.marketing) return out + `<div class="empty-st">${ic(I.photo, 56)}<p>Your media isn't delivered yet. We'll text and email you as soon as it is.</p></div>`;
-  out += `<section class="dl-media"><nav class="dl-tabs">${tabs.map(([k, i, l]) => `<button class="${k === tab ? 'on' : ''}" onclick="kv.dTab('${k}')">${ic(i, 20)}<span>${l}</span></button>`).join('')}
-    ${d.marketing ? (d.marketing.url ? `<a class="dl-tabx" href="${esc(d.marketing.url)}" target="_blank" rel="noopener">${ic(I.ext, 20)}<span>Marketing<span class="t-mid"> content</span></span></a>` : `<span class="dl-tabx off">${ic(I.lock, 18)}<span>Marketing<span class="t-mid"> content</span></span></span>`) : ''}</nav>`;
-  out += tab === 'photos' ? dPhotos(d) : tab === 'video' ? dVideos(d) : tab === 'floorplan' ? dPlans(d) : tab === 'tour' ? dTour(d) : tab === 'website' ? dWebsite(d) : '';
-  return out + '</section>';
+  // 2. a slim menu that follows you down the page
+  out += `<nav class="dlx-nav" id="dlxNav"><div class="dlx-nav-in">${tabs.map(([k, i, l]) => `<a href="javascript:kv.dTab('${k}')" data-k="${k}">${ic(i, 17)}<span>${l}</span></a>`).join('')}
+    ${d.marketing ? (d.marketing.url ? `<a href="${esc(d.marketing.url)}" target="_blank" rel="noopener">${ic(I.ext, 16)}<span>Marketing</span></a>` : `<span class="off">${ic(I.lock, 15)}<span>Marketing</span></span>`) : ''}</div></nav>`;
+  // 3. every section on one page, in order
+  const body = { photos: dPhotos, video: dVideos, tour: dTour, floorplan: dPlans, website: dWebsite };
+  const count = { photos: d.photos.length, video: d.videos.length > 1 ? d.videos.length : 0, floorplan: d.floorplans.length > 1 ? d.floorplans.length : 0 };
+  out += tabs.map(([k, , l]) => `<section class="dlx-sec" id="dl-${k}" data-k="${k}">
+    <div class="dlx-h"><h2>${l}</h2>${count[k] ? `<span>${count[k]}</span>` : ''}</div>
+    <div class="dl-media">${body[k](d)}</div></section>`).join('');
+  setTimeout(dlxWire, 0);
+  return out;
+}
+// sticky menu: highlight the section on screen; jump to the section in the link (#photos, #website…) on first open
+let dlxIO = null;
+function dlxWire() {
+  const nav = document.getElementById('dlxNav'); if (!nav) return;
+  document.body.classList.add('dlx');
+  const top = document.querySelector('header.top'); if (top) document.body.style.setProperty('--toph', top.offsetHeight + 'px');
+  dlxIO?.disconnect();
+  dlxIO = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) nav.querySelectorAll('[data-k]').forEach(a => a.classList.toggle('on', a.dataset.k === e.target.dataset.k)); }), { rootMargin: '-40% 0px -55% 0px' });
+  document.querySelectorAll('.dlx-sec').forEach(sec => dlxIO.observe(sec));
+  if (D.tab && !D.jumped) { D.jumped = true; const el = document.getElementById('dl-' + D.tab); if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth' }), 120); }
+  fitSitePreview();
 }
 const SET_LABEL = { photos: ['photo', 'photos'], floorplans: ['floor plan', 'floor plans'] };
 const curSet = () => D.data[D.cur] || [];
 const isDoc = p => /\.pdf$/i.test(p?.name || ''); // PDF floor plans: file tile, tap to download
 function dGrid(d, key) {
-  D.cur = key;
-  const list = d[key], n = D.sel.size, all = list.length, [one, many] = SET_LABEL[key];
+  const sel = (D.sels[key] ||= new Set()), K = `kv.dUse('${key}');`;
+  const list = d[key], n = sel.size, all = list.length, [one, many] = SET_LABEL[key];
   const zip = key === 'photos' ? d.folders.find(f => f.zip)?.zip : null;
   const tile = (p, i, inner) => p.thumb && !isDoc(p) ? `<img src="${esc(p.thumb)}" alt="" loading="lazy" draggable="false" ${d.locked ? 'oncontextmenu="return false"' : ''}>` : `<span class="dl-file">${ic(I.plan, 34)}<small>${esc((p.name.split('.').pop() || '').toUpperCase())}</small></span>`;
   if (!all) return `<p class="hint" style="margin:14px 2px">${d.locked ? `Your ${many} unlock after payment.` : `Your ${many} are being prepared. Check back shortly.`}</p>
     ${zip ? `<a class="btn" href="${esc(zip)}">${ic(I.dl, 16)} Download all ${many} (zip)</a>` : ''}`;
   if (d.locked) return `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> ${all === 1 ? `Your ${one} downloads` : `All ${all} ${many} download`} in full resolution, without the watermark, after payment.</span>
 </div>
-    <div class="dl-grid preview ${key}">${list.map((p, i) => `<figure class="dl-ph"><button class="dl-img" onclick="kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
+    <div class="dl-grid preview ${key}">${list.map((p, i) => `<figure class="dl-ph"><button class="dl-img" onclick="${K}kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
       <figcaption><span>${esc(p.label || p.name)}</span></figcaption></figure>`).join('')}</div>`;
   const bar = `<div class="dl-bar">
-      ${all > 1 ? `<button class="btn o" onclick="kv.dSelAll()">${n === all ? 'Clear selection' : 'Select all'}</button>
-      <button class="btn" ${n ? '' : 'disabled'} onclick="kv.dPick()">${ic(I.dl, 16)} ${isPhone() && D.cur === 'photos' ? `${ROLL}${n ? ` (${n})` : ''}` : `Download${n ? ` ${n}` : ''}`}</button>` : ''}
-      ${zip && !isPhone() ? `<a class="btn o" href="${esc(zip)}">${ic(I.dl, 16)} Download all (zip)</a>` : `<button class="btn ${all > 1 ? 'o' : ''}" onclick="kv.dAll()">${ic(I.dl, 16)} Download${all > 1 ? ` all ${all}` : ''}</button>`}</div>
+      ${all > 1 ? `<button class="btn o" onclick="${K}kv.dSelAll()">${n === all ? 'Clear selection' : 'Select all'}</button>
+      <button class="btn" ${n ? '' : 'disabled'} onclick="${K}kv.dPick()">${ic(I.dl, 16)} ${isPhone() && key === 'photos' ? `${ROLL}${n ? ` (${n})` : ''}` : `Download${n ? ` ${n}` : ''}`}</button>` : ''}
+      ${zip && !isPhone() ? `<a class="btn o" href="${esc(zip)}">${ic(I.dl, 16)} Download all (zip)</a>` : `<button class="btn ${all > 1 ? 'o' : ''}" onclick="${K}kv.dAll()">${ic(I.dl, 16)} Download${all > 1 ? ` all ${all}` : ''}</button>`}</div>
       <p class="hint dl-tip">Tap ${all > 1 ? `a ${one}` : `the ${one}`} to see it full size.${all > 1 ? ' Tap the box in the corner to select it.' : ''}${isPhone() ? ' After Download, choose <b>Save Images</b> to put it in Photos.' : ''}</p>`;
-  return bar + `<div class="dl-grid ${key}">${list.map((p, i) => `<figure class="dl-ph ${D.sel.has(i) ? 'sel' : ''}">
-      <div class="dl-img"><button class="dl-open" onclick="kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
-        ${all > 1 ? `<button class="dl-chk" onclick="kv.dSel(${i})" aria-label="${D.sel.has(i) ? 'Unselect' : 'Select'} ${esc(p.name)}" aria-pressed="${D.sel.has(i)}">${CHECK}</button>` : ''}</div>
-      <figcaption><span>${esc(p.label || p.name)}</span><span class="dl-q ${p.web ? '' : 'one'}">${p.web ? `<button title="Web quality: for MLS, online &amp; social media" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button>` : ''}<button title="Full resolution: for print &amp; large displays" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 14)} ${p.web ? 'High' : 'Download'}</button></span></figcaption></figure>`).join('')}</div>`;
+  return bar + `<div class="dl-grid ${key}">${list.map((p, i) => `<figure class="dl-ph ${sel.has(i) ? 'sel' : ''}">
+      <div class="dl-img"><button class="dl-open" onclick="${K}kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
+        ${all > 1 ? `<button class="dl-chk" onclick="${K}kv.dSel(${i})" aria-label="${sel.has(i) ? 'Unselect' : 'Select'} ${esc(p.name)}" aria-pressed="${sel.has(i)}">${CHECK}</button>` : ''}</div>
+      <figcaption><span>${esc(p.label || p.name)}</span><span class="dl-q ${p.web ? '' : 'one'}">${p.web ? `<button title="Web quality: for MLS, online &amp; social media" onclick="${K}kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button>` : ''}<button title="Full resolution: for print &amp; large displays" onclick="${K}kv.dSave([${i}],'high')">${ic(I.dl, 14)} ${p.web ? 'High' : 'Download'}</button></span></figcaption></figure>`).join('')}</div>`;
 }
 const dPhotos = d => dGrid(d, 'photos');
 /* ----- full-screen photo viewer: swipe / arrows, select from inside ----- */
@@ -1567,7 +1601,9 @@ Object.assign(window.kv, {
   dLbGo(step) { const n = curSet().length; D.lb = (D.lb + step + n) % n; lbPaint(); },
   dLbSel() { const i = D.lb; D.sel.has(i) ? D.sel.delete(i) : D.sel.add(i); lbPaint(); render(); },
   dLbClose() { D.lb = null; document.body.style.overflow = ''; const el = document.getElementById('lb'); if (el) { el.className = 'lb'; el.innerHTML = ''; } },
-  dTab(t) { D.tab = t; D.sel = new Set(); history.replaceState(null, '', SHARE ? `#${t}` : `#delivery/${D.key}/${t}`); render(); },
+  dTab(t) { D.tab = t; history.replaceState(null, '', SHARE ? `#${t}` : `#delivery/${D.key}/${t}`); document.getElementById('dl-' + t)?.scrollIntoView({ behavior: 'smooth' }); },
+  dUse(k) { D.cur = k; },
+  dHeroIn(u) { D.heroIn = u; },
   dSel(i) { if (D.data.locked) return; D.sel.has(i) ? D.sel.delete(i) : D.sel.add(i); render(); },
   dSelAll() { const l = curSet(); D.sel = D.sel.size === l.length ? new Set() : new Set(l.map((_, i) => i)); render(); },
   dPick() { // choose quality for the selected photos
@@ -1898,6 +1934,7 @@ function toastMsg(m) { let t = $('kvToast'); if (!t) { t = document.createElemen
 Object.assign(window.kv, { siteEdit, siteMove, siteAddFact, siteSave });
 
 function render() {
+  document.body.classList.toggle('dlx', S.view === 'delivery');
   if (S.view === 'paylink') { // payment link page: its own simple page
     document.body.classList.remove('landing'); $('landing').innerHTML = ''; vHeader();
     document.body.classList.add('in-portal'); $('main').classList.add('one'); $('main').classList.remove('wide');
