@@ -1438,7 +1438,7 @@ function dGrid(d, key) {
   return bar + `<div class="dl-grid ${key}">${list.map((p, i) => `<figure class="dl-ph ${D.sel.has(i) ? 'sel' : ''}">
       <div class="dl-img"><button class="dl-open" onclick="kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
         ${all > 1 ? `<button class="dl-chk" onclick="kv.dSel(${i})" aria-label="${D.sel.has(i) ? 'Unselect' : 'Select'} ${esc(p.name)}" aria-pressed="${D.sel.has(i)}">${CHECK}</button>` : ''}</div>
-      <figcaption><span>${esc(p.name)}</span><span class="dl-q ${p.web ? '' : 'one'}">${p.web ? `<button title="Web quality: for MLS, online &amp; social media (2048 px)" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button>` : ''}<button title="Full resolution: for print &amp; large displays" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 14)} ${p.web ? 'High' : 'Download'}</button></span></figcaption></figure>`).join('')}</div>`;
+      <figcaption><span>${esc(p.name)}</span><span class="dl-q ${p.web ? '' : 'one'}">${p.web ? `<button title="Web quality: for MLS, online &amp; social media" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button>` : ''}<button title="Full resolution: for print &amp; large displays" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 14)} ${p.web ? 'High' : 'Download'}</button></span></figcaption></figure>`).join('')}</div>`;
 }
 const dPhotos = d => dGrid(d, 'photos');
 /* ----- full-screen photo viewer: swipe / arrows, select from inside ----- */
@@ -1452,7 +1452,7 @@ function lbPaint() {
     <div class="lb-bar">${d.locked
       ? `<span class="lb-note">${ic(I.lock, 16)} Preview · downloads unlock after payment</span>`
       : `${multi ? `<button class="btn ${sel ? '' : 'o'} lb-sel" onclick="kv.dLbSel()" aria-pressed="${sel}">${sel ? `${CHECK} Selected` : 'Select'}</button>` : ''}
-         ${p.web ? `<button class="btn o" title="Web quality: for MLS, online &amp; social media (2048 px)" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 16)} Web</button>` : ''}
+         ${p.web ? `<button class="btn o" title="Web quality: for MLS, online &amp; social media" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 16)} Web</button>` : ''}
          <button class="btn o" title="Full resolution: for print &amp; large displays" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 16)} ${p.web ? 'High' : 'Download'}</button>
          ${D.sel.size ? `<button class="btn" onclick="kv.dLbClose();kv.dPick()">${ic(I.dl, 16)} Download ${D.sel.size}</button>` : ''}`}</div>`;
   [i - 1, i + 1].forEach(k => { const q = list[(k + list.length) % list.length]; if (q && (q.view || q.thumb)) new Image().src = q.view || q.thumb; }); // preload neighbours
@@ -1555,7 +1555,7 @@ Object.assign(window.kv, {
     const n = D.sel.size, [one, many] = SET_LABEL[D.cur];
     dModal(`<h2 style="font-size:22px;margin-bottom:12px">Download ${n} ${n === 1 ? one : many}</h2>
       <label class="radio sel"><input type="radio" name="dq" value="high" checked> <span><b>Full resolution</b> <span class="hint">(print &amp; large displays)</span><br><small class="hint">Original size, the largest files</small></span></label>
-      ${curSet().some(p => p.web) ? `<label class="radio"><input type="radio" name="dq" value="web"> <span><b>Web quality</b> <span class="hint">(MLS, online &amp; social media)</span><br><small class="hint">2048 px, sized for MLS uploads, websites and social posts</small></span></label>` : ''}
+      ${curSet().some(p => p.web) ? `<label class="radio"><input type="radio" name="dq" value="web"> <span><b>Web quality</b> <span class="hint">(MLS, online &amp; social media)</span><br><small class="hint">Smaller files, ready to upload</small></span></label>` : ''}
       <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" onclick="kv.dSave([...kv._sel()], document.querySelector('[name=dq]:checked').value)">${ic(I.dl, 16)} Download</button></div>`);
     document.querySelectorAll('[name=dq]').forEach(r => r.onchange = () => document.querySelectorAll('.dl-modal .radio').forEach(l => l.classList.toggle('sel', l.querySelector('input').checked)));
   },
