@@ -177,25 +177,34 @@ async function listDir(path: string) {
   return out;
 }
 // The Spiro-era folder: <root>/<year>/Q<q>/<photographer>/<MM.DD.YYYY> <nn> <address-slug>  (<client>)
-async function findSpiroFolder(shoot: string | null, photographer: string, address: string) {
+// Folder names are compared as slugs on both sides, so "3938-settlers-trail" matches "3938 Settlers Trail" (trail -> trl both ways).
+// The shoot date picks the quarter; the order date's quarter is tried too (orders placed late in a quarter are shot in the next).
+async function findSpiroFolder(dates: (string | null)[], photographer: string, address: string) {
   const sl = slug(address);
+  if (!sl) return null;
   const tz = 'America/New_York';
   const tries: string[] = [];
-  const d = shoot ? new Date(shoot) : null;
-  if (d) {
-    const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit' }).formatToParts(d);
+  for (const s of dates) {
+    if (!s) continue;
+    const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit' }).formatToParts(new Date(s));
     const y = p.find(x => x.type === 'year')!.value, q = Math.ceil(+p.find(x => x.type === 'month')!.value / 3);
     for (const who of [photographer, 'Chris Pilone']) tries.push(`${SPIRO_ROOT}/${y}/Q${q}/${who}`);
   }
+  const has = (name: string) => `-${slug(name)}-`.includes(`-${sl}-`);
+  // the folder whose date is closest to the shoot (two shoots at one address)
+  const shootDay = dates[0] ? new Date(dates[0]).getTime() : 0;
+  const folderDay = (n: string) => { const m = n.match(/^(\d\d)\.(\d\d)\.(\d{4})/); return m ? new Date(`${m[3]}-${m[1]}-${m[2]}T12:00:00Z`).getTime() : 0; };
+  const best = (xs: any[]) => xs.sort((a, b) => Math.abs(folderDay(a.name) - shootDay) - Math.abs(folderDay(b.name) - shootDay))[0];
   for (const dir of [...new Set(tries)]) {
     const ents = await listDir(dir); if (!ents) continue;
-    const hit = ents.filter(e => e['.tag'] === 'folder' && e.name.toLowerCase().includes(sl));
-    if (hit.length) return hit.sort((a, b) => b.name.localeCompare(a.name))[0].path_display as string;
+    const hit = ents.filter(e => e['.tag'] === 'folder' && has(e.name));
+    if (hit.length) return best(hit).path_display as string;
   }
-  // fallback: Dropbox search by the address slug inside the Spiro uploads root
-  const r = await dbxApi('files/search_v2', { query: sl, options: { path: SPIRO_ROOT, file_status: 'active', filename_only: true, max_results: 20 } });
-  if (r.ok) { const j = await r.json(); const f = (j.matches ?? []).map((m: any) => m.metadata?.metadata).find((m: any) => m?.['.tag'] === 'folder' && m.name.toLowerCase().includes(sl));
-    if (f) return f.path_display as string; }
+  // fallback: Dropbox search inside the Spiro uploads root by house number + street words
+  const words = address.replace(/[#.,']/g, ' ').trim().split(/\s+/).slice(0, 3).join(' ');
+  const r = await dbxApi('files/search_v2', { query: words, options: { path: SPIRO_ROOT, file_status: 'active', filename_only: true, max_results: 50 } });
+  if (r.ok) { const j = await r.json(); const fs = (j.matches ?? []).map((m: any) => m.metadata?.metadata).filter((m: any) => m?.['.tag'] === 'folder' && has(m.name) && /^\d\d\.\d\d\.\d{4}/.test(m.name));
+    if (fs.length) return best(fs).path_display as string; }
   return null;
 }
 const fmtPhone = (p: string) => { const d = String(p || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}` : (p || null); };
@@ -266,14 +275,27 @@ async function spiroImport(set: any, p: any) {
   // Dropbox: the order folder, its photo / floor plan subfolders, delivered photos only, Spiro floor plans if missing
   let dropbox: any = { found: false };
   if (dropboxConfigured() && (await dropboxToken().catch(() => null))) {
-    const path = b.dropbox_path || await findSpiroFolder(p.appointment?.start || o.identity.dateSubmitted, p.appointment?.photographer || 'Chris Pilone', addr.streetAddress);
+    const path = b.dropbox_path || await findSpiroFolder([p.appointment?.start || null, o.identity.dateSubmitted], p.appointment?.photographer || 'Chris Pilone', addr.streetAddress);
     if (path) {
       const subs = ((await listDir(path)) ?? []).filter(e => e['.tag'] === 'folder').map(e => e.name as string);
-      const photosDir = subs.find(n => /final.*photo/i.test(n)) || subs.find(n => /photo/i.test(n) && !/raw/i.test(n)) || null;
+      let photosDir = subs.find(n => /final.*photo/i.test(n)) || subs.find(n => /photo/i.test(n) && !/raw/i.test(n)) || null;
       const plansDir = subs.find(n => /floor/i.test(n)) || null;
-      const images = photosDir ? ((await dropboxFolderImages(`${path}/${photosDir}`)) ?? []) : [];
+      let images = photosDir ? ((await dropboxFolderImages(`${path}/${photosDir}`)) ?? []) : [];
       const want = (p.photos ?? []) as string[];
       const wantKeys = new Map(want.map((n, i) => [nameKey(n), i]));
+      // Delivered photos that aren't in Dropbox (cleaned out, or never uploaded there): copy Spiro's delivered copy
+      // (2500px, the size the client downloaded from Spiro) into the photo folder, under Spiro's file name.
+      const have = new Set(images.map(f => nameKey(f.name)));
+      const lack = ((p.photoUrls ?? []) as { name: string, url: string }[]).filter(x => x.url && !have.has(nameKey(x.name)));
+      let photosCopied = 0;
+      if (lack.length) {
+        if (!photosDir) { photosDir = clean(set.dropbox_final_photos || '04-Final-Photos'); await dbxApi('files/create_folder_v2', { path: `${path}/${photosDir}`, autorename: false }); }
+        for (let i = 0; i < lack.length; i += 8) await Promise.all(lack.slice(i, i + 8).map(async x => {
+          const r = await fetch(x.url); if (!r.ok) return;
+          const up = await dropboxUpload(`${path}/${photosDir}/${clean(x.name)}`, new Uint8Array(await r.arrayBuffer())); if (up.ok) photosCopied++;
+        }));
+        if (photosCopied) { images = (await dropboxFolderImages(`${path}/${photosDir}`)) ?? []; log.push(`Copied ${photosCopied} delivered photos from Spiro into Dropbox`); }
+      }
       const photo_hidden = images.filter(f => !wantKeys.has(nameKey(f.name))).map(f => f.name.toLowerCase());
       let planDirName = plansDir;
       if (!planDirName) { planDirName = clean(set.dropbox_final_floorplans || '06-Final-FloorPlan'); await dbxApi('files/create_folder_v2', { path: `${path}/${planDirName}`, autorename: false }); }
@@ -296,7 +318,7 @@ async function spiroImport(set: any, p: any) {
         await setCover(b, ordered).catch(() => null);
       }
       const matched = images.length - photo_hidden.length;
-      dropbox = { found: true, path, photosDir, plansDir: planDirName, inDropbox: images.length, delivered: want.length, matched, hidden: photo_hidden.length,
+      dropbox = { found: true, path, photosDir, plansDir: planDirName, inDropbox: images.length, delivered: want.length, matched, hidden: photo_hidden.length, photosCopied,
         missing: want.filter(n => !images.some(f => nameKey(f.name) === nameKey(n))), plansCopied: copied, floorplans: synced?.floorplan_files?.length ?? plans.length };
       log.push(`Dropbox: ${matched} of ${want.length} delivered photos found`);
     } else log.push('Dropbox folder not found');
@@ -358,6 +380,7 @@ async function spiroPayload(orderId: string) {
     status: o.lifecycle?.isCancelled ? 'cancelled' : delivered ? 'delivered' : 'confirmed',
     appointment: first ? { start: first.events?.arrivalWindowStart || null, photographer: first.photographer?.name || null } : null,
     photos: photos.filter((x: any) => x.displayPageActive !== false).map((x: any) => x.name),
+    photoUrls: photos.filter((x: any) => x.displayPageActive !== false).map((x: any) => ({ name: x.name, url: x.image?.highResolutionUrl || x.image?.webUrl })),
     videos: videos.filter((v: any) => v.displayPageActive !== false),
     floorplans: plans.filter((f: any) => f.downloadUrl).map((f: any) => ({ url: f.downloadUrl, name: f.name })),
     tours: tours.map((t: any) => t.url || t.brandedUrl || t.tourUrl || t.unbrandedUrl).filter(Boolean),
