@@ -304,6 +304,34 @@ async function spiroImport(set: any, p: any) {
   return { ok: true, bookingId: b.id, number: b.number, order_no: b.order_no, status, paid: row.paid, billTo: row.bill_to, invoices: inv.map((i: any) => `${i.ref} (${i.payee}, ${i.status})`), dropbox, log };
 }
 
+// ---- Spiro public API (read-only; secret SPIRO_API_KEY, sent as a Bearer token) ----
+// Spiro rate-limits per key: a 429 means wait about a minute, so calls go one at a time and retry after a pause.
+const SPIRO_API = 'https://api.spiro.media/api/v1';
+async function spiro(path: string, tries = 3): Promise<any> {
+  const key = env('SPIRO_API_KEY');
+  if (!key) throw new Bad("Spiro isn't connected (SPIRO_API_KEY is missing).", 409);
+  for (let t = 0; t < tries; t++) {
+    const r = await fetch(SPIRO_API + path, { headers: { Authorization: 'Bearer ' + key, Accept: 'application/json' } });
+    if (r.status === 429) { if (t === tries - 1) throw new Bad('Spiro is rate-limiting us. Try again in a minute.', 429); await new Promise(res => setTimeout(res, 20000 * (t + 1))); continue; }
+    if (r.status === 404) return null;
+    const txt = await r.text();
+    if (!r.ok) throw new Bad(`Spiro said ${r.status} for ${path.split('?')[0]}: ${txt.split(key).join('[key]').slice(0, 200)}`, 502);
+    return txt ? JSON.parse(txt) : null;
+  }
+}
+// every page of a list endpoint
+async function spiroAll(path: string, max = 2000) {
+  const out: any[] = [];
+  for (let page = 1; out.length < max; page++) {
+    const j = await spiro(`${path}${path.includes('?') ? '&' : '?'}page=${page}&pageSize=100`);
+    const rows = j?.data ?? [];
+    out.push(...rows);
+    const m = j?.meta?.pagination ?? j?.meta ?? {};
+    if (rows.length < 100 || (m.totalPages && page >= m.totalPages)) break;
+  }
+  return out;
+}
+
 // ---- CubiCasa ----
 const CC_BASE = 'https://app.cubi.casa/api/integrate/v3';
 const CC_OWNER = 'chris@knoxview.com';
@@ -393,6 +421,11 @@ Deno.serve(async (req) => {
     if (body.action === 'spiro_import') {
       if (!body.payload?.order?.identity?.orderId) throw new Bad('Spiro order data is missing.');
       return json(req, await spiroImport(set, body.payload));
+    }
+    if (body.action === 'spiro_raw') { // super-admin debugging: one GET against the Spiro API
+      const p = String(body.path || '');
+      if (!/^\/[a-z0-9\-\/{}?&=,.\[\]_%:]*$/i.test(p)) throw new Bad('Bad path.');
+      return json(req, await spiro(p));
     }
     if (body.action === 'cubicasa_info') {
       const r = await cc('GET', '/companies/info');
