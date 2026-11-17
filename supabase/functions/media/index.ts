@@ -76,7 +76,7 @@ const EXT_TYPE: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg'
 
 
 /* ----- link preview image (?og=<share token>) ----- */
-const OG_W = 1200, OG_H = 630, OG_VER = 'og1'; // bump OG_VER to re-render every preview after a design change
+const OG_W = 1200, OG_H = 630, OG_VER = 'og2'; // bump OG_VER to re-render every preview after a design change
 const sbHeaders = { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY };
 const FONTS: Record<string, Uint8Array> = {};
 async function font(family: string, slug: string, weight: number) {
@@ -133,16 +133,16 @@ async function renderOg(b: any) {
   };
   const X = 64;
   // brand, top left
-  const brand = await text(serif, 34, 'KNOX VIEW', 0xffffffff), sub = await text(sansB, 12, spaced('Real Estate Media'), 0xffffffd9);
-  if (brand) { const sh = await text(serif, 34, 'KNOX VIEW', 0x00000060); if (sh) img.composite(sh, X + 1, 56 + 2); img.composite(brand, X, 56); if (sub) img.composite(sub, X + 1, 56 + brand.height + 9); }
+  const brand = await text(serif, 34, 'KNOX VIEW', 0xffffffff), sub = await text(sansB, 14, spaced('Real Estate Media'), 0xffffffd9);
+  if (brand) { const sh = await text(serif, 34, 'KNOX VIEW', 0x00000060); if (sh) img.composite(sh, X + 1, 56 + 2); img.composite(brand, X, 56); if (sub) img.composite(sub, X + 1, 56 + brand.height + 10); }
   // bottom block: MEDIA LIBRARY, the address (up to 2 lines), city
   let y = OG_H - 58;
   if (place) y = (await put(sans, 30, place, 0xffffffe0, X, y)) - 22;
   let size = title.length > 34 ? 68 : 82, probe = await text(serif, size, title, 0xffffffff, OG_W - X * 2);
   if (probe && probe.height > size * 2.3) size = 56;
-  y = (await put(serif, size, title, 0xffffffff, X, y, OG_W - X * 2)) - 26;
-  const eb = await text(sansB, 17, spaced('Media Library'), 0xffffffff);
-  if (eb) { const rule = new Image(44, 2).fill(0xffffffcc); img.composite(rule, X, y - Math.round(eb.height / 2) - 1); img.composite(eb, X + 60, y - eb.height); }
+  y = (await put(serif, size, title, 0xffffffff, X, y, OG_W - X * 2)) - 30;
+  const eb = await text(sansB, 21, spaced('Media Library'), 0xffffffff);
+  if (eb) { const rule = new Image(56, 3).fill(0xffffffcc); img.composite(rule, X, y - Math.round(eb.height / 2) - 1); img.composite(eb, X + 74, y - eb.height); }
   return await img.encodeJPEG(86);
 }
 async function ogResponse(token: string, head: boolean) {
@@ -169,7 +169,7 @@ Deno.serve(async (req) => {
   const u = new URL(req.url);
   if (u.searchParams.get('og') && u.searchParams.get('check') === 'b64') { // small base64 copy of a preview, for checking the design from the database
     const r = await ogResponse(u.searchParams.get('og')!, false); if (!r.ok) return r;
-    const im: any = (await Image.decode(new Uint8Array(await r.arrayBuffer()))).resize(480, Image.RESIZE_AUTO);
+    const im: any = (await Image.decode(new Uint8Array(await r.arrayBuffer()))).resize(Math.min(600, +(u.searchParams.get('w') || 480)), Image.RESIZE_AUTO);
     const bytes = await im.encodeJPEG(62); let bin = ''; for (const x of bytes) bin += String.fromCharCode(x);
     return new Response(btoa(bin), { headers: { ...CORS, 'Content-Type': 'text/plain' } });
   }
