@@ -167,6 +167,12 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'GET' && req.method !== 'HEAD') return err('Method not allowed', 405);
   const u = new URL(req.url);
+  if (u.searchParams.get('og') && u.searchParams.get('check') === 'b64') { // small base64 copy of a preview, for checking the design from the database
+    const r = await ogResponse(u.searchParams.get('og')!, false); if (!r.ok) return r;
+    const im: any = (await Image.decode(new Uint8Array(await r.arrayBuffer()))).resize(480, Image.RESIZE_AUTO);
+    const bytes = await im.encodeJPEG(62); let bin = ''; for (const x of bytes) bin += String.fromCharCode(x);
+    return new Response(btoa(bin), { headers: { ...CORS, 'Content-Type': 'text/plain' } });
+  }
   if (u.searchParams.get('og')) { try { return await ogResponse(u.searchParams.get('og')!, req.method === 'HEAD'); } catch (e) { console.error('og error', String((e as Error)?.stack || e)); return err('Preview not available', 500); } }
   const ref = await verify(u.searchParams.get('d') || '', u.searchParams.get('s') || '');
   if (!ref) return err('This download link has expired. Go back to your delivery page and try again.', 403);
