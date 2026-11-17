@@ -152,7 +152,7 @@ async function needsFloorPlan(b: any) {
   const hit = (svcs ?? []).filter(isPhotoService);
   return { yes: hit.length > 0, plus3d: wants3D(items, svcs ?? []) };
 }
-const ccStatus = (o: any) => String(o?.status ?? o?.current_status ?? o?.order?.status ?? '') || null;
+const ccStatus = (o: any) => String(o?.info?.status ?? o?.status ?? o?.order?.info?.status ?? '') || null;
 // urls from an asset group: arrays of strings or of { url }
 const urls = (x: any): string[] => (Array.isArray(x) ? x : x ? [x] : []).map((u: any) => typeof u === 'string' ? u : u?.url).filter((u: any) => typeof u === 'string' && /^https?:/.test(u));
 async function makeFolders(set: any, b: any, force = false) {
