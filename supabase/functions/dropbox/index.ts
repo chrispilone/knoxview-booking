@@ -275,7 +275,17 @@ async function spiroImport(set: any, p: any) {
   // Dropbox: the order folder, its photo / floor plan subfolders, delivered photos only, Spiro floor plans if missing
   let dropbox: any = { found: false };
   if (dropboxConfigured() && (await dropboxToken().catch(() => null))) {
-    const path = b.dropbox_path || await findSpiroFolder([p.appointment?.start || null, o.identity.dateSubmitted], p.appointment?.photographer || 'Chris Pilone', addr.streetAddress);
+    let path = b.dropbox_path || await findSpiroFolder([p.appointment?.start || null, o.identity.dateSubmitted], p.appointment?.photographer || 'Chris Pilone', addr.streetAddress);
+    // no folder in Dropbox: make one in the same Spiro-era layout so the delivered photos (copied from Spiro below) have a home
+    if (!path && (p.photoUrls ?? []).length) {
+      const when = new Date(p.appointment?.start || o.identity.dateSubmitted);
+      const pt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(when);
+      const g = (t: string) => pt.find(x => x.type === t)!.value;
+      const who = clean(p.appointment?.photographer || 'Chris Pilone');
+      path = `${SPIRO_ROOT}/${g('year')}/Q${Math.ceil(+g('month') / 3)}/${who}/${g('month')}.${g('day')}.${g('year')} 01 ${slug(addr.streetAddress)}  (${clean(agentRow.full_name).toLowerCase()})`;
+      await dbxApi('files/create_folder_v2', { path, autorename: false });
+      log.push('No Dropbox folder found, made ' + path.split('/').pop());
+    }
     if (path) {
       const subs = ((await listDir(path)) ?? []).filter(e => e['.tag'] === 'folder').map(e => e.name as string);
       let photosDir = subs.find(n => /final.*photo/i.test(n)) || subs.find(n => /photo/i.test(n) && !/raw/i.test(n)) || null;
