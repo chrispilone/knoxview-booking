@@ -443,6 +443,7 @@ async function deliveryFor(agent: any, key: string) {
     return {
       head: { ...head, brokerage: co?.name || [agent.team_name, agent.brokerage].filter(Boolean).join(' - ') || agent.full_name },
       locked, bookingId: b?.id ?? null, total: b ? +b.total : null,
+      shareToken: b?.public_token ?? null, // the page's own link (/d/<token>) for the Share button; none for HQ-only deliveries
       // the order's own property website (listing.knoxview.com); Spiro-era website links are never shown
       websites: b && b.websites_enabled !== false ? (() => { const u = b.site_slug ? `https://listing.knoxview.com/${b.site_slug}` : null;
         return [{ label: 'Branded Property Website', url: gate(u), soon: !u, preview: !!u },

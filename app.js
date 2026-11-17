@@ -1365,6 +1365,8 @@ I.plan = '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h7v9M14
 I.cube = '<path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 22V12M21 7l-9 5-9-5"/>';
 I.ext = '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/>';
 I.share = '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/>';
+I.chat = '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z"/>';
+I.check = '<path d="M20 6L9 17l-5-5"/>';
 I.qr = '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>';
 I.code = '<path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/>';
 I.copy = '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
@@ -1384,6 +1386,8 @@ async function loadDelivery(key) {
   if (SHARE && D.data?.head?.address) document.title = `${D.data.head.title || D.data.head.address} · Knox View`;
   D.loading = false; render();
 }
+// This download page's own link (/d/<token>): works for anyone it's sent to, no sign-in. HQ-only deliveries have none.
+const dlShareUrl = () => { const t = SHARE || D.data?.shareToken; return t ? `${location.origin}/d/${t}` : null; };
 // "‹ Listings" only for the client who owns this order (a forwarded share link has no listings to go back to)
 const dlBack = () => !SHARE ? '<a class="dl-back" href="#listings">‹ Listings</a>' : D.data?.mine ? '<a class="dl-back" href="/#listings">‹ Listings</a>' : '';
 const dTabs = d => [
@@ -1441,14 +1445,16 @@ function vDelivery() {
         ${d.locked && delivered ? `<button class="dlx-btn solid" onclick="kv.payBooking('${d.bookingId}')">${ic(I.lock, 16)} Pay to Download</button>` : ''}
         ${site ? `<a class="dlx-btn ${d.locked && delivered ? '' : 'solid'}" href="${esc(site.url)}" target="_blank" rel="noopener">${ic(I.globe2, 17)} View Property Website</a>` : ''}
         ${!d.locked && d.folders.find(f => f.zip) && !isPhone() ? `<a class="dlx-btn" href="${esc(d.folders.find(f => f.zip).zip)}">${ic(I.dl, 16)} Download All Photos</a>` : ''}
+        ${dlShareUrl() ? `<button class="dlx-btn" onclick="kv.dSharePage()">${ic(I.share, 16)} Share</button>` : ''}
       </div>
       ${d.locked && delivered ? `<p class="dlx-note">Your media is ready. Preview everything below, then pay to unlock full-quality downloads.</p>` : ''}
     </div>
   </header>`;
   if (!tabs.length && !d.marketing) return out + `<div class="empty-st">${ic(I.photo, 56)}<p>Your media isn't delivered yet. We'll text and email you as soon as it is.</p></div>`;
   // 2. a slim menu that follows you down the page
-  out += `<nav class="dlx-nav" id="dlxNav"><div class="dlx-nav-in">${tabs.map(([k, i, l]) => `<a href="javascript:kv.dTab('${k}')" data-k="${k}">${ic(i, 17)}<span>${l}</span></a>`).join('')}
-    ${d.marketing ? (d.marketing.url ? `<a href="${esc(d.marketing.url)}" target="_blank" rel="noopener">${ic(I.ext, 16)}<span>Marketing</span></a>` : `<span class="off">${ic(I.lock, 15)}<span>Marketing</span></span>`) : ''}</div></nav>`;
+  out += `<nav class="dlx-nav" id="dlxNav"><div class="dlx-nav-row"><div class="dlx-nav-in">${tabs.map(([k, i, l]) => `<a href="javascript:kv.dTab('${k}')" data-k="${k}">${ic(i, 17)}<span>${l}</span></a>`).join('')}
+    ${d.marketing ? (d.marketing.url ? `<a href="${esc(d.marketing.url)}" target="_blank" rel="noopener">${ic(I.ext, 16)}<span>Marketing</span></a>` : `<span class="off">${ic(I.lock, 15)}<span>Marketing</span></span>`) : ''}</div>
+    ${dlShareUrl() ? `<button class="dlx-nav-share" onclick="kv.dSharePage()" aria-label="Share this page">${ic(I.share, 17)}<span>Share</span></button>` : ''}</div></nav>`;
   // 3. every section on one page, in order
   const body = { photos: dPhotos, video: dVideos, tour: dTour, floorplan: dPlans, website: dWebsite };
   const count = { photos: d.photos.length, video: d.videos.length > 1 ? d.videos.length : 0, floorplan: d.floorplans.length > 1 ? d.floorplans.length : 0 };
@@ -1638,6 +1644,36 @@ Object.assign(window.kv, {
     if (navigator.share) { try { await navigator.share({ title, url }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
     kv.dCopy(url, 'Link');
   },
+  // Share this download page: copy the link, email, text, or the phone's own share sheet. Bottom sheet on phones, small dialog on computers.
+  dSharePage() {
+    const d = D.data, url = dlShareUrl(); if (!d || !url) return;
+    const name = d.head.title || cleanAddress(d.head.address) || 'your listing', due = d.locked && d.bookingId;
+    const subject = `Media for ${name}`;
+    const body = `Here's the Knox View download page for ${name}:\n${url}\n\nPhotos, video and everything else for the listing are on this page${due ? '. The invoice can be paid right on the page to unlock full-quality downloads' : ''}.`;
+    const opt = (href, icon, label, how, extra = '') => `<a class="sh-opt" href="${esc(href)}" ${extra} onclick="kv.dShared('${how}')">${ic(icon, 22)}<span>${label}</span></a>`;
+    $('modal').innerHTML = `<div class="modal sh-wrap" onclick="if(event.target===this)kv.closeModal()"><div class="panel sh-modal" role="dialog" aria-labelledby="shT">
+      <span class="sh-grab" aria-hidden="true"></span>
+      <div class="sh-head"><h2 id="shT">Share This Page</h2><button class="sh-x" onclick="kv.closeModal()" aria-label="Close">${ic(I.xc, 22)}</button></div>
+      <p class="hint" style="margin:0 0 14px">${due ? 'Anyone with this link can preview the media and pay the invoice. Downloads unlock once it’s paid.' : 'Anyone with this link can view and download the media. No sign-in needed.'}</p>
+      <div class="sh-link"><input id="shUrl" readonly value="${esc(url)}" onclick="this.select()" aria-label="Page link"><button class="btn" id="shCopy" onclick="kv.dCopyPage()">${ic(I.copy, 16)} <span>Copy Link</span></button></div>
+      <div class="sh-opts">
+        ${opt(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, I.mail, 'Email', 'email')}
+        ${isPhone() ? opt(`sms:?&body=${encodeURIComponent(`${subject}: ${url}`)}`, I.chat, 'Text', 'text') : ''}
+        ${navigator.share ? `<button class="sh-opt" onclick="kv.dShareNative()">${ic(I.share, 22)}<span>${isPhone() ? 'More' : 'More Options'}</span></button>` : ''}
+        <button class="sh-opt" onclick="kv.dQR(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(name))})">${ic(I.qr, 22)}<span>QR Code</span></button>
+      </div></div></div>`;
+    if (!isPhone()) setTimeout(() => $('shUrl')?.select(), 30);
+  },
+  dCopyPage() {
+    const url = dlShareUrl(), b = $('shCopy');
+    const done = () => { if (b) { b.classList.add('ok'); b.innerHTML = `${ic(I.check, 16)} <span>Copied</span>`; setTimeout(() => { if (b.isConnected) { b.classList.remove('ok'); b.innerHTML = `${ic(I.copy, 16)} <span>Copy Link</span>`; } }, 2200); } kv.dShared('copy'); };
+    (navigator.clipboard?.writeText(url) || Promise.reject()).then(done, () => { const i = $('shUrl'); i?.select(); try { document.execCommand('copy') ? done() : toast('Press Ctrl+C to copy'); } catch (_) { toast('Press Ctrl+C to copy'); } });
+  },
+  async dShareNative() {
+    const d = D.data, url = dlShareUrl(), name = d.head.title || cleanAddress(d.head.address) || 'Listing';
+    try { await navigator.share({ title: `Media for ${name}`, text: `Media for ${name}`, url }); kv.dShared('share sheet'); kv.closeModal(); } catch (e) { if (e?.name !== 'AbortError') kv.dCopyPage(); }
+  },
+  dShared(how) { const d = D.data; if (!d) return; logAct('share', `Shared the download page (${how})${d.head?.address ? ' · ' + d.head.address : ''}`, d.bookingId); },
   dCopy(text, what) { (navigator.clipboard?.writeText(text) || Promise.reject()).then(() => toast(`${what} copied`), () => { prompt(`Copy the ${what.toLowerCase()}:`, text); }); },
   dEmbed(i) { const v = D.data.videos[i]; kv.dCopy(`<iframe src="${v.embed}" width="100%" height="${v.portrait ? 720 : 405}" frameborder="0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>`, 'Embed code'); },
   dQR(url, title) {
