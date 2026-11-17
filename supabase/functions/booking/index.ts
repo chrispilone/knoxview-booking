@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { sign, dropboxFiles, dropboxZip, dropboxConfigured, parseVimeo, vimeoEmbed, vimeoInfo, vimeoConfigured, cleanDropboxLink, galleryEntries, galleryName, galleryAddress } from './lib.ts';
+import { sign, dropboxFiles, dropboxZip, dropboxConfigured, parseVimeo, vimeoEmbed, vimeoInfo, vimeoConfigured, cleanDropboxLink, galleryEntries, galleryName, galleryAddress, MEDIA_BASE } from './lib.ts';
 
 // Knox View client booking portal API (test.knoxview.com → book.knoxview.com).
 // Public actions: config, slots, quote, create, confirm, share-delivery / share-pay / share-meta (the order's share link).
@@ -586,8 +586,11 @@ async function handle(req: Request) {
       if (!b || b.status === 'cancelled' || !b.agent_id) throw new UserError(gone, 404);
       if (action === 'share-meta') { // link previews (iMessage, social): address + cover photo only
         const pic = ((b.media_files as any[]) ?? []).find(f => f?.kind === 'photo' && /^https:\/\//.test(f.preview || f.url || ''));
-        return json(req, { address: b.address + (b.unit ? ', ' + b.unit : ''), city: b.city || '', state: b.state || '',
-          cover: /^https:\/\//.test(b.cover_url || '') ? b.cover_url : pic ? (pic.preview || pic.url) : null });
+        const g0 = galleryEntries(b)[0], v = [g0?.path || g0?.url || '', b.media_title, b.address, b.city].join('|');
+        let h = 0; for (const c of v) h = (h * 31 + c.charCodeAt(0)) | 0;
+        return json(req, { address: b.address + (b.unit ? ', ' + b.unit : ''), city: b.city || '', state: b.state || '', title: (b.media_title || '').trim() || null,
+          cover: /^https:\/\//.test(b.cover_url || '') ? b.cover_url : pic ? (pic.preview || pic.url) : null,
+          image: `${MEDIA_BASE}?og=${b.public_token}&v=${(h >>> 0).toString(36)}` }); // branded preview image (media function)
       }
       if ((action === 'share-pay' || action === 'share-invoice') && b.invoice === false) throw new UserError('This order has no invoice. Nothing is due. Call or text 865-855-5669 with any questions.', 404);
       if (action === 'share-pay') return json(req, await payFor(b));

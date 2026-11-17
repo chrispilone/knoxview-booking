@@ -1383,10 +1383,13 @@ const DL_TABS = ['photos', 'video', 'floorplan', 'tour', 'website'];
 async function loadDelivery(key) {
   Object.assign(D, { key, data: null, loading: true, error: '', sel: new Set() }); render();
   try { D.data = SHARE ? await api('share-delivery', { token: SHARE }) : await api('delivery', { key }); } catch (e) { D.error = e.message; }
+  if (D.data) dlWarmPreview();
   if (SHARE && D.data?.head?.address) document.title = `${D.data.head.title || D.data.head.address} · Knox View`;
   D.loading = false; render();
 }
 // This download page's own link (/d/<token>): works for anyone it's sent to, no sign-in. HQ-only deliveries have none.
+// The link preview image (iMessage etc.) is rendered on first request; ask for it early so it's ready when the link is pasted
+const dlWarmPreview = () => { const t = SHARE || D.data?.shareToken; if (!t || D.warmed === t) return; D.warmed = t; fetch(`${CFG.supabaseUrl}/functions/v1/media?og=${t}`, { method: 'HEAD', mode: 'no-cors' }).catch(() => {}); };
 const dlShareUrl = () => { const t = SHARE || D.data?.shareToken; return t ? `${location.origin}/d/${t}` : null; };
 // "‹ Listings" only for the client who owns this order (a forwarded share link has no listings to go back to)
 const dlBack = () => !SHARE ? '<a class="dl-back" href="#listings">‹ Listings</a>' : D.data?.mine ? '<a class="dl-back" href="/#listings">‹ Listings</a>' : '';
@@ -1657,12 +1660,11 @@ Object.assign(window.kv, {
       <p class="hint" style="margin:0 0 14px">${due ? 'Anyone with this link can preview the media and pay the invoice. Downloads unlock once it’s paid.' : 'Anyone with this link can view and download the media. No sign-in needed.'}</p>
       <div class="sh-link"><input id="shUrl" readonly value="${esc(url)}" onclick="this.select()" aria-label="Page link"><button class="btn" id="shCopy" onclick="kv.dCopyPage()">${ic(I.copy, 16)} <span>Copy Link</span></button></div>
       <div class="sh-opts">
+        ${opt(`sms:?&body=${encodeURIComponent(url)}`, I.chat, 'Text', 'text')}
         ${opt(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, I.mail, 'Email', 'email')}
-        ${isPhone() ? opt(`sms:?&body=${encodeURIComponent(`${subject}: ${url}`)}`, I.chat, 'Text', 'text') : ''}
-        ${navigator.share ? `<button class="sh-opt" onclick="kv.dShareNative()">${ic(I.share, 22)}<span>${isPhone() ? 'More' : 'More Options'}</span></button>` : ''}
-        <button class="sh-opt" onclick="kv.dQR(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(name))})">${ic(I.qr, 22)}<span>QR Code</span></button>
       </div></div></div>`;
     if (!isPhone()) setTimeout(() => $('shUrl')?.select(), 30);
+    dlWarmPreview();
   },
   dCopyPage() {
     const url = dlShareUrl(), b = $('shCopy');
