@@ -1077,3 +1077,5 @@ s.was{color:var(--slate);font-weight:400;margin-right:6px;font-size:.85em;text-d
 .cp-row input{flex:1;min-width:0;text-transform:uppercase;letter-spacing:.04em}
 .cp-code{flex:1;font-weight:700;letter-spacing:.06em;color:var(--primary);padding:10px 12px;border:1.5px dashed #9cc9ae;border-radius:8px;background:#f7fcf9}
 .line.cp-line span:last-child{color:var(--ok)}
+/* "Recommended" tag on the Web quality download option */
+.dq-rec{display:inline-block;vertical-align:1px;margin-left:4px;padding:1px 8px;border-radius:999px;background:#2e7d4f;color:#fff;font-size:11px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
