@@ -89,7 +89,7 @@ async function page(b: any, mls: boolean) {
     const vm = parseVimeo(v.url); if (!vm) continue;
     const info = await vimeoInfo(vm.id).catch(() => null);
     videos.push({ embed: vimeoEmbed(vm), title: (v.label || info?.name || 'Video').replace(/\b(un)?branded\b|\bmls\b/ig, '').replace(/\s*[-–·]\s*$/, '').trim() || 'Video',
-      poster: info?.pictures?.base_link ? info.pictures.base_link + '_1920x1080' : null, portrait: info ? (info.height || 0) > (info.width || 0) : false });
+      poster: info?.pictures?.base_link ? String(info.pictures.base_link).replace(/(\?|$)/, '_1920x1080$1') : null, portrait: info ? (info.height || 0) > (info.width || 0) : false });
   }
   const plans: any[] = [];
   for (const f of ((b.floorplan_files as any[]) ?? []).filter(f => f?.path)) plans.push({ name: f.name, pdf: /\.pdf$/i.test(f.name), u: await sign({ src: 'dbxp', path: f.path, v: 'high', name: f.name, pub: 1 }, 0, exp) });
