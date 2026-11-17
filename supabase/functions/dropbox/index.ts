@@ -237,6 +237,10 @@ Deno.serve(async (req) => {
       if (!r.ok) throw new Bad(`CubiCasa said ${r.status}: ${JSON.stringify(r.j).slice(0, 200)}`, 502);
       return json(req, { ok: true, webhook_urls, webhook_triggers, result: r.j });
     }
+    if (body.action === 'cubicasa_order') { // raw CubiCasa order (for checking what CubiCasa sends)
+      const r = await cc('GET', `/orders/${String(body.orderId || '')}`);
+      return json(req, { status: r.status, order: r.j });
+    }
     if (body.action === 'cubicasa_cancel') {
       const id = String(body.orderId || '');
       if (!id) throw new Bad('orderId is required');
