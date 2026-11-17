@@ -53,9 +53,11 @@ function sanitize(input: any, b: any) {
 // Price "450000" -> "$450,000"; anything with words stays as typed
 const money = (v: string) => /^\$?\s*[\d,]+(\.\d{1,2})?$/.test(v.trim()) ? '$' + Number(v.replace(/[^\d.]/g, '')).toLocaleString('en-US', { maximumFractionDigits: 0 }) : v;
 
-// Links stay the same for a week at a time, so the CDN and browsers can cache the photos.
-const WEEK = 7 * 86400;
-const stableExp = () => (Math.ceil(Date.now() / 1000 / WEEK) + 1) * WEEK;
+// Built for lots of sites: every photo link is permanent (the same URL forever for the same file), so Netlify's Image CDN
+// fetches each photo from Dropbox once and serves every later visitor from its cache. The file size is folded into the
+// link, so a photo replaced in HQ under the same name gets a new link (and a fresh copy) automatically.
+const FOREVER = 4102444800; // 2100-01-01
+const permExp = (size?: number) => FOREVER + (Number(size) || 0) % 1000000;
 
 async function whoCanEdit(req: Request, b: any) {
   const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
@@ -74,10 +76,12 @@ async function previewOk(slug: string, tok: string) {
 const live = (b: any) => b.status === 'completed' && b.websites_enabled !== false && (b.paid || b.require_payment === false);
 
 async function page(b: any, mls: boolean) {
-  const s = siteOf(b), exp = stableExp();
+  const s = siteOf(b);
+  // Dropbox photos come in as Dropbox's 2048px web rendition (~1 MB instead of a ~10 MB original): plenty for any screen
+  const sizes = new Map(((b.photo_files as any[]) ?? []).map(f => [f?.path || f?.url, f?.size]));
   const photos = await Promise.all(galleryEntries(b).map(async f => f.kind === 'dbx'
-    ? { u: await sign({ src: 'dbxp', path: f.path, v: 'high', name: f.name, pub: 1 }, 0, exp) }
-    : { u: await sign({ src: 'url', url: f.url!, v: 'high', name: f.name, pub: 1 }, 0, exp) }));
+    ? { u: await sign({ src: 'dbxp', path: f.path, v: 'web', name: f.name, pub: 1 }, 0, permExp(sizes.get(f.path))) }
+    : { u: await sign({ src: 'url', url: f.url!, v: 'high', name: f.name, pub: 1 }, 0, permExp(String(f.url).length)) }));
   // videos: the MLS page shows unbranded cuts (and never one labelled branded); the branded page prefers branded cuts
   const all = ((b.videos as any[]) ?? []).filter(v => v?.url);
   const isUnb = (v: any) => /unbrand|mls|non.?brand/i.test(v.label || '');
@@ -92,8 +96,8 @@ async function page(b: any, mls: boolean) {
       poster: info?.pictures?.base_link ? String(info.pictures.base_link).replace(/(\?|$)/, '_1920x1080$1') : null, portrait: info ? (info.height || 0) > (info.width || 0) : false });
   }
   const plans: any[] = [];
-  for (const f of ((b.floorplan_files as any[]) ?? []).filter(f => f?.path)) plans.push({ name: f.name, pdf: /\.pdf$/i.test(f.name), u: await sign({ src: 'dbxp', path: f.path, v: 'high', name: f.name, pub: 1 }, 0, exp) });
-  for (const f of ((b.media_files as any[]) ?? []).filter(f => f?.kind === 'floorplan' && /^https:/.test(f.url || ''))) plans.push({ name: f.name || 'Floor plan', pdf: /\.pdf$/i.test(f.name || f.url), u: await sign({ src: 'url', url: f.url, v: 'high', name: f.name || 'floor-plan', pub: 1 }, 0, exp) });
+  for (const f of ((b.floorplan_files as any[]) ?? []).filter(f => f?.path)) plans.push({ name: f.name, pdf: /\.pdf$/i.test(f.name), u: await sign({ src: 'dbxp', path: f.path, v: 'high', name: f.name, pub: 1 }, 0, permExp(f.size)) });
+  for (const f of ((b.media_files as any[]) ?? []).filter(f => f?.kind === 'floorplan' && /^https:/.test(f.url || ''))) plans.push({ name: f.name || 'Floor plan', pdf: /\.pdf$/i.test(f.name || f.url), u: await sign({ src: 'url', url: f.url, v: 'high', name: f.name || 'floor-plan', pub: 1 }, 0, permExp(String(f.url).length)) });
   let agent = null;
   if (!mls && b.agent_id) {
     const { data: a } = await admin.from('agents').select('full_name, first_name, last_name, email, phone, brokerage, team_name, photo_url, brand_logo_url, logo_url, website_url, company_id').eq('id', b.agent_id).maybeSingle();
