@@ -1070,3 +1070,10 @@ s.was{color:var(--slate);font-weight:400;margin-right:6px;font-size:.85em;text-d
 .pl-links{display:flex;flex-wrap:wrap;gap:8px 18px;margin:12px 0 4px}
 .pl-link{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:4px 0;font:inherit;font-size:14px;font-weight:600;color:var(--primary,#1d3250);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 .pl-link:disabled{opacity:.6}
+/* coupon code at checkout */
+.cp-tick{border-color:var(--line,#dfe3ea);background:#fff}
+.cp-box.on .cp-tick{border-color:#cfe5d8;background:#f2faf5}
+.cp-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.cp-row input{flex:1;min-width:0;text-transform:uppercase;letter-spacing:.04em}
+.cp-code{flex:1;font-weight:700;letter-spacing:.06em;color:var(--primary);padding:10px 12px;border:1.5px dashed #9cc9ae;border-radius:8px;background:#f7fcf9}
+.line.cp-line span:last-child{color:var(--ok)}

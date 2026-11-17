@@ -97,7 +97,8 @@ Deno.serve(async (req) => {
 
     const { data: st } = await admin.from('booking_settings').select('payment_options, timezone').eq('id', 1).single();
     if (!(st?.payment_options as string[] ?? []).includes('pay_later')) throw new Bad('Pay on delivery is not available. Please choose Pay Now.');
-    const q = await booking(req, { action: 'quote', ...sel }); // server price
+    const q = await booking(req, { action: 'quote', ...sel, coupon: body.coupon ? String(body.coupon).slice(0, 40) : null, email }); // server price (and coupon, checked again)
+    const free = +q.total <= 0; // a coupon covered the whole order
     const avail = await booking(req, { action: 'slots', ...sel, from: localDate(start, st.timezone || 'America/New_York'), days: 1 });
     if (!avail.days?.[0]?.times?.some((t: { start: string }) => t.start === start.toISOString())) throw new Bad('That time was just taken. Please pick another.', 409);
 
@@ -112,7 +113,9 @@ Deno.serve(async (req) => {
       address: street, unit: a.unit ? String(a.unit).slice(0, 60) : null, city, state, zip,
       sqft: q.sqft, sqft_label: a.sqftLabel ?? null, large_property: q.large,
       occupancy: a.occupancy || null, access_notes: a.access ? String(a.access).slice(0, 2000) : null, notes: c.notes ? String(c.notes).slice(0, 2000) : null, client_files: cleanFiles(a.files),
-      items: q.items, subtotal: q.subtotal, tax: q.tax, total: q.total,
+      items: q.items, subtotal: q.subtotal, discount: +(q.discount || 0), tax: q.tax, total: q.total,
+      coupon_id: q.coupon?.id ?? null, coupon_code: q.coupon?.code ?? null, coupon_discount: +(q.coupon?.amount || 0),
+      ...(free ? { paid: true, paid_at: new Date().toISOString(), paid_method: 'coupon', payment_status: 'paid' } : {}),
       shoot_start: start.toISOString(), shoot_end: new Date(+start + q.minutes * 60000).toISOString(), duration_min: q.minutes,
       payment_option: 'pay_later', stripe_livemode: live, order_page_id: sel.pageId,
     }).select('*').single();

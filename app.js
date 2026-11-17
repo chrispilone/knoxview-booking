@@ -42,6 +42,7 @@ const S = {
   slots: null, slotsFrom: null, slotsLoading: false, start: null, startLabel: '',
   contact: { first: '', last: '', email: '', phone: '', brokerage: '', notes: '' },
   payOpt: 'save_card', errors: {}, busy: false, useCredit: true,
+  cp: { on: false, code: '', applied: null, err: '', busy: false }, // coupon code at checkout (applied = { code, label, kind, value, min_total })
   checkout: null, // { booking, clientSecret, intentType, elements }
   done: null, login: null, pdata: null, after: '',
 };
@@ -96,8 +97,11 @@ function lines() {
   // photos-only orders over 3,500 sq ft: Photography is $250 instead of $225 (no separate large-home fee)
   return out;
 }
-const total = () => lines().reduce((a, l) => a + l.price, 0);
-const selection = () => ({ packageId: S.pkg, serviceIds: [...S.items], sqftLabel: S.addr.sqftLabel, adu: S.adu, pageId: isCustom() ? PAGE().id : null });
+const subTotal = () => lines().reduce((a, l) => a + l.price, 0);
+// Coupon savings on this order (the server works it out again when the order is saved)
+const couponOff = () => { const c = S.cp.applied, st = subTotal(); if (!c || st < c.min_total) return 0; return Math.round(Math.min(st, c.kind === 'percent' ? st * c.value / 100 : c.value) * 100) / 100; };
+const total = () => Math.max(0, Math.round((subTotal() - couponOff()) * 100) / 100);
+const selection = () => ({ packageId: S.pkg, serviceIds: [...S.items], sqftLabel: S.addr.sqftLabel, adu: S.adu, pageId: isCustom() ? PAGE().id : null, coupon: S.cp.applied?.code || null });
 function upsells() {
   const c = inCart(), cov = covered();
   return S.upsells.filter(u => anyOf(u.show_when_any, c) && !anyOf(u.hide_when_any, c) && !cov.has(u.service_id) && svc(u.service_id));
@@ -610,8 +614,10 @@ function vReview(inline) {
       <dt>Property</dt><dd>${esc(a.street)}${a.unit ? ', ' + esc(a.unit) : ''}, ${esc(a.city)}, ${esc(a.state)} ${esc(a.zip)}<br><span class="hint">${esc(a.sqftLabel)}${a.occupancy ? ' · ' + esc(a.occupancy) : ''}</span></dd>
       <dt>Appointment</dt><dd>${esc(when)}</dd>
       <dt>Services</dt><dd>${lines().map(l => esc(l.name)).join(', ')}</dd>
-      <dt>Total</dt><dd><b style="color:var(--primary)">${money(total())}</b></dd>
+      ${couponOff() ? `<dt>Coupon</dt><dd><span class="cr-txt">${esc(S.cp.applied.code)} · −${money2(couponOff())}</span></dd>` : ''}
+      <dt>Total</dt><dd><b style="color:var(--primary)">${money2(total())}</b></dd>
     </dl>
+    ${locked ? '' : vCoupon()}
     ${myCredit() && !locked ? `<label class="cr-box" style="margin-top:14px"><input type="checkbox" ${S.useCredit ? 'checked' : ''} onchange="kv.useCredit(this.checked)">
       <span><b>Use my account credit</b><small>You have ${money2(myCredit())} available.${S.useCredit ? ` ${money2(Math.min(myCredit(), total()))} comes off this order, so ${Math.max(0, total() - myCredit()) > 0 ? `you pay ${money2(Math.max(0, total() - myCredit()))}` : "there's nothing left to pay"}.` : ''}</small></span></label>` : ''}
     ${locked ? `<div class="pay"><b style="color:var(--primary)">Pay now · ${money(S.checkout.booking.total)}</b><div id="pay-el"></div></div>` : ''}
@@ -625,7 +631,7 @@ function vReview(inline) {
            <div class="submit-opts">
              <div class="submit-main"><button class="btn" onclick="kv.submitOrder()" ${S.busy ? 'disabled' : ''}>${S.busy && S.payOpt === 'pay_later' ? '<span class="spin"></span>' : 'Submit Order'}</button>
                <small>Payment upon delivery</small></div>
-             <button class="btn o" onclick="kv.startCheckout()" ${S.busy ? 'disabled' : ''}>${S.busy && S.payOpt === 'pay_now' ? '<span class="spin"></span>' : 'Pay Now and Submit Order'}</button>
+             ${total() > 0 ? `<button class="btn o" onclick="kv.startCheckout()" ${S.busy ? 'disabled' : ''}>${S.busy && S.payOpt === 'pay_now' ? '<span class="spin"></span>' : 'Pay Now and Submit Order'}</button>` : ''}
            </div>`}
     </div>
     <p class="terms-note">By submitting an order, you agree to our <a href="javascript:kv.showTerms()">Terms &amp; Conditions</a>.</p>`;
@@ -976,7 +982,7 @@ function vInvoiceDetail(n) {
       </div>
       <div class="panel"><h3 class="ih3">Services</h3>
         ${i.items.map(x => line(esc(x.name), money2(x.price))).join('')}
-        ${i.discount ? line('Discount', '-' + money2(i.discount)) : ''}${i.tax ? line('Tax', money2(i.tax)) : ''}
+        ${i.coupon_code && i.coupon_discount ? line('Coupon ' + esc(i.coupon_code), '-' + money2(Math.min(i.discount, i.coupon_discount))) : ''}${i.discount - (i.coupon_code ? Math.min(i.discount, i.coupon_discount || 0) : 0) > 0 ? line('Discount', '-' + money2(i.discount - (i.coupon_code ? Math.min(i.discount, i.coupon_discount || 0) : 0))) : ''}${i.tax ? line('Tax', money2(i.tax)) : ''}
         ${line('Invoice total', money2(i.total), 'b')}</div>
     </div>
     <aside class="panel iside">
@@ -1079,6 +1085,20 @@ Object.assign(window.kv, {
   invPdf, invEmail, invPay, reloadInvoices: () => loadInvoices(),
   invRange(v) { INV.range = v; render(); },
   useCredit(v) { S.useCredit = !!v; render(); },
+  cpOn(v) { S.cp.on = !!v; if (!v) { S.cp.applied = null; S.cp.err = ''; } render(); if (v) setTimeout(() => $('cpCode')?.focus(), 30); },
+  async cpApply() {
+    const code = ($('cpCode')?.value || S.cp.code).trim(); S.cp.code = code;
+    if (!code) { S.cp.err = 'Enter a coupon code.'; render(); return; }
+    S.cp.busy = true; S.cp.err = ''; render();
+    try {
+      const c = await api('coupon', { code, email: S.contact.email || S.session?.user?.email || '' });
+      S.cp.applied = c; S.cp.code = c.code;
+      if (subTotal() < c.min_total) S.cp.err = `This code needs an order of at least ${money(c.min_total)}.`;
+    } catch (e) { S.cp.applied = null; S.cp.err = e.message; }
+    S.cp.busy = false; render();
+  },
+  cpType(v) { S.cp.code = v; },
+  cpRemove() { S.cp.applied = null; S.cp.code = ''; S.cp.err = ''; render(); },
 });
 
 // Account → Notification Preferences: text messages the client wants (HQ shows and edits the same switches)
@@ -1624,11 +1644,26 @@ function fillContact() {
   Object.assign(S.contact, { first: first || '', last: rest.join(' '), email: S.agent.email || S.session?.user?.email || '', phone: S.agent.phone || '', brokerage: S.agent.brokerage || '' });
 }
 
+// "I have a coupon code" box on the review step (same style as the account credit box)
+function vCoupon() {
+  const c = S.cp, ap = c.applied;
+  return `<div class="cp-box${c.on ? ' on' : ''}" style="margin-top:14px">
+    <label class="cr-box cp-tick"><input type="checkbox" ${c.on ? 'checked' : ''} onchange="kv.cpOn(this.checked)">
+      <span><b>I have a coupon code</b>${ap && couponOff() ? `<small class="cr-txt">${esc(ap.code)} applied · ${esc(ap.label)} · you save ${money2(couponOff())}</small>` : ''}</span></label>
+    ${c.on ? (ap ? `<div class="cp-row"><span class="cp-code">${esc(ap.code)}</span><button type="button" class="btn o sm" onclick="kv.cpRemove()">Remove</button></div>`
+      : `<div class="cp-row"><input id="cpCode" value="${esc(c.code)}" placeholder="Coupon code" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="40"
+          oninput="kv.cpType(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();kv.cpApply()}">
+        <button type="button" class="btn sm" onclick="kv.cpApply()" ${c.busy ? 'disabled' : ''}>${c.busy ? '<span class="spin"></span>' : 'Apply'}</button></div>`) : ''}
+    ${c.on && c.err ? `<div class="msg err" style="margin:8px 0 0">${esc(c.err)}</div>` : ''}
+  </div>`;
+}
+
 function vSummary(btn) {
   const ls = lines();
   return `${btn ? '' : `<button class="sheet-x" onclick="document.getElementById('sheet').classList.remove('on')" aria-label="Close">Done</button>`}<h2>Your order</h2>
     ${ls.length ? ls.map(l => `<div class="line"><span>${esc(l.name)}</span><span>${money(l.price)}</span></div>${(l.subs || []).map(s => `<div class="line sub"><span>${esc(s)}</span><span>incl.</span></div>`).join('')}`).join('') : '<div class="empty">Choose a package or service to get started.</div>'}
-    <div class="tot"><span>Total</span><span>${money(total())}</span></div>
+    ${couponOff() ? `<div class="line cp-line"><span>Coupon ${esc(S.cp.applied.code)}</span><span>−${money2(couponOff())}</span></div>` : ''}
+    <div class="tot"><span>Total</span><span>${couponOff() ? money2(total()) : money(total())}</span></div>
     ${S.startLabel && S.step >= 2 ? `<div class="note">${new Date(S.start).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · ${esc(S.startLabel)}</div>` : ''}
     ${btn && S.step < 3 ? `<button class="btn" onclick="kv.go(${S.step + 1})" ${isValid(S.step) ? '' : 'disabled'}>Continue</button>` : ''}`;
 }
@@ -1996,7 +2031,7 @@ function acHookOrderForm() {
 
 /* ================= keeping portal data fresh ================= */
 // After an order or payment, forget what was loaded so Listings and Invoices show it right away.
-function freshAfterOrder() { S.pdata = null; if (typeof INV !== 'undefined') { INV.data = null; INV.pdf = {}; INV.dmedia = {}; } }
+function freshAfterOrder() { S.cp = { on: false, code: '', applied: null, err: '', busy: false }; S.pdata = null; if (typeof INV !== 'undefined') { INV.data = null; INV.pdf = {}; INV.dmedia = {}; } }
 // Reload whatever the current page shows (used by pull-to-refresh and when the app comes back to the front).
 async function refreshView() {
   if (SHARE) { if (S.view === 'delivery') await loadDelivery(SHARE); return; }

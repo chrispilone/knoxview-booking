@@ -139,6 +139,41 @@ function price(cat: Awaited<ReturnType<typeof loadCatalog>>, sel: Sel) {
   return { items, subtotal, tax: 0, total: subtotal, minutes: Math.max(minutes, 30), large, sqft: opt?.max ?? null, twilight: !!twilight };
 }
 
+/* ----- coupon codes (managed in HQ → Orders → Coupon Codes). The client types one at checkout; the server checks it
+   again when the order is saved, so the price can't be changed from the browser. ----- */
+const r2 = (n: number) => Math.round(n * 100) / 100;
+const couponLabel = (c: any) => c.kind === 'percent' ? `${+c.value}% off` : `$${(+c.value).toLocaleString('en-US', { minimumFractionDigits: (+c.value) % 1 ? 2 : 0 })} off`;
+const couponOff = (c: any, subtotal: number) => subtotal < +(c.min_total || 0) ? 0 : r2(Math.min(subtotal, c.kind === 'percent' ? subtotal * +c.value / 100 : +c.value));
+async function findCoupon(code: unknown, email?: string | null) {
+  const raw = String(code ?? '').trim().slice(0, 40);
+  if (!raw) return null;
+  const bad = 'That coupon code isn\'t valid.';
+  if (!/^[\w-]+$/.test(raw)) throw new UserError(bad);
+  const { data: c } = await admin.from('coupons').select('*').ilike('code', raw.replace(/_/g, '\\_')).maybeSingle();
+  const now = Date.now();
+  if (!c || !c.active) throw new UserError(bad);
+  if (c.starts_at && +new Date(c.starts_at) > now) throw new UserError(bad);
+  if (c.expires_at && +new Date(c.expires_at) <= now) throw new UserError('That coupon code has expired.');
+  if (c.max_uses) {
+    const { count } = await admin.from('bookings').select('id', { count: 'exact', head: true }).eq('coupon_id', c.id).neq('status', 'cancelled');
+    if ((count ?? 0) >= c.max_uses) throw new UserError('That coupon code has been used up.');
+  }
+  const em = String(email ?? '').trim().toLowerCase();
+  if (c.once_per_client && em) {
+    const { count } = await admin.from('bookings').select('id', { count: 'exact', head: true }).eq('coupon_id', c.id).neq('status', 'cancelled').ilike('client_email', em.replace(/[%_\\]/g, '\\$&'));
+    if ((count ?? 0) > 0) throw new UserError('You\'ve already used that coupon code.');
+  }
+  return c;
+}
+// Puts a coupon on a priced order (q from price()). Throws if the code isn't valid for this order.
+async function withCoupon<T extends { subtotal: number; tax: number; total: number }>(q: T, code: unknown, email?: string | null) {
+  const c = await findCoupon(code, email);
+  if (!c) return { ...q, discount: 0, coupon: null as null | { id: string; code: string; label: string; amount: number } };
+  if (q.subtotal < +(c.min_total || 0)) throw new UserError(`That coupon code needs an order of at least $${+c.min_total}.`);
+  const amount = couponOff(c, q.subtotal);
+  return { ...q, discount: amount, total: r2(q.subtotal - amount + q.tax), coupon: { id: c.id, code: String(c.code).toUpperCase(), label: c.description || couponLabel(c), amount } };
+}
+
 /* ---------------- Availability ---------------- */
 async function ownerGoogleToken() {
   if (!G_ID || !G_SECRET) return null;
@@ -448,7 +483,14 @@ async function handle(req: Request) {
 
     if (action === 'quote') {
       const { cat } = await catalogFor(req, body);
-      return json(req, price(cat, body));
+      const q = price(cat, body);
+      return json(req, body.coupon ? await withCoupon(q, body.coupon, body.email) : q);
+    }
+
+    if (action === 'coupon') { // checkout: "I have a coupon code" → is it valid? (the order is checked again when it's saved)
+      const c = await findCoupon(body.code, body.email);
+      if (!c) throw new UserError('Enter a coupon code.');
+      return json(req, { code: String(c.code).toUpperCase(), label: c.description || couponLabel(c), kind: c.kind, value: +c.value, min_total: +(c.min_total || 0) });
     }
 
     if (action === 'slots') {
@@ -460,8 +502,9 @@ async function handle(req: Request) {
     if (action === 'create') {
       if (!['test', 'live'].includes(stripeMode())) throw new UserError('Online payments are not switched on yet. Please call 865-855-5669 to book.', 503);
       const { cat, pageId } = await catalogFor(req, body);
-      const q = price(cat, body);
       const a = body.address ?? {}, c = body.contact ?? {};
+      const q = await withCoupon(price(cat, body), body.coupon, c.email);
+      if (q.total <= 0) throw new UserError('Your coupon covers the whole order, so there\'s nothing to pay. Use Submit Order instead.');
       const need = (v: unknown, label: string) => { if (!String(v ?? '').trim()) throw new UserError(`${label} is required.`); return String(v).trim().slice(0, 300); };
       const street = need(a.street, 'Street address'), city = need(a.city, 'City'), state = need(a.state, 'State'), zip = need(a.zip, 'ZIP');
       if (!/^\d{5}$/.test(zip)) throw new UserError('ZIP must be 5 digits.');
@@ -494,7 +537,8 @@ async function handle(req: Request) {
         address: street, unit: a.unit ? String(a.unit).slice(0, 60) : null, city, state, zip,
         sqft: q.sqft, sqft_label: a.sqftLabel ?? null, large_property: q.large,
         occupancy: a.occupancy || null, access_notes: a.access ? String(a.access).slice(0, 2000) : null, notes: c.notes ? String(c.notes).slice(0, 2000) : null, client_files: cleanFiles(a.files),
-        items: q.items, subtotal: q.subtotal, tax: q.tax, total: q.total,
+        items: q.items, subtotal: q.subtotal, discount: q.discount, tax: q.tax, total: q.total,
+        coupon_id: q.coupon?.id ?? null, coupon_code: q.coupon?.code ?? null, coupon_discount: q.coupon?.amount ?? 0,
         shoot_start: start.toISOString(), shoot_end: new Date(+start + q.minutes * 60000).toISOString(), duration_min: q.minutes,
         payment_option: payOpt, stripe_customer_id: customer, stripe_livemode: LIVE, order_page_id: pageId,
       }).select('*').single();

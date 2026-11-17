@@ -60,7 +60,7 @@ async function stripe(path: string, live: boolean, body?: Record<string, unknown
 }
 
 /* ---------------- data ---------------- */
-const COLS = 'id, number, order_no, status, address, unit, city, state, zip, items, subtotal, discount, tax, total, credit_applied, paid, paid_at, paid_method, payment_status, payment_option, stripe_payment_intent_id, stripe_livemode, stripe_customer_id, shoot_start, created_at, invoice_sent_at, invoice_due_at, client_name, client_email, client_phone, cover_url, marketing_url, require_payment, public_token, invoice';
+const COLS = 'id, number, order_no, coupon_code, coupon_discount, status, address, unit, city, state, zip, items, subtotal, discount, tax, total, credit_applied, paid, paid_at, paid_method, payment_status, payment_option, stripe_payment_intent_id, stripe_livemode, stripe_customer_id, shoot_start, created_at, invoice_sent_at, invoice_due_at, client_name, client_email, client_phone, cover_url, marketing_url, require_payment, public_token, invoice';
 // invoice = false: placed in HQ with "Create an invoice? No", so it isn't listed, payable or shareable as an invoice
 const isInvoice = (b: any) => b.invoice !== false && b.status !== 'cancelled' && !(b.status === 'requested' && b.payment_status === 'unpaid');
 const dueOf = (b: any) => b.paid ? 0 : Math.max(0, r2(+b.total - +(b.credit_applied || 0)));
@@ -69,7 +69,7 @@ function shape(b: any) {
   return {
     id: b.id, number: b.number, order_no: b.order_no || '#' + b.number, address: b.address + (b.unit ? ', ' + b.unit : ''), place: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '),
     items: (b.items || []).map((i: any) => ({ name: i.name, price: +i.price, kind: i.kind })),
-    subtotal: +(b.subtotal ?? b.total), discount: +(b.discount || 0), tax: +(b.tax || 0), total: +b.total, credit: +(b.credit_applied || 0), due: dueOf(b),
+    subtotal: +(b.subtotal ?? b.total), discount: +(b.discount || 0), coupon_code: b.coupon_code || null, coupon_discount: +(b.coupon_discount || 0), tax: +(b.tax || 0), total: +b.total, credit: +(b.credit_applied || 0), due: dueOf(b),
     paid: !!b.paid, paid_at: b.paid ? b.paid_at : null, paid_method: b.paid_method, payment_status: b.payment_status,
     invoice_date: invDate, due_date: b.invoice_due_at || invDate, shoot_start: b.shoot_start, cover_url: b.cover_url || null, marketing: !!b.marketing_url,
   };
@@ -197,7 +197,9 @@ async function invoicePdf(b: any, client: any) {
   // table: Description | Cost Breakdown | Order Total (order total cell spans the rows)
   const c1 = M, c2 = M + 300, c3 = M + 400, c4 = RX, head = 30;
   const rows = [...inv.items.map(i => ({ name: i.name || 'Service', price: i.price }))];
-  if (inv.discount) rows.push({ name: 'Discount', price: -inv.discount });
+  const cpOff = Math.min(+inv.discount || 0, +inv.coupon_discount || 0), other = r2((+inv.discount || 0) - cpOff);
+  if (cpOff && inv.coupon_code) rows.push({ name: `Coupon ${inv.coupon_code}`, price: -cpOff });
+  if (other > 0 || (inv.discount && !inv.coupon_code)) rows.push({ name: 'Discount', price: -(inv.coupon_code ? other : inv.discount) });
   rows.push({ name: 'Tax', price: inv.tax });
   const lines = rows.map(r => wrap(r.name, R, 10, c2 - c1 - 16));
   const rowH = lines.map(l => Math.max(24, l.length * 13 + 11));
