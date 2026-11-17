@@ -20,7 +20,7 @@ async function hmac(data: string) {
 // v: thumb (640px), preview (1024px, for the photo viewer), web (2048px), high (original). wm: burn in the PREVIEW watermark.
 // src dbxp = a file (or, with v=zip, a folder) by its path in the connected Dropbox account.
 // src zipb = every photo of an order (bid), in the Media Library order, zipped with numbered names (see galleryName).
-export type MediaRef = { src: 'dbx' | 'dbxp' | 'vimeo' | 'url' | 'zipb'; link?: string; path?: string; vid?: string; url?: string; bid?: string; v?: 'thumb' | 'preview' | 'web' | 'high' | 'zip'; name?: string; dl?: 1; wm?: 1 };
+export type MediaRef = { src: 'dbx' | 'dbxp' | 'vimeo' | 'url' | 'zipb'; link?: string; path?: string; vid?: string; url?: string; bid?: string; v?: 'thumb' | 'preview' | 'web' | 'high' | 'zip'; name?: string; dl?: 1; wm?: 1; pub?: 1 }; // pub: public property website file (cacheable)
 
 /* ---------- the order's photo gallery (Media Library order = what the client sees and downloads) ---------- */
 // bookings.photo_files is one ordered list: Dropbox photos {name, path, size} and photos uploaded in HQ
@@ -44,8 +44,9 @@ export function galleryName(i: number, name: string, address: string) {
   const stem = String(name).replace(/\.[^.]+$/, '');
   return safeName(`${String(i + 1).padStart(3, '0')}-${stem}${address ? '-' + address : ''}`) + '.' + ext;
 }
-export async function sign(ref: MediaRef, hours = 12) {
-  const d = b64u(new TextEncoder().encode(JSON.stringify({ ...ref, exp: Math.floor(Date.now() / 1000) + hours * 3600 })));
+// expAt (unix seconds) instead of hours: the same link for everyone until then (property websites, so browsers and the CDN can cache)
+export async function sign(ref: MediaRef, hours = 12, expAt?: number) {
+  const d = b64u(new TextEncoder().encode(JSON.stringify({ ...ref, exp: expAt ?? Math.floor(Date.now() / 1000) + hours * 3600 })));
   return `${MEDIA_BASE}?d=${d}&s=${await hmac(d)}`;
 }
 export async function verify(d: string, s: string): Promise<(MediaRef & { exp: number }) | null> {

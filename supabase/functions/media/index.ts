@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
     h.set('Content-Type', type || EXT_TYPE[ext] || up.headers.get('content-type') || 'application/octet-stream');
     const len = up.headers.get('content-length'); if (len) h.set('Content-Length', len);
     h.set('Content-Disposition', `${ref.dl ? 'attachment' : 'inline'}; filename="${name.replace(/"/g, '')}"`);
-    h.set('Cache-Control', ref.v === 'thumb' || ref.v === 'preview' ? 'private, max-age=3600' : 'private, no-store');
+    h.set('Cache-Control', ref.pub ? 'public, max-age=604800, immutable' : ref.v === 'thumb' || ref.v === 'preview' ? 'private, max-age=3600' : 'private, no-store');
     return new Response(req.method === 'HEAD' ? null : up.body, { status: 200, headers: h });
   } catch (e) {
     console.error('media error', String((e as Error)?.message || e));
