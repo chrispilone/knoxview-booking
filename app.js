@@ -871,8 +871,9 @@ function acts(l) {
   const b = (fn, icon, title, lbl) => `<button class="act" onclick="${fn}" title="${title}" aria-label="${title}">${ic(icon)}<span class="al">${lbl}</span></button>`;
   const dl = `#delivery/${l.key}`, has = l.media.some(m => m.delivered) || l.b?.hasDelivery;
   const go = (tab, icon, title, on) => on ? `<a class="act" href="${dl}/${tab}" title="${title}" aria-label="${title}">${ic(icon)}<span class="al">${title}</span></a>` : `<span class="act off" title="${title} · not ready yet">${ic(icon)}<span class="al">${title}</span></span>`;
-  return [go('photos', I.dl, 'Photos', !!ph || (has && l.media.some(m => m.media === 'photo'))),
-    `<a class="act" href="${dl}" title="Media & delivery" aria-label="Media & delivery">${ic(I.eye)}<span class="al">All media</span></a>`,
+  const ready = has || !!ph || !!vd;
+  return [ready ? `<a class="act" href="${dl}" title="Download your media" aria-label="Download your media">${ic(I.dl)}<span class="al">Download</span></a>`
+      : `<span class="act off" title="Download · not ready yet">${ic(I.dl)}<span class="al">Download</span></span>`,
     l.b?.site_slug && l.b.websites_enabled !== false ? b(`kv.siteEdit('${l.b.id}')`, I.globe2, 'Property website: edit it and copy the links', 'Website') : '',
     l.b && l.b.invoice !== false ? b(`kv.invoiceFor(${l.b.number})`, I.inv, 'Order details, invoice and appointment', 'Order') : '',
     l.b ? b(`kv.resched(${l.b.number})`, I.cal, 'Reschedule this shoot', 'Reschedule') : b(`kv.orderAgain('${l.key}')`, I.again, 'Book this address again', 'Rebook'),
