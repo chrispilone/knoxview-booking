@@ -1373,7 +1373,7 @@ const D = (S.dl = { key: null, data: null, loading: false, error: '', tab: null,
 // The delivery page is also its own page: /d/<order share token>. That's the link in delivery emails and texts, so it
 // works when forwarded to anyone (no sign-in). Downloads still unlock only after payment when the order requires it.
 const SHARE = (location.pathname.match(/^\/d\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i) || [])[1] || null;
-const DL_TABS = ['photos', 'video', 'floorplan', 'tour'];
+const DL_TABS = ['photos', 'video', 'floorplan', 'tour', 'website'];
 
 async function loadDelivery(key) {
   Object.assign(D, { key, data: null, loading: true, error: '', sel: new Set() }); render();
@@ -1388,6 +1388,7 @@ const dTabs = d => [
   d.videos.length && ['video', I.film, 'Video'],
   d.floorplans.length && ['floorplan', I.plan, 'Floor plan'],
   d.tour && ['tour', I.cube, '3D tour'],
+  d.websites.length && ['website', I.globe2, 'Property website'],
 ].filter(Boolean);
 
 function linkCard(title, url, icon, soon) {
@@ -1396,6 +1397,7 @@ function linkCard(title, url, icon, soon) {
   return `<div class="dl-card"><h3>${icon ? ic(icon, 20) : ''}${esc(title)}</h3>
     <input class="dl-url" readonly value="${esc(url)}" onclick="this.select()">
     <div class="dl-btns"><a class="btn o" href="${esc(url)}" target="_blank" rel="noopener">${ic(I.eye, 16)} View</a>
+      <button class="btn o" onclick="kv.dCopy(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title + ' link'))})">${ic(I.copy, 16)} Copy</button>
       <button class="btn o" onclick="kv.dShare(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title))})">${ic(I.share, 16)} Share</button>
       <button class="btn o wide" onclick="kv.dQR(${esc(JSON.stringify(url))}, ${esc(JSON.stringify(title))})">${ic(I.qr, 16)} QR code</button></div></div>`;
 }
@@ -1405,6 +1407,16 @@ function fitSitePreview() {
     const k = f.clientWidth / 1280; i.style.transform = `scale(${k})`; f.style.height = Math.round(800 * k) + 'px'; });
 }
 window.addEventListener('resize', fitSitePreview);
+// Property website tab: branded + unbranded (MLS) links to view, copy, share or QR, and a live preview of the branded site
+function dWebsite(d) {
+  const ws = d.websites;
+  if (ws.every(w => w.soon)) return `<p class="hint" style="margin:14px 2px">Your property website will appear here when your order is complete.</p>`;
+  const pv = ws.find(w => w.preview && w.url);
+  if (pv) setTimeout(fitSitePreview, 0);
+  return `<section class="dl-cards site-cards">${ws.map(w => linkCard(w.label, w.url, null, w.soon)).join('')}</section>
+    ${pv ? `<section class="site-pv"><div class="site-pv-h"><b>Preview: branded website</b><a href="${esc(pv.url)}" target="_blank" rel="noopener">Open ${ic(I.ext, 14)}</a></div>
+      <div class="site-pv-frame"><iframe title="Property website preview" loading="lazy" src="${esc(pv.url)}"></iframe></div></section>` : ''}`;
+}
 function vDelivery() {
   if (D.loading || !D.data) return D.error ? `${dlBack()}<div class="msg err">${esc(D.error)}</div>` : '<div class="panel loading"><span class="spin"></span> Getting your media…</div>';
   const d = D.data, tabs = dTabs(d), tab = (tabs.find(t => t[0] === D.tab) || tabs[0] || [])[0];
@@ -1416,15 +1428,10 @@ function vDelivery() {
   const delivered = tabs.length > 0 || d.websites.some(w => !w.soon) || !!d.marketing;
   if (d.locked && delivered) out += `<div class="dl-lock ready">${ic('<path d="M20 6L9 17l-5-5"/>', 22)}<div><b>Your media is ready!</b> Preview it below, then pay to unlock and download all your media.</div>
       <button class="btn" onclick="kv.payBooking('${d.bookingId}')">Pay to download</button></div>`;
-  const cards = d.websites.map(w => linkCard(w.label, w.url, null, w.soon)).join('');
-  if (cards) out += `<section class="dl-cards">${cards}</section>`;
-  const pv = d.websites.find(w => w.preview && w.url); // live preview of the branded property website
-  if (pv) { out += `<section class="site-pv"><div class="site-pv-h"><b>Your property website</b><a href="${esc(pv.url)}" target="_blank" rel="noopener">Open ${ic(I.ext, 14)}</a></div>
-    <div class="site-pv-frame"><iframe title="Property website preview" loading="lazy" src="${esc(pv.url)}"></iframe></div></section>`; setTimeout(fitSitePreview, 0); }
   if (!tabs.length && !d.marketing) return out + `<div class="empty-st">${ic(I.photo, 56)}<p>Your media isn't delivered yet. We'll text and email you as soon as it is.</p></div>`;
   out += `<section class="dl-media"><nav class="dl-tabs">${tabs.map(([k, i, l]) => `<button class="${k === tab ? 'on' : ''}" onclick="kv.dTab('${k}')">${ic(i, 20)}<span>${l}</span></button>`).join('')}
     ${d.marketing ? (d.marketing.url ? `<a class="dl-tabx" href="${esc(d.marketing.url)}" target="_blank" rel="noopener">${ic(I.ext, 20)}<span>Marketing<span class="t-mid"> content</span></span></a>` : `<span class="dl-tabx off">${ic(I.lock, 18)}<span>Marketing<span class="t-mid"> content</span></span></span>`) : ''}</nav>`;
-  out += tab === 'photos' ? dPhotos(d) : tab === 'video' ? dVideos(d) : tab === 'floorplan' ? dPlans(d) : tab === 'tour' ? dTour(d) : '';
+  out += tab === 'photos' ? dPhotos(d) : tab === 'video' ? dVideos(d) : tab === 'floorplan' ? dPlans(d) : tab === 'tour' ? dTour(d) : tab === 'website' ? dWebsite(d) : '';
   return out + '</section>';
 }
 const SET_LABEL = { photos: ['photo', 'photos'], floorplans: ['floor plan', 'floor plans'] };
