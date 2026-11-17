@@ -1554,8 +1554,8 @@ Object.assign(window.kv, {
   dPick() { // choose quality for the selected photos
     const n = D.sel.size, [one, many] = SET_LABEL[D.cur];
     dModal(`<h2 style="font-size:22px;margin-bottom:12px">Download ${n} ${n === 1 ? one : many}</h2>
-      <label class="radio sel"><input type="radio" name="dq" value="high" checked> <span><b>High resolution</b><br><small class="hint">Full size, for print and MLS</small></span></label>
-      ${curSet().some(p => p.web) ? `<label class="radio"><input type="radio" name="dq" value="web"> <span><b>Web quality</b><br><small class="hint">2048 px, smaller files for social and websites</small></span></label>` : ''}
+      <label class="radio sel"><input type="radio" name="dq" value="high" checked> <span><b>Full resolution</b> <span class="hint">(print &amp; large displays)</span><br><small class="hint">Original size, the largest files</small></span></label>
+      ${curSet().some(p => p.web) ? `<label class="radio"><input type="radio" name="dq" value="web"> <span><b>Web quality</b> <span class="hint">(MLS, online &amp; social media)</span><br><small class="hint">2048 px, sized for MLS uploads, websites and social posts</small></span></label>` : ''}
       <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" onclick="kv.dSave([...kv._sel()], document.querySelector('[name=dq]:checked').value)">${ic(I.dl, 16)} Download</button></div>`);
     document.querySelectorAll('[name=dq]').forEach(r => r.onchange = () => document.querySelectorAll('.dl-modal .radio').forEach(l => l.classList.toggle('sel', l.querySelector('input').checked)));
   },
