@@ -225,9 +225,10 @@ Deno.serve(async (req) => {
       const mine = `${env('SUPABASE_URL')}/functions/v1/cubicasa`;
       const info = await cc('GET', '/companies/info');
       if (!info.ok) throw new Bad(`CubiCasa said ${info.status}: ${JSON.stringify(info.j).slice(0, 200)}`, 502);
-      const w = info.j?.webhook ?? info.j?.webhooks ?? info.j?.company?.webhook ?? info.j ?? {};
-      const have: string[] = w.webhook_urls ?? w.urls ?? [];
-      const trig: string[] = w.webhook_triggers ?? w.triggers ?? [];
+      const w = info.j?.configs ?? {};
+      if (!Array.isArray(w.webhook_urls)) throw new Bad("Couldn't read CubiCasa's current webhook settings, so nothing was changed.", 502);
+      const have: string[] = w.webhook_urls;
+      const trig: string[] = w.webhook_triggers ?? [];
       const webhook_urls = [...new Set([...have, mine])];
       const webhook_triggers = [...new Set([...trig, 'moved_to_draft', 'moved_to_pending', 'moved_to_ready', 'moved_to_fixing'])];
       if (body.dry) return json(req, { before: { webhook_urls: have, webhook_triggers: trig }, after: { webhook_urls, webhook_triggers }, raw: info.j });
@@ -292,7 +293,7 @@ Deno.serve(async (req) => {
       const need = await needsFloorPlan(b);
       if (!need.yes) return json(req, { ok: true, skipped: 'no photography on this order' });
       const draft: Record<string, unknown> = { street: b.address, city: b.city, state: b.state || undefined, postalCode: b.zip || undefined,
-        suite: b.unit || undefined, country: 'United States', owner_email: CC_OWNER, external_id: String(b.order_no || b.number || b.id),
+        suite: b.unit || undefined, country: 'US', owner_email: CC_OWNER, external_id: String(b.order_no || b.number || b.id),
         package_type: need.plus3d ? 'plus_3d' : 'plus' };
       if (!b.address || !b.city) throw new Bad('The order needs a street address and city for CubiCasa.');
       const r = await cc('POST', '/orders/draft', draft);
