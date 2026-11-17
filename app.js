@@ -1366,6 +1366,7 @@ I.share = '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle c
 I.qr = '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>';
 I.code = '<path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/>';
 I.copy = '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
+const ROLL = 'Save to Camera Roll'; // phones: photos go straight to Photos via the share sheet
 const isPhone = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
 const D = (S.dl = { key: null, data: null, loading: false, error: '', tab: null, sel: new Set() });
 // The delivery page is also its own page: /d/<order share token>. That's the link in delivery emails and texts, so it
@@ -1432,7 +1433,7 @@ function dGrid(d, key) {
       <figcaption><span>${esc(p.label || p.name)}</span></figcaption></figure>`).join('')}</div>`;
   const bar = `<div class="dl-bar">
       ${all > 1 ? `<button class="btn o" onclick="kv.dSelAll()">${n === all ? 'Clear selection' : 'Select all'}</button>
-      <button class="btn" ${n ? '' : 'disabled'} onclick="kv.dPick()">${ic(I.dl, 16)} Download${n ? ` ${n}` : ''}</button>` : ''}
+      <button class="btn" ${n ? '' : 'disabled'} onclick="kv.dPick()">${ic(I.dl, 16)} ${isPhone() && D.cur === 'photos' ? `${ROLL}${n ? ` (${n})` : ''}` : `Download${n ? ` ${n}` : ''}`}</button>` : ''}
       ${zip && !isPhone() ? `<a class="btn o" href="${esc(zip)}">${ic(I.dl, 16)} Download all (zip)</a>` : `<button class="btn ${all > 1 ? 'o' : ''}" onclick="kv.dAll()">${ic(I.dl, 16)} Download${all > 1 ? ` all ${all}` : ''}</button>`}</div>
       <p class="hint dl-tip">Tap ${all > 1 ? `a ${one}` : `the ${one}`} to see it full size.${all > 1 ? ' Tap the box in the corner to select it.' : ''}${isPhone() ? ' After Download, choose <b>Save Images</b> to put it in Photos.' : ''}</p>`;
   return bar + `<div class="dl-grid ${key}">${list.map((p, i) => `<figure class="dl-ph ${D.sel.has(i) ? 'sel' : ''}">
@@ -1454,7 +1455,7 @@ function lbPaint() {
       : `${multi ? `<button class="btn ${sel ? '' : 'o'} lb-sel" onclick="kv.dLbSel()" aria-pressed="${sel}">${sel ? `${CHECK} Selected` : 'Select'}</button>` : ''}
          ${p.web ? `<button class="btn o" title="Web quality: for MLS, online &amp; social media" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 16)} Web</button>` : ''}
          <button class="btn o" title="Full resolution: for print &amp; large displays" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 16)} ${p.web ? 'High' : 'Download'}</button>
-         ${D.sel.size ? `<button class="btn" onclick="kv.dLbClose();kv.dPick()">${ic(I.dl, 16)} Download ${D.sel.size}</button>` : ''}`}</div>`;
+         ${D.sel.size ? `<button class="btn" onclick="kv.dLbClose();kv.dPick()">${ic(I.dl, 16)} ${isPhone() && D.cur === 'photos' ? `${ROLL} (${D.sel.size})` : `Download ${D.sel.size}`}</button>` : ''}`}</div>`;
   [i - 1, i + 1].forEach(k => { const q = list[(k + list.length) % list.length]; if (q && (q.view || q.thumb)) new Image().src = q.view || q.thumb; }); // preload neighbours
   const st = document.getElementById('lbStage'); let x0 = null, y0 = null;
   st.ontouchstart = e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; };
@@ -1534,9 +1535,9 @@ async function saveFiles(list, what) {
     } catch (e) { dModal(`<p>${esc(e.message)}</p><div class="nav"><span></span><button class="btn" onclick="kv.closeModal()">OK</button></div>`); return; }
     if (!navigator.canShare({ files })) { kv.closeModal(); chunk.forEach((f, j) => setTimeout(() => anchorDownload(f.url, f.name), j * 450)); return; }
     const ok = await new Promise(res => {
-      dModal(`<div class="dl-ready">${CHECK}</div><p class="dl-ready-t">Your ${what === 'video' ? 'video is' : files.length > 1 ? 'photos are' : 'photo is'} ready to save.<br>Press continue.</p>
-        <p class="hint" style="text-align:center;margin:0 0 14px">Then choose <b>${what === 'video' ? 'Save Video' : files.length > 1 ? `Save ${files.length} Images` : 'Save Image'}</b>.</p>
-        <button class="btn" id="dlGo" style="width:100%">Continue</button>`);
+      dModal(`<div class="dl-ready">${CHECK}</div><p class="dl-ready-t">Your ${what === 'video' ? 'video is' : files.length > 1 ? `${files.length} photos are` : 'photo is'} ready for your Camera Roll.</p>
+        <p class="hint" style="text-align:center;margin:0 0 14px">Tap <b>${ROLL}</b>, then choose <b>${what === 'video' ? 'Save Video' : files.length > 1 ? `Save ${files.length} Images` : 'Save Image'}</b>.</p>
+        <button class="btn" id="dlGo" style="width:100%">${ic(I.dl, 16)} ${ROLL}</button>`);
       $('dlGo').onclick = () => navigator.share({ files }).then(() => res(true), e => res(e?.name !== 'AbortError' ? null : false)); // must run inside the tap
     });
     if (ok === false) break; // they cancelled the share sheet
@@ -1552,11 +1553,12 @@ Object.assign(window.kv, {
   dSel(i) { if (D.data.locked) return; D.sel.has(i) ? D.sel.delete(i) : D.sel.add(i); render(); },
   dSelAll() { const l = curSet(); D.sel = D.sel.size === l.length ? new Set() : new Set(l.map((_, i) => i)); render(); },
   dPick() { // choose quality for the selected photos
-    const n = D.sel.size, [one, many] = SET_LABEL[D.cur];
-    dModal(`<h2 style="font-size:22px;margin-bottom:12px">Download ${n} ${n === 1 ? one : many}</h2>
+    const n = D.sel.size, [one, many] = SET_LABEL[D.cur], roll = isPhone() && D.cur === 'photos';
+    dModal(`<h2 style="font-size:22px;margin-bottom:12px">${roll ? `Save ${n} ${n === 1 ? one : many} to your Camera Roll?` : `Download ${n} ${n === 1 ? one : many}`}</h2>
+      ${roll ? `<p class="hint" style="margin:-4px 0 12px">${n === 1 ? 'It saves' : 'They save'} straight to the Photos app on this phone.</p>` : ''}
       ${curSet().some(p => p.web) ? `<label class="radio sel"><input type="radio" name="dq" value="web" checked> <span><b>Web quality</b> <span class="dq-rec">Recommended</span> <span class="hint">(MLS, online &amp; social media)</span><br><small class="hint">Smaller files, ready to upload</small></span></label>` : ''}
       <label class="radio ${curSet().some(p => p.web) ? '' : 'sel'}"><input type="radio" name="dq" value="high" ${curSet().some(p => p.web) ? '' : 'checked'}> <span><b>Full resolution</b> <span class="hint">(print &amp; large displays)</span><br><small class="hint">Original size, the largest files</small></span></label>
-      <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" onclick="kv.dSave([...kv._sel()], document.querySelector('[name=dq]:checked').value)">${ic(I.dl, 16)} Download</button></div>`);
+      <div class="nav"><button class="btn o" onclick="kv.closeModal()">Cancel</button><button class="btn" onclick="kv.dSave([...kv._sel()], document.querySelector('[name=dq]:checked').value)">${ic(I.dl, 16)} ${roll ? ROLL : 'Download'}</button></div>`);
     document.querySelectorAll('[name=dq]').forEach(r => r.onchange = () => document.querySelectorAll('.dl-modal .radio').forEach(l => l.classList.toggle('sel', l.querySelector('input').checked)));
   },
   _sel: () => [...D.sel].sort((a, b) => a - b),
