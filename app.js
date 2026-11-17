@@ -1438,7 +1438,7 @@ function dGrid(d, key) {
   return bar + `<div class="dl-grid ${key}">${list.map((p, i) => `<figure class="dl-ph ${D.sel.has(i) ? 'sel' : ''}">
       <div class="dl-img"><button class="dl-open" onclick="kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
         ${all > 1 ? `<button class="dl-chk" onclick="kv.dSel(${i})" aria-label="${D.sel.has(i) ? 'Unselect' : 'Select'} ${esc(p.name)}" aria-pressed="${D.sel.has(i)}">${CHECK}</button>` : ''}</div>
-      <figcaption><span>${esc(p.name)}</span><span class="dl-q ${p.web ? '' : 'one'}">${p.web ? `<button onclick="kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button>` : ''}<button onclick="kv.dSave([${i}],'high')">${ic(I.dl, 14)} ${p.web ? 'High' : 'Download'}</button></span></figcaption></figure>`).join('')}</div>`;
+      <figcaption><span>${esc(p.name)}</span><span class="dl-q ${p.web ? '' : 'one'}">${p.web ? `<button title="Web quality: for MLS, online &amp; social media (2048 px)" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button>` : ''}<button title="Full resolution: for print &amp; large displays" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 14)} ${p.web ? 'High' : 'Download'}</button></span></figcaption></figure>`).join('')}</div>`;
 }
 const dPhotos = d => dGrid(d, 'photos');
 /* ----- full-screen photo viewer: swipe / arrows, select from inside ----- */
@@ -1452,8 +1452,8 @@ function lbPaint() {
     <div class="lb-bar">${d.locked
       ? `<span class="lb-note">${ic(I.lock, 16)} Preview · downloads unlock after payment</span>`
       : `${multi ? `<button class="btn ${sel ? '' : 'o'} lb-sel" onclick="kv.dLbSel()" aria-pressed="${sel}">${sel ? `${CHECK} Selected` : 'Select'}</button>` : ''}
-         ${p.web ? `<button class="btn o" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 16)} Web</button>` : ''}
-         <button class="btn o" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 16)} ${p.web ? 'High' : 'Download'}</button>
+         ${p.web ? `<button class="btn o" title="Web quality: for MLS, online &amp; social media (2048 px)" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 16)} Web</button>` : ''}
+         <button class="btn o" title="Full resolution: for print &amp; large displays" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 16)} ${p.web ? 'High' : 'Download'}</button>
          ${D.sel.size ? `<button class="btn" onclick="kv.dLbClose();kv.dPick()">${ic(I.dl, 16)} Download ${D.sel.size}</button>` : ''}`}</div>`;
   [i - 1, i + 1].forEach(k => { const q = list[(k + list.length) % list.length]; if (q && (q.view || q.thumb)) new Image().src = q.view || q.thumb; }); // preload neighbours
   const st = document.getElementById('lbStage'); let x0 = null, y0 = null;
