@@ -16,7 +16,7 @@ const PHONE = '865-855-5669';
 const OWNER_EMAIL = env('DELIVERY_BCC') || 'chris@knoxview.com';
 const RESEND_KEY = env('RESEND_API_KEY'), MAIL_FROM = env('DELIVERY_MAIL_FROM') || 'Knox View <bookings@mail.knoxview.com>';
 const G_ID = env('GOOGLE_CLIENT_ID'), G_SECRET = env('GOOGLE_CLIENT_SECRET');
-const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
+const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://bookbeta.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
 const cors = (req: Request) => {
   const o = req.headers.get('origin') ?? '';
   const ok = ORIGINS.includes(o) || /^https:\/\/[a-z0-9-]+--knoxview-booking\.netlify\.app$/.test(o);

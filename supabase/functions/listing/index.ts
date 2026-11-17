@@ -15,7 +15,7 @@ const env = (k: string) => (Deno.env.get(k) ?? '').trim();
 const admin = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
 const RESEND_KEY = env('RESEND_API_KEY'), MAIL_FROM = env('DELIVERY_MAIL_FROM') || 'Knox View <bookings@mail.knoxview.com>';
 const SITE_BASE = 'https://listing.knoxview.com';
-const ORIGINS = ['https://listing.knoxview.com', 'https://hq.knoxview.com', 'https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
+const ORIGINS = ['https://listing.knoxview.com', 'https://hq.knoxview.com', 'https://test.knoxview.com', 'https://book.knoxview.com', 'https://bookbeta.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
 const cors = (req: Request) => {
   const o = req.headers.get('origin') ?? '';
   const ok = ORIGINS.includes(o) || /^https:\/\/[a-z0-9-]+--knoxview-(booking|hq)\.netlify\.app$/.test(o);

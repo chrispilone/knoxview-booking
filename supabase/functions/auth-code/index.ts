@@ -22,7 +22,7 @@ const MAIL_FROM = env('AUTH_MAIL_FROM') || 'Knox View Media <noreply@mail.knoxvi
 const G_ID = env('GOOGLE_CLIENT_ID'), G_SECRET = env('GOOGLE_CLIENT_SECRET');
 
 const TEST_CLIENT_EMAIL = 'chris+test@knoxview.com'; // the only account test_session can open
-const ORIGINS = ['https://hq.knoxview.com', 'https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
+const ORIGINS = ['https://hq.knoxview.com', 'https://test.knoxview.com', 'https://book.knoxview.com', 'https://bookbeta.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
 const cors = (req: Request) => {
   const o = req.headers.get('origin') ?? '';
   const ok = ORIGINS.includes(o) || /^https:\/\/[a-z0-9-]+--knoxview-booking\.netlify\.app$/.test(o);

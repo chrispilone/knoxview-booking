@@ -20,7 +20,7 @@ const reqMode = new AsyncLocalStorage<{ live: boolean }>(); // per-request Strip
 const isLive = () => reqMode.getStore()?.live ?? false;
 const G_ID = (Deno.env.get('GOOGLE_CLIENT_ID') ?? '').trim();
 const G_SECRET = (Deno.env.get('GOOGLE_CLIENT_SECRET') ?? '').trim();
-const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
+const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://bookbeta.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
 
 const cors = (req: Request) => {
   const o = req.headers.get('origin') ?? '';

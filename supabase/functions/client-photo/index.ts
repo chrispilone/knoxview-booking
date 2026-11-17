@@ -13,7 +13,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 // agents.photo_original_path is the full photo (max 2400px) so it can be re-cropped later.
 
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
-const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
+const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://bookbeta.knoxview.com', 'https://knoxview-booking.netlify.app', 'http://localhost:8888', 'http://localhost:5173'];
 const BUCKET = 'agent-photos';
 
 const cors = (req: Request) => {

@@ -24,7 +24,7 @@ const REPLY_TO = env('DELIVERY_REPLY_TO') || 'chris@knoxview.com';
 const PORTAL = (env('PORTAL_URL') || 'https://knoxview-booking.netlify.app').replace(/\/$/, '');
 const G_ID = env('GOOGLE_CLIENT_ID'), G_SECRET = env('GOOGLE_CLIENT_SECRET');
 const BIZ = { name: 'Knox View Real Estate Media', legal: 'Knox View Media LLC', address: ['Knox View Media LLC', '3912 Papermill Square NW', 'Knoxville, TN 37909'], owner: 'Chris Pilone', phone: '865-855-5669', email: 'chris@knoxview.com', web: 'knoxview.com', city: 'Knoxville, Tennessee' };
-const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://knoxview-booking.netlify.app', 'https://hq.knoxview.com', 'http://localhost:8888', 'http://localhost:5173'];
+const ORIGINS = ['https://test.knoxview.com', 'https://book.knoxview.com', 'https://bookbeta.knoxview.com', 'https://knoxview-booking.netlify.app', 'https://hq.knoxview.com', 'http://localhost:8888', 'http://localhost:5173'];
 
 const cors = (req: Request) => {
   const o = req.headers.get('origin') ?? '';
