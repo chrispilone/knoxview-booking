@@ -296,7 +296,9 @@ async function spiroImport(set: any, p: any) {
       // Delivered photos that aren't in Dropbox (cleaned out, or never uploaded there): copy Spiro's delivered copy
       // (2500px, the size the client downloaded from Spiro) into the photo folder, under Spiro's file name.
       const have = new Set(images.map(f => nameKey(f.name)));
-      const lack = ((p.photoUrls ?? []) as { name: string, url: string }[]).filter(x => x.url && !have.has(nameKey(x.name)));
+      // at most 24 per call (edge functions have a CPU/memory budget); the result says how many are still to copy, run it again for the rest
+      const lackAll = ((p.photoUrls ?? []) as { name: string, url: string }[]).filter(x => x.url && !have.has(nameKey(x.name)));
+      const lack = lackAll.slice(0, 24);
       let photosCopied = 0;
       if (lack.length) {
         if (!photosDir) { photosDir = clean(set.dropbox_final_photos || '04-Final-Photos'); await dbxApi('files/create_folder_v2', { path: `${path}/${photosDir}`, autorename: false }); }
@@ -338,12 +340,12 @@ async function spiroImport(set: any, p: any) {
         await setCover(b, ordered).catch(() => null);
       }
       const matched = images.length - photo_hidden.length;
-      dropbox = { found: true, path, photosDir, plansDir: planDirName, inDropbox: images.length, delivered: want.length, matched, hidden: photo_hidden.length, photosCopied,
+      dropbox = { found: true, path, photosDir, plansDir: planDirName, inDropbox: images.length, delivered: want.length, matched, hidden: photo_hidden.length, photosCopied, photosPending: lackAll.length - photosCopied,
         missing: want.filter(n => !images.some(f => nameKey(f.name) === nameKey(n))), plansCopied: copied, floorplans: synced?.floorplan_files?.length ?? plans.length };
       log.push(`Dropbox: ${matched} of ${want.length} delivered photos found`);
     } else log.push('Dropbox folder not found');
   }
-  return { ok: true, bookingId: b.id, number: b.number, order_no: b.order_no, status, paid: row.paid, billTo: row.bill_to, invoices: inv.map((i: any) => `${i.ref} (${i.payee}, ${i.status})`), dropbox, log };
+  return { ok: true, bookingId: b.id, number: b.number, order_no: b.order_no, status, paid: row.paid, billTo: row.bill_to, invoices: inv.map((i: any) => `${i.ref} (${i.payee}, ${i.status})`), dropbox, more: (dropbox.photosPending ?? 0) > 0, log };
 }
 
 // ---- Spiro public API (read-only; secret SPIRO_API_KEY, sent as a Bearer token) ----
