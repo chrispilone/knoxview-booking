@@ -256,6 +256,7 @@ async function spiroImport(set: any, p: any) {
     paid_note: settled ? `Paid in Spiro · invoice ${settled.ref}` : null, payment_status: settled || total === 0 ? 'paid' : 'unpaid',
     videos, tour_url: (p.tours ?? [])[0] || null, imported_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   };
+  if (p.appointment?.photographer) { const { data: tm } = await admin.from('team_members').select('id').ilike('full_name', p.appointment.photographer).maybeSingle(); if (tm) row.photographer_id = tm.id; }
   const { data: existing } = await admin.from('bookings').select('*').eq('spiro_order_id', row.spiro_order_id).maybeSingle();
   let b: any;
   if (existing) { const { created_at, ...upd } = row; const { data, error } = await admin.from('bookings').update(upd).eq('id', existing.id).select('*').single(); if (error) throw new Error(error.message); b = data; log.push('Updated order'); }
