@@ -198,6 +198,7 @@ async function findSpiroFolder(shoot: string | null, photographer: string, addre
     if (f) return f.path_display as string; }
   return null;
 }
+const fmtPhone = (p: string) => { const d = String(p || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}` : (p || null); };
 async function copyToStorage(url: string, path: string) {
   try {
     const r = await fetch(url); if (!r.ok) return null;
@@ -224,7 +225,7 @@ async function spiroImport(set: any, p: any) {
   let { data: ag } = await admin.from('agents').select('id, photo_url').eq('spiro_agent_id', a.agentId).maybeSingle();
   if (!ag && a.emailAddress) ({ data: ag } = await admin.from('agents').select('id, photo_url').ilike('email', a.emailAddress).maybeSingle());
   const agentRow: any = { spiro_agent_id: a.agentId, full_name: `${a.firstName} ${a.lastName}`.trim(), first_name: a.firstName, last_name: a.lastName,
-    email: (a.emailAddress || '').toLowerCase() || null, phone: a.phoneNumber || null, company_id: companyId, brokerage: a.companyName || null };
+    email: (a.emailAddress || '').toLowerCase() || null, phone: fmtPhone(a.phoneNumber), company_id: companyId, brokerage: a.companyName || null };
   if (ag) { const { full_name, first_name, last_name, ...keep } = agentRow; await admin.from('agents').update({ ...keep }).eq('id', ag.id); }
   else { const { data: n, error } = await admin.from('agents').insert({ ...agentRow, preferences: 'Imported from Spiro' }).select('id, photo_url').single(); if (error) throw new Error('client: ' + error.message); ag = n; log.push('Added client ' + agentRow.full_name); }
   if (!ag!.photo_url && p.agentPhoto) {
@@ -259,6 +260,8 @@ async function spiroImport(set: any, p: any) {
   let b: any;
   if (existing) { const { created_at, ...upd } = row; const { data, error } = await admin.from('bookings').update(upd).eq('id', existing.id).select('*').single(); if (error) throw new Error(error.message); b = data; log.push('Updated order'); }
   else { const { data, error } = await admin.from('bookings').insert(row).select('*').single(); if (error) throw new Error(error.message); b = data; log.push('Created order #' + data.number); }
+  // the client's own "require payment" setting is for new orders; imported orders were already delivered in Spiro
+  if (b.require_payment !== false) { await admin.from('bookings').update({ require_payment: false }).eq('id', b.id); b.require_payment = false; }
   // Dropbox: the order folder, its photo / floor plan subfolders, delivered photos only, Spiro floor plans if missing
   let dropbox: any = { found: false };
   if (dropboxConfigured() && (await dropboxToken().catch(() => null))) {
