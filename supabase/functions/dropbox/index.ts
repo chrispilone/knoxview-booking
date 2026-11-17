@@ -299,7 +299,8 @@ Deno.serve(async (req) => {
       if (!need.yes) return json(req, { ok: true, skipped: 'no photography on this order' });
       const draft: Record<string, unknown> = { street: b.address, city: b.city, state: b.state || undefined, postalCode: b.zip || undefined,
         suite: b.unit || undefined, country: 'US', owner_email: CC_OWNER, external_id: String(b.order_no || b.number || b.id),
-        package_type: need.plus3d ? 'plus_3d' : 'plus' };
+        // the free package (base) leaves the choice open: Plus or Plus + 3D can still be picked in CubiCasa; base can't be picked after Plus
+        package_type: 'base', info: need.plus3d ? 'Client ordered a 3D floor plan: upgrade this order to Plus + 3D.' : undefined };
       if (!b.address || !b.city) throw new Bad('The order needs a street address and city for CubiCasa.');
       const r = await cc('POST', '/orders/draft', draft);
       const id = r.j?.id ?? r.j?.order?.id ?? r.j?.data?.id;
