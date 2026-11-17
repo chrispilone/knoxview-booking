@@ -375,13 +375,13 @@ async function deliveryFor(agent: any, key: string) {
       const wm = locked ? { wm: 1 as const } : {}, addr = galleryAddress(b);
       if (!locked) folders.push({ zip: await sign({ src: 'zipb', bid: b.id, name: `${addr || 'Photos'} photos.zip`, dl: 1 }) });
       for (const [i, f] of gallery.entries()) {
-        const name = galleryName(i, f.name, addr);
-        if (f.kind === 'dbx') photos.push({ name,
+        const name = galleryName(i, f.name, addr), label = galleryName(i, f.name, ''); // label shown on the page; the address is only added to the downloaded file name
+        if (f.kind === 'dbx') photos.push({ name, label,
           thumb: await sign({ src: 'dbxp', path: f.path, v: 'thumb', name, ...wm }),
           view: await sign({ src: 'dbxp', path: f.path, v: locked ? 'preview' : 'web', name, ...wm }),
           web: locked ? null : await sign({ src: 'dbxp', path: f.path, v: 'web', name, dl: 1 }),
           high: locked ? null : await sign({ src: 'dbxp', path: f.path, v: 'high', name, dl: 1 }) });
-        else photos.push({ name,
+        else photos.push({ name, label,
           thumb: await sign({ src: 'url', url: f.preview || f.url, v: 'thumb', name, ...wm }),
           view: await sign(locked ? { src: 'url', url: f.preview || f.url, v: 'preview', name, wm: 1 } : { src: 'url', url: f.web || f.url, v: 'preview', name }),
           web: locked || !f.web ? null : await sign({ src: 'url', url: f.web, name, dl: 1 }),

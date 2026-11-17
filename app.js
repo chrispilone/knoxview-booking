@@ -1429,7 +1429,7 @@ function dGrid(d, key) {
   if (d.locked) return `<div class="dl-bar locked"><span>${ic(I.lock, 18)} <b>Preview.</b> ${all === 1 ? `Your ${one} downloads` : `All ${all} ${many} download`} in full resolution, without the watermark, after payment.</span>
 </div>
     <div class="dl-grid preview ${key}">${list.map((p, i) => `<figure class="dl-ph"><button class="dl-img" onclick="kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
-      <figcaption><span>${esc(p.name)}</span></figcaption></figure>`).join('')}</div>`;
+      <figcaption><span>${esc(p.label || p.name)}</span></figcaption></figure>`).join('')}</div>`;
   const bar = `<div class="dl-bar">
       ${all > 1 ? `<button class="btn o" onclick="kv.dSelAll()">${n === all ? 'Clear selection' : 'Select all'}</button>
       <button class="btn" ${n ? '' : 'disabled'} onclick="kv.dPick()">${ic(I.dl, 16)} Download${n ? ` ${n}` : ''}</button>` : ''}
@@ -1438,7 +1438,7 @@ function dGrid(d, key) {
   return bar + `<div class="dl-grid ${key}">${list.map((p, i) => `<figure class="dl-ph ${D.sel.has(i) ? 'sel' : ''}">
       <div class="dl-img"><button class="dl-open" onclick="kv.dView(${i})" aria-label="View ${esc(p.name)}">${tile(p, i)}</button>
         ${all > 1 ? `<button class="dl-chk" onclick="kv.dSel(${i})" aria-label="${D.sel.has(i) ? 'Unselect' : 'Select'} ${esc(p.name)}" aria-pressed="${D.sel.has(i)}">${CHECK}</button>` : ''}</div>
-      <figcaption><span>${esc(p.name)}</span><span class="dl-q ${p.web ? '' : 'one'}">${p.web ? `<button title="Web quality: for MLS, online &amp; social media" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button>` : ''}<button title="Full resolution: for print &amp; large displays" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 14)} ${p.web ? 'High' : 'Download'}</button></span></figcaption></figure>`).join('')}</div>`;
+      <figcaption><span>${esc(p.label || p.name)}</span><span class="dl-q ${p.web ? '' : 'one'}">${p.web ? `<button title="Web quality: for MLS, online &amp; social media" onclick="kv.dSave([${i}],'web')">${ic(I.dl, 14)} Web</button>` : ''}<button title="Full resolution: for print &amp; large displays" onclick="kv.dSave([${i}],'high')">${ic(I.dl, 14)} ${p.web ? 'High' : 'Download'}</button></span></figcaption></figure>`).join('')}</div>`;
 }
 const dPhotos = d => dGrid(d, 'photos');
 /* ----- full-screen photo viewer: swipe / arrows, select from inside ----- */
@@ -1446,7 +1446,7 @@ function lbEl() { let el = document.getElementById('lb'); if (!el) { el = docume
 function lbPaint() {
   const d = D.data, list = curSet(), i = D.lb, p = list[i], el = lbEl(), sel = D.sel.has(i), multi = list.length > 1;
   el.className = 'lb on';
-  el.innerHTML = `<div class="lb-top"><span>${multi ? `${i + 1} / ${list.length}` : ''}</span><span class="lb-name">${esc(p.name)}</span><button class="lb-x" onclick="kv.dLbClose()" aria-label="Close">✕</button></div>
+  el.innerHTML = `<div class="lb-top"><span>${multi ? `${i + 1} / ${list.length}` : ''}</span><span class="lb-name">${esc(p.label || p.name)}</span><button class="lb-x" onclick="kv.dLbClose()" aria-label="Close">✕</button></div>
     <div class="lb-stage ${D.cur}" id="lbStage"><img src="${esc(p.view || p.thumb || '')}" alt="${esc(p.name)}" draggable="false" ${d.locked ? 'oncontextmenu="return false"' : ''}>
       ${multi ? '<button class="lb-nav prev" onclick="kv.dLbGo(-1)" aria-label="Previous">‹</button><button class="lb-nav next" onclick="kv.dLbGo(1)" aria-label="Next">›</button>' : ''}</div>
     <div class="lb-bar">${d.locked
