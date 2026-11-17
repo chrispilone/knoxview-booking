@@ -18,7 +18,7 @@ const env = (k: string) => (Deno.env.get(k) ?? '').trim();
 const RESEND_KEY = env('RESEND_API_KEY');
 const MAIL_FROM = env('DELIVERY_MAIL_FROM') || 'Knox View <bookings@mail.knoxview.com>';
 const REPLY_TO = env('DELIVERY_REPLY_TO') || 'chris@knoxview.com';
-const PORTAL = (env('PORTAL_URL') || 'https://knoxview-booking.netlify.app').replace(/\/$/, '');
+const PORTAL = (env('PORTAL_URL') || 'https://bookbeta.knoxview.com').replace(/\/$/, '');
 const BCC = env('DELIVERY_BCC') || 'chris@knoxview.com';
 const QUO_KEY = env('QUO_API_KEY'), QUO_FROM = env('QUO_FROM_NUMBER') || '+18658555669';
 const G_ID = env('GOOGLE_CLIENT_ID'), G_SECRET = env('GOOGLE_CLIENT_SECRET');

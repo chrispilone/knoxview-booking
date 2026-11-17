@@ -156,7 +156,7 @@ async function icsFile(req: Request) {
   if (!b || !b.shoot_start) return new Response('Not found', { status: 404 });
   const start = new Date(b.shoot_start), end = b.shoot_end ? new Date(b.shoot_end) : new Date(+start + (b.duration_min || 90) * 60000);
   const where = [b.address + (b.unit ? ', ' + b.unit : ''), b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-  const portal = (env('PORTAL_URL') || 'https://knoxview-booking.netlify.app').replace(/\/$/, '');
+  const portal = (env('PORTAL_URL') || 'https://bookbeta.knoxview.com').replace(/\/$/, '');
   const title = `Your Knox View shoot at ${where}`;
   const desc = `Knox View Real Estate Media photo shoot (order ${b.order_no || '#' + b.number}).\nView, reschedule or cancel: ${portal}/#invoices/${b.number}\nQuestions? Call or text ${PHONE}.`;
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Knox View Real Estate Media//Booking Portal//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
