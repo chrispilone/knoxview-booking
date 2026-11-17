@@ -873,6 +873,7 @@ function acts(l) {
   const go = (tab, icon, title, on) => on ? `<a class="act" href="${dl}/${tab}" title="${title}" aria-label="${title}">${ic(icon)}<span class="al">${title}</span></a>` : `<span class="act off" title="${title} · not ready yet">${ic(icon)}<span class="al">${title}</span></span>`;
   return [go('photos', I.dl, 'Photos', !!ph || (has && l.media.some(m => m.media === 'photo'))),
     `<a class="act" href="${dl}" title="Media & delivery" aria-label="Media & delivery">${ic(I.eye)}<span class="al">All media</span></a>`,
+    l.b?.site_slug && l.b.websites_enabled !== false ? b(`kv.siteEdit('${l.b.id}')`, I.globe2, 'Property website: edit it and copy the links', 'Website') : '',
     l.b && l.b.invoice !== false ? b(`kv.invoiceFor(${l.b.number})`, I.inv, 'Order details, invoice and appointment', 'Order') : '',
     l.b ? b(`kv.resched(${l.b.number})`, I.cal, 'Reschedule this shoot', 'Reschedule') : b(`kv.orderAgain('${l.key}')`, I.again, 'Book this address again', 'Rebook'),
     l.b ? `<button class="act act-x" onclick="kv.cancelAppt(${l.b.number})" title="Cancel appointment" aria-label="Cancel appointment">${ic(I.xc)}<span class="al">Cancel</span></button>` : ''].join('');
@@ -1819,6 +1820,64 @@ Object.assign(window.kv, {
     } catch (e) { $('plErr').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; if (b) { b.disabled = false; b.textContent = 'Try again'; } }
   },
 });
+
+/* ================= property website editor =================
+   Each completed order gets a single property website: listing.knoxview.com/<address> (branded, with the client's
+   photo, logo and contact details) and /<address>/mls (unbranded). Clients edit the listing details here; the
+   `listing` function saves them and the page updates within a couple of minutes. */
+I.globe2 = '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z"/>';
+const SITE_ICONS = { price: 'Price ($)', bed: 'Beds', bath: 'Baths', size: 'Size', lot: 'Lot', year: 'Year built', garage: 'Garage', home: 'Home', pool: 'Pool', view: 'View', star: 'Star' };
+const SE = { id: null, data: null, saving: false };
+async function siteEdit(id) {
+  SE.id = id; SE.data = null;
+  $('modal').innerHTML = `<div class="modal se-modal"><div class="panel se"><div class="panel loading"><span class="spin"></span> Loading your property website…</div></div></div>`;
+  try { SE.data = await api('editor', { bookingId: id }, 'listing'); siteDraw(); }
+  catch (e) { $('modal').innerHTML = `<div class="modal"><div class="panel"><p>${esc(e.message)}</p><div class="nav"><span></span><button class="btn" onclick="kv.closeModal()">OK</button></div></div></div>`; }
+}
+function siteLink(label, sub, url) {
+  return `<div class="se-link"><div><b>${label}</b><small>${sub}</small><code>${esc(url.replace('https://', ''))}</code></div>
+    <div class="se-lbtns"><button class="btn sm" onclick="kv.dCopy(${esc(JSON.stringify(url))}, '${label} link')">${ic(I.copy, 15)} Copy</button>
+    <a class="btn o sm" href="${esc(url)}${SE.data.live ? '' : '?preview=' + encodeURIComponent(SE.data.preview)}" target="_blank" rel="noopener">${ic(I.ext, 15)} ${SE.data.live ? 'Open' : 'Preview'}</a></div></div>`;
+}
+function siteDraw() {
+  const d = SE.data, s = d.site;
+  const note = !d.live ? `<p class="msg info" style="margin:0 0 14px">${d.locked ? 'Your website goes live as soon as this order is paid. Until then only you can preview it.' : 'Your website isn’t live yet. Only you can preview it.'}</p>` : '';
+  $('modal').innerHTML = `<div class="modal se-modal" onclick="if(event.target===this)kv.closeModal()"><div class="panel se">
+    <div class="se-head"><div><h2>Property Website</h2><p class="hint">${d.views ? `${Number(d.views).toLocaleString()} view${d.views === 1 ? '' : 's'} so far` : 'Share it anywhere: texts, social, email.'}</p></div>
+      <button class="se-x" onclick="kv.closeModal()" aria-label="Close">${ic(I.xc, 22)}</button></div>
+    ${note}
+    ${d.links ? siteLink('Branded', 'With your photo, logo and contact info', d.links.branded) + siteLink('MLS', 'Unbranded, safe for the MLS', d.links.mls) : ''}
+    <h3 class="se-h">Listing details</h3>
+    <label class="se-f">Title<input id="seTitle" maxlength="140" value="${esc(s.title || '')}" placeholder="123 Main St"></label>
+    <label class="se-f">Subtitle<input id="seSub" maxlength="160" value="${esc(s.subtitle || '')}" placeholder="Gatlinburg, TN 37738"></label>
+    <div class="se-facts" id="seFacts">${s.facts.map((f, i) => `<div class="se-fact ${f.show === false ? 'off' : ''}" data-i="${i}">
+      <select aria-label="Icon" data-k="icon">${Object.entries(SITE_ICONS).map(([k, l]) => `<option value="${k}" ${f.icon === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <input data-k="label" maxlength="40" value="${esc(f.label || '')}" placeholder="Label" aria-label="Label">
+      <input data-k="value" maxlength="60" value="${esc(f.value || '')}" placeholder="${f.icon === 'price' ? '$450,000' : f.icon === 'size' ? '2,400 sq ft' : f.icon === 'lot' ? '1.2 acres' : 'Value'}" aria-label="${esc(f.label || 'Value')}" ${f.icon === 'price' ? 'inputmode="decimal"' : ''}>
+      <div class="se-fbtns"><button type="button" title="Move up" onclick="kv.siteMove(${i},-1)" ${i ? '' : 'disabled'}>↑</button><button type="button" title="Move down" onclick="kv.siteMove(${i},1)" ${i < s.facts.length - 1 ? '' : 'disabled'}>↓</button>
+        <label class="se-show" title="Show on the website"><input type="checkbox" data-k="show" ${f.show !== false ? 'checked' : ''}> Show</label></div></div>`).join('')}</div>
+    <button type="button" class="btn o sm" onclick="kv.siteAddFact()" ${s.facts.length >= 12 ? 'disabled' : ''}>+ Add a detail</button>
+    <label class="se-f" style="margin-top:16px">Description<textarea id="seDesc" rows="7" maxlength="6000" placeholder="Tell buyers what makes this home special. Leave a blank line between paragraphs.">${esc(s.description || '')}</textarea></label>
+    <p class="hint" style="margin:-4px 0 0">Your name, photo, logo and phone come from your profile. Change them in Profile.</p>
+    <div class="nav se-nav"><button class="btn o" onclick="kv.closeModal()">Close</button><button class="btn" id="seSave" onclick="kv.siteSave()">Save changes</button></div>
+  </div></div>`;
+}
+function siteRead() { // the form back into SE.data.site
+  const s = SE.data.site;
+  s.title = $('seTitle').value; s.subtitle = $('seSub').value; s.description = $('seDesc').value;
+  document.querySelectorAll('.se-fact').forEach(row => { const f = s.facts[+row.dataset.i];
+    row.querySelectorAll('[data-k]').forEach(el => { f[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value; }); });
+}
+function siteMove(i, d) { siteRead(); const f = SE.data.site.facts, j = i + d; if (j < 0 || j >= f.length) return; [f[i], f[j]] = [f[j], f[i]]; siteDraw(); }
+function siteAddFact() { siteRead(); SE.data.site.facts.push({ k: 'f' + Date.now().toString(36), icon: 'star', label: '', value: '', show: true }); siteDraw(); const r = [...document.querySelectorAll('.se-fact [data-k=label]')].pop(); r?.focus(); }
+async function siteSave() {
+  siteRead(); const btn = $('seSave'); btn.disabled = true; btn.textContent = 'Saving…';
+  try { const r = await api('save', { bookingId: SE.id, site: SE.data.site }, 'listing'); SE.data.site = r.site; siteDraw(); toastMsg('Saved. Your website updates in a minute or two.'); }
+  catch (e) { btn.disabled = false; btn.textContent = 'Save changes'; alert(e.message); }
+}
+function toastMsg(m) { let t = $('kvToast'); if (!t) { t = document.createElement('div'); t.id = 'kvToast'; t.className = 'kv-toast'; document.body.appendChild(t); }
+  t.textContent = m; t.classList.add('on'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('on'), 2600); }
+Object.assign(window.kv, { siteEdit, siteMove, siteAddFact, siteSave });
 
 function render() {
   if (S.view === 'paylink') { // payment link page: its own simple page

@@ -620,7 +620,7 @@ async function handle(req: Request) {
     if (action === 'portal') {
       const { data: agent } = await admin.from('agents').select('id, full_name, email, phone, brokerage').eq('auth_user_id', user.id).maybeSingle();
       if (!agent) return json(req, { agent: null, bookings: [], listings: [] });
-      const { data: bks } = await admin.from('bookings').select('id, number, order_no, status, address, unit, city, state, zip, media_title, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, photo_files, floorplan_files, videos, tour_url, floorplan_url, website_url, media_files, require_payment, invoice')
+      const { data: bks } = await admin.from('bookings').select('id, number, order_no, status, address, unit, city, state, zip, media_title, items, total, paid, paid_at, payment_status, payment_option, shoot_start, project_ids, cover_url, created_at, photos_url, photo_files, floorplan_files, videos, tour_url, floorplan_url, website_url, media_files, require_payment, invoice, site_slug, websites_enabled, site_views')
         .eq('agent_id', agent.id).neq('status', 'cancelled').order('shoot_start', { ascending: false }).limit(200);
       // deliveries made outside the portal (HQ / Spiro era) for this client, not tied to a portal booking
       const { data: own } = await admin.from('projects').select('id, name, address, city, media, status, dropbox_url, vimeo_url, delivered_at, created_at, parent_project_id')
