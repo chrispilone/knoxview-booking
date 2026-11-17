@@ -19,7 +19,31 @@ async function hmac(data: string) {
 }
 // v: thumb (640px), preview (1024px, for the photo viewer), web (2048px), high (original). wm: burn in the PREVIEW watermark.
 // src dbxp = a file (or, with v=zip, a folder) by its path in the connected Dropbox account.
-export type MediaRef = { src: 'dbx' | 'dbxp' | 'vimeo' | 'url'; link?: string; path?: string; vid?: string; url?: string; v?: 'thumb' | 'preview' | 'web' | 'high' | 'zip'; name?: string; dl?: 1; wm?: 1 };
+// src zipb = every photo of an order (bid), in the Media Library order, zipped with numbered names (see galleryName).
+export type MediaRef = { src: 'dbx' | 'dbxp' | 'vimeo' | 'url' | 'zipb'; link?: string; path?: string; vid?: string; url?: string; bid?: string; v?: 'thumb' | 'preview' | 'web' | 'high' | 'zip'; name?: string; dl?: 1; wm?: 1 };
+
+/* ---------- the order's photo gallery (Media Library order = what the client sees and downloads) ---------- */
+// bookings.photo_files is one ordered list: Dropbox photos {name, path, size} and photos uploaded in HQ
+// {src: 'upload', name, path (storage), url, preview?, web?}. Older orders may still keep uploads in media_files.
+export type GalleryItem = { kind: 'dbx' | 'upload'; name: string; path?: string; url?: string; preview?: string; web?: string };
+export function galleryEntries(b: any): GalleryItem[] {
+  const out: GalleryItem[] = [];
+  for (const f of ((b?.photo_files as any[]) ?? [])) {
+    if (!f?.name) continue;
+    if (f.src === 'upload') { if (/^https:\/\//.test(f.url || '')) out.push({ kind: 'upload', name: f.name, url: f.url, preview: f.preview, web: f.web }); }
+    else if (f.path) out.push({ kind: 'dbx', name: f.name, path: f.path });
+  }
+  for (const f of ((b?.media_files as any[]) ?? [])) // legacy uploads kept in media_files
+    if ((f?.kind || 'photo') === 'photo' && /^https:\/\//.test(f?.url || '')) out.push({ kind: 'upload', name: f.name || (f.url.split('/').pop() || 'photo.jpg'), url: f.url, preview: f.preview, web: f.web });
+  return out;
+}
+export const galleryAddress = (b: any) => String((b?.address || '') + (b?.unit ? ' ' + b.unit : '')).trim();
+// Download name that locks in the order: "001-003-353 Meadow Rd.jpg" (position - original name - property)
+export function galleryName(i: number, name: string, address: string) {
+  const ext = (String(name).match(/\.([a-z0-9]{2,5})$/i)?.[1] || 'jpg').toLowerCase();
+  const stem = String(name).replace(/\.[^.]+$/, '');
+  return safeName(`${String(i + 1).padStart(3, '0')}-${stem}${address ? '-' + address : ''}`) + '.' + ext;
+}
 export async function sign(ref: MediaRef, hours = 12) {
   const d = b64u(new TextEncoder().encode(JSON.stringify({ ...ref, exp: Math.floor(Date.now() / 1000) + hours * 3600 })));
   return `${MEDIA_BASE}?d=${d}&s=${await hmac(d)}`;

@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import { sign, dbxApi, dropboxFolderImages, dropboxConfigured, dropboxToken, forgetDropboxToken } from './lib.ts';
+import { sign, dbxApi, dropboxFolderImages, dropboxConfigured, dropboxToken, forgetDropboxToken, dropboxPathStream } from './lib.ts';
 
 // Dropbox for HQ (super admins only). Orders get a folder structure in Dropbox when they're completed; the
 // "Final Photos" folder is what the client's delivery page shows, in the order set on the order page in HQ.
@@ -8,9 +8,12 @@ import { sign, dbxApi, dropboxFolderImages, dropboxConfigured, dropboxToken, for
 //   connect { code, redirect }     -> saves the connection (refresh token in app_secrets, never sent to a browser)
 //   disconnect
 //   create_folders { bookingId }   -> makes <root>/<folder name>/<subfolders> and saves bookings.dropbox_path
-//   sync { bookingId }             -> reads <dropbox_path>/<final photos>, keeps the order already set, adds new photos at the end;
-//                                     also reads <dropbox_path>/<final floor plans> (images + PDFs) into bookings.floorplan_files
-//   gallery { bookingId }          -> the synced photos and floor plans with preview thumbnails (links expire)
+//   sync { bookingId }             -> reads <dropbox_path>/<final photos> into the order's gallery (bookings.photo_files): keeps the
+//                                     order set in HQ and photos uploaded in HQ, adds new Dropbox photos at the end, skips photos
+//                                     removed in HQ (bookings.photo_hidden). Also reads <dropbox_path>/<final floor plans> (images +
+//                                     PDFs) into bookings.floorplan_files, minus bookings.floorplan_hidden. Refreshes the cover.
+//   gallery { bookingId }          -> every gallery photo and Dropbox floor plan with thumb / view (large) / dl (original) links (expire)
+//   cover { bookingId }            -> makes the order's cover (bookings.cover_url) from the first gallery photo
 //   preview_path { bookingId }     -> the folder path this order gets (nothing is created)
 // Folder name fill-ins: {year} {quarter} {photographer} {date_dots} {day_seq} {address_slug} {client_lower} + more (see HQ settings).
 // Needs secrets DROPBOX_APP_KEY + DROPBOX_APP_SECRET (from the Dropbox app). The lib.ts here is a copy of booking/lib.ts.
@@ -57,13 +60,50 @@ async function folderPath(set: any, b: any, agent: any) {
   const root = '/' + String(set.dropbox_root || '/Knox View Media/Orders').split('/').map(clean).filter(Boolean).join('/');
   return (root === '/' ? '' : root) + '/' + name;
 }
+// Links for HQ's Media Library: thumb (grid), view (large, for the viewer) and dl (the original file, downloads with its own name)
+async function links(f: any) {
+  if (f.src === 'upload') {
+    const n = f.name || 'photo.jpg';
+    return { thumb: await sign({ src: 'url', url: f.preview || f.url, name: n }, 6), view: await sign({ src: 'url', url: f.web || f.url, name: n }, 6), dl: await sign({ src: 'url', url: f.url, name: n, dl: 1 }, 6) };
+  }
+  const pdf = /\.pdf$/i.test(f.name);
+  return { thumb: pdf ? null : await sign({ src: 'dbxp', path: f.path, v: 'thumb', name: f.name }, 6), view: pdf ? null : await sign({ src: 'dbxp', path: f.path, v: 'web', name: f.name }, 6),
+    dl: await sign({ src: 'dbxp', path: f.path, v: 'high', name: f.name, dl: 1 }, 6) };
+}
 async function gallery(b: any) {
-  return Promise.all(((b.photo_files as any[]) ?? []).map(async f => ({ ...f, thumb: await sign({ src: 'dbxp', path: f.path, v: 'thumb', name: f.name }, 6) })));
+  return Promise.all(((b.photo_files as any[]) ?? []).filter(f => f?.name).map(async f => ({ ...f, ...(await links(f)) })));
 }
 // Floor plans synced from <dropbox_path>/<final floor plans folder>: images get a preview thumbnail, PDFs don't.
 const PLAN_RE = /\.(jpe?g|png|webp|pdf)$/i;
 async function planGallery(b: any) {
-  return Promise.all(((b.floorplan_files as any[]) ?? []).map(async f => ({ ...f, thumb: /\.pdf$/i.test(f.name) ? null : await sign({ src: 'dbxp', path: f.path, v: 'thumb', name: f.name }, 6) })));
+  return Promise.all(((b.floorplan_files as any[]) ?? []).map(async f => ({ ...f, ...(await links(f)) })));
+}
+// The order's cover = the first gallery photo (640px copy in the public "covers" bucket). Skips the work when it hasn't changed.
+async function setCover(b: any, photo_files: any[]) {
+  const first = (photo_files ?? []).find(f => f?.name);
+  const key = first ? `${first.src === 'upload' ? 'up' : 'dbx'}:${first.path || first.url}` : null;
+  if (key === (b.cover_src ?? null) && (key ? !!b.cover_url : true)) return b.cover_url ?? null;
+  if (!first) { await admin.from('bookings').update({ cover_url: null, cover_src: null }).eq('id', b.id); return null; }
+  let bytes: Uint8Array | null = null;
+  try {
+    if (first.src === 'upload') {
+      const { data } = await admin.storage.from('delivery').download(first.preview_path || first.path);
+      if (data) bytes = new Uint8Array(await data.arrayBuffer());
+    } else {
+      const r = await dropboxPathStream(first.path, 'thumb');
+      if (r.ok) bytes = new Uint8Array(await r.arrayBuffer());
+    }
+  } catch (e) { console.error('cover source', String((e as Error)?.message || e)); }
+  if (!bytes) return b.cover_url ?? null;
+  const path = `${b.id}/${Date.now()}.jpg`;
+  const up = await admin.storage.from('covers').upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
+  if (up.error) { console.error('cover upload', up.error.message); return b.cover_url ?? null; }
+  const { data: old } = await admin.storage.from('covers').list(b.id);
+  const stale = (old ?? []).map(o => `${b.id}/${o.name}`).filter(p => p !== path);
+  if (stale.length) await admin.storage.from('covers').remove(stale);
+  const cover_url = admin.storage.from('covers').getPublicUrl(path).data.publicUrl;
+  await admin.from('bookings').update({ cover_url, cover_src: key }).eq('id', b.id);
+  return cover_url;
 }
 // Files in a Dropbox folder (top level) whose names match `re`, sorted by name. null = the folder doesn't exist.
 async function folderFiles(path: string, re: RegExp): Promise<{ name: string; path: string; size: number }[] | null> {
@@ -140,20 +180,28 @@ Deno.serve(async (req) => {
       const dir = `${b.dropbox_path}/${clean(set.dropbox_final_photos || 'Final Photos')}`;
       const files = await dropboxFolderImages(dir);
       if (files === null) throw new Bad(`There's no "${set.dropbox_final_photos || 'Final Photos'}" folder in ${b.dropbox_path} yet.`, 404);
-      // keep the order already set in HQ; new photos go at the end (by name); photos removed from Dropbox drop off
-      const prev = ((b.photo_files as any[]) ?? []).map(f => f.name);
-      const byName = new Map(files.map(f => [f.name, f]));
-      const kept = prev.filter(n => byName.has(n)).map(n => byName.get(n)!);
-      const added = files.filter(f => !prev.includes(f.name));
+      // Keep HQ's order and HQ uploads; Dropbox photos deleted from the folder drop off; new ones go at the end (by name),
+      // except photos removed in HQ (photo_hidden) and names an HQ upload already replaced.
+      const lc = (n: any) => String(n ?? '').toLowerCase();
+      const prev = ((b.photo_files as any[]) ?? []).filter(f => f?.name);
+      const hidden = new Set(((b.photo_hidden as any[]) ?? []).map(lc));
+      const byName = new Map(files.map(f => [lc(f.name), f]));
+      const prevNames = new Set(prev.map(f => lc(f.name)));
+      const kept = prev.filter(f => f.src === 'upload' || byName.has(lc(f.name))).map(f => f.src === 'upload' ? f : byName.get(lc(f.name))!);
+      const added = files.filter(f => !prevNames.has(lc(f.name)) && !hidden.has(lc(f.name)));
       const photo_files = [...kept, ...added];
-      // floor plans: everything in the final floor plans folder (images + PDFs); a missing folder just means none yet
+      const removed = prev.filter(f => f.src !== 'upload').length - kept.filter(f => f.src !== 'upload').length;
+      // floor plans: everything in the final floor plans folder (images + PDFs) except ones removed in HQ; a missing folder = none yet
       const planDir = set.dropbox_final_floorplans ? `${b.dropbox_path}/${clean(set.dropbox_final_floorplans)}` : null;
-      const floorplan_files = planDir ? (await folderFiles(planDir, PLAN_RE)) ?? [] : ((b.floorplan_files as any[]) ?? []);
+      const planHidden = new Set(((b.floorplan_hidden as any[]) ?? []).map(lc));
+      const floorplan_files = planDir ? ((await folderFiles(planDir, PLAN_RE)) ?? []).filter(f => !planHidden.has(lc(f.name))) : ((b.floorplan_files as any[]) ?? []);
       const now = new Date().toISOString();
       await admin.from('bookings').update({ photo_files, floorplan_files, photos_synced_at: now, updated_at: now }).eq('id', b.id);
-      return json(req, { ok: true, folder: dir, added: added.length, removed: prev.length - kept.length, photos: await gallery({ photo_files }),
-        planFolder: planDir, floorplans: await planGallery({ floorplan_files }), synced_at: now });
+      const cover_url = await setCover(b, photo_files).catch(e => { console.error('cover', String(e)); return b.cover_url; });
+      return json(req, { ok: true, folder: dir, added: added.length, removed, photos: await gallery({ photo_files }),
+        planFolder: planDir, floorplans: await planGallery({ floorplan_files }), cover_url, synced_at: now });
     }
+    if (body.action === 'cover') return json(req, { cover_url: await setCover(b, (b.photo_files as any[]) ?? []) });
     if (body.action === 'gallery') return json(req, { photos: await gallery(b), floorplans: await planGallery(b), synced_at: b.photos_synced_at, path: b.dropbox_path });
     throw new Bad('Unknown action');
   } catch (e) {

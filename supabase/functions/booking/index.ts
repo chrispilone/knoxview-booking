@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { sign, dropboxFiles, dropboxZip, dropboxConfigured, parseVimeo, vimeoEmbed, vimeoInfo, vimeoConfigured, cleanDropboxLink } from './lib.ts';
+import { sign, dropboxFiles, dropboxZip, dropboxConfigured, parseVimeo, vimeoEmbed, vimeoInfo, vimeoConfigured, cleanDropboxLink, galleryEntries, galleryName, galleryAddress } from './lib.ts';
 
 // Knox View client booking portal API (test.knoxview.com → book.knoxview.com).
 // Public actions: config, slots, quote, create, confirm, share-delivery / share-pay / share-meta (the order's share link).
@@ -362,23 +362,31 @@ async function deliveryFor(agent: any, key: string) {
     }
     const locked = !!b && !b.paid && b.require_payment !== false; // pay before download (switch per order in HQ; HQ deliveries outside the portal are paid elsewhere)
     const done = projects.filter(p => p.status === 'delivered');
-    const synced: { name: string; path: string }[] = ((b?.photo_files as any[]) ?? []).filter(f => f?.path); // synced from the order's Dropbox final photos folder, in Chris's order
-    const photoLinks = [synced.length ? null : b?.photos_url, ...done.filter(p => p.media === 'photo').map(p => p.dropbox_url)].filter(Boolean).map(cleanDropboxLink);
+    // The order's photo gallery: Dropbox + uploaded photos, in the order set in HQ's Media Library (locked into the file names)
+    const gallery = b ? galleryEntries(b) : [];
+    const photoLinks = [gallery.length ? null : b?.photos_url, ...done.filter(p => p.media === 'photo').map(p => p.dropbox_url)].filter(Boolean).map(cleanDropboxLink);
     const videoLinks: { url: string; label?: string }[] = [...((b?.videos as any[]) ?? []).filter(v => v?.url), ...done.filter(p => p.media === 'video').flatMap(p => [p.vimeo_url && { url: p.vimeo_url, label: p.name }, p.dropbox_url && { url: p.dropbox_url, label: p.name }]).filter(Boolean)];
     // Clients never see Dropbox links: everything goes through our signed `media` links. Before payment they get previews only.
     const pretty = (n: string) => n.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     const direct = ((b?.media_files as any[]) ?? []).filter(f => f?.url && /^https:\/\//.test(f.url));
-    // photos: Dropbox folders (needs the Dropbox connection) + directly hosted files
+    // photos: the order's gallery (numbered names = the Media Library order), then any Dropbox shared links from projects
     const photos: any[] = [], folders: any[] = [];
-    if (synced.length) {
-      const wm = locked ? { wm: 1 as const } : {};
-      const dir = synced[0].path.replace(/\/[^/]+$/, '');
-      folders.push({ zip: locked ? null : await sign({ src: 'dbxp', path: dir, v: 'zip', name: `${head.address} photos.zip`, dl: 1 }) });
-      for (const f of synced) photos.push({ name: f.name,
-        thumb: await sign({ src: 'dbxp', path: f.path, v: 'thumb', name: f.name, ...wm }),
-        view: await sign({ src: 'dbxp', path: f.path, v: locked ? 'preview' : 'web', name: f.name, ...wm }),
-        web: locked ? null : await sign({ src: 'dbxp', path: f.path, v: 'web', name: f.name, dl: 1 }),
-        high: locked ? null : await sign({ src: 'dbxp', path: f.path, v: 'high', name: f.name, dl: 1 }) });
+    if (gallery.length) {
+      const wm = locked ? { wm: 1 as const } : {}, addr = galleryAddress(b);
+      if (!locked) folders.push({ zip: await sign({ src: 'zipb', bid: b.id, name: `${addr || 'Photos'} photos.zip`, dl: 1 }) });
+      for (const [i, f] of gallery.entries()) {
+        const name = galleryName(i, f.name, addr);
+        if (f.kind === 'dbx') photos.push({ name,
+          thumb: await sign({ src: 'dbxp', path: f.path, v: 'thumb', name, ...wm }),
+          view: await sign({ src: 'dbxp', path: f.path, v: locked ? 'preview' : 'web', name, ...wm }),
+          web: locked ? null : await sign({ src: 'dbxp', path: f.path, v: 'web', name, dl: 1 }),
+          high: locked ? null : await sign({ src: 'dbxp', path: f.path, v: 'high', name, dl: 1 }) });
+        else photos.push({ name,
+          thumb: await sign({ src: 'url', url: f.preview || f.url, v: 'thumb', name, ...wm }),
+          view: await sign(locked ? { src: 'url', url: f.preview || f.url, v: 'preview', name, wm: 1 } : { src: 'url', url: f.web || f.url, v: 'preview', name }),
+          web: locked || !f.web ? null : await sign({ src: 'url', url: f.web, name, dl: 1 }),
+          high: locked ? null : await sign({ src: 'url', url: f.url, name, dl: 1 }) });
+      }
     }
     for (const link of [...new Set(photoLinks)]) {
       if (dropboxConfigured()) folders.push({ zip: locked ? null : await sign({ src: 'dbx', link, path: '', v: 'high', name: `${head.address} photos.zip`, dl: 1 }) });
@@ -388,14 +396,6 @@ async function deliveryFor(agent: any, key: string) {
         view: await sign({ src: 'dbx', link, path: f.path, v: locked ? 'preview' : 'web', name: f.name, ...(locked ? { wm: 1 as const } : {}) }),
         web: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'web', name: f.name, dl: 1 }),
         high: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'high', name: f.name, dl: 1 }) });
-    }
-    let n = 0;
-    for (const f of direct.filter(f => (f.kind || 'photo') === 'photo')) {
-      const name = f.name || `${String(++n).padStart(3, '0')} ${pretty(f.url.split('/').pop() || 'photo')}.jpg`;
-      photos.push({ name, thumb: await sign({ src: 'url', url: f.preview || f.url, v: 'thumb', name, ...(locked ? { wm: 1 as const } : {}) }),
-        view: await sign(locked ? { src: 'url', url: f.preview || f.url, v: 'preview', name, wm: 1 } : { src: 'url', url: f.web || f.url, v: 'preview', name }),
-        web: locked || !f.web ? null : await sign({ src: 'url', url: f.web, name, dl: 1 }),
-        high: locked ? null : await sign({ src: 'url', url: f.url, name, dl: 1 }) });
     }
     // videos: Vimeo (player + phone-friendly MP4) or video files in a Dropbox folder. Before payment: the player only, as a preview.
     const videos: any[] = [];
