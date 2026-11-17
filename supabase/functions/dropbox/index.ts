@@ -290,10 +290,20 @@ async function spiroImport(set: any, p: any) {
       let photosCopied = 0;
       if (lack.length) {
         if (!photosDir) { photosDir = clean(set.dropbox_final_photos || '04-Final-Photos'); await dbxApi('files/create_folder_v2', { path: `${path}/${photosDir}`, autorename: false }); }
-        for (let i = 0; i < lack.length; i += 8) await Promise.all(lack.slice(i, i + 8).map(async x => {
-          const r = await fetch(x.url); if (!r.ok) return;
-          const up = await dropboxUpload(`${path}/${photosDir}/${clean(x.name)}`, new Uint8Array(await r.arrayBuffer())); if (up.ok) photosCopied++;
-        }));
+        // downloads in parallel, uploads one at a time (Dropbox refuses parallel writes into one folder), retrying a busy Dropbox
+        for (let i = 0; i < lack.length; i += 6) {
+          const got = await Promise.all(lack.slice(i, i + 6).map(async x => { try { const r = await fetch(x.url); return r.ok ? { x, bytes: new Uint8Array(await r.arrayBuffer()) } : null; } catch (_) { return null; } }));
+          for (const g of got) {
+            if (!g) continue;
+            for (let t = 0; t < 4; t++) {
+              const up = await dropboxUpload(`${path}/${photosDir}/${clean(g.x.name)}`, g.bytes);
+              if (up.ok) { photosCopied++; break; }
+              const txt = await up.text().catch(() => '');
+              if (up.status !== 429 && !/too_many|insufficient|lock/i.test(txt)) { console.error('spiro photo upload', up.status, txt.slice(0, 150)); break; }
+              await new Promise(res => setTimeout(res, 1500 * (t + 1)));
+            }
+          }
+        }
         if (photosCopied) { images = (await dropboxFolderImages(`${path}/${photosDir}`)) ?? []; log.push(`Copied ${photosCopied} delivered photos from Spiro into Dropbox`); }
       }
       const photo_hidden = images.filter(f => !wantKeys.has(nameKey(f.name))).map(f => f.name.toLowerCase());
