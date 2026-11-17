@@ -468,8 +468,8 @@ Deno.serve(async (req) => {
       const rows = await spiroAll(`/orders?filter[status][eq]=delivered&${SPIRO_SINCE}`);
       const ids = rows.map((r: any) => r.orderId);
       const have = new Map<string, any>();
-      for (let i = 0; i < ids.length; i += 500) {
-        const { data } = await admin.from('bookings').select('id, number, spiro_order_id, imported_at').in('spiro_order_id', ids.slice(i, i + 500));
+      for (let i = 0; i < ids.length; i += 100) {
+        const { data } = await admin.from('bookings').select('id, number, spiro_order_id, imported_at').in('spiro_order_id', ids.slice(i, i + 100));
         (data ?? []).forEach(b => have.set(b.spiro_order_id, b));
       }
       return json(req, { orders: rows.map((r: any) => ({ orderId: r.orderId, code: r.trackingCode, date: r.dateSubmitted, address: r.property?.address?.fullAddress || r.mediaTitle,
