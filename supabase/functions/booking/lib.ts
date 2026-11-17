@@ -111,6 +111,12 @@ export async function dropboxPathStream(path: string, v: 'thumb' | 'preview' | '
   return fetch('https://content.dropboxapi.com/2/files/get_thumbnail_v2', { method: 'POST', headers: { ...H,
     'Dropbox-API-Arg': JSON.stringify({ resource: { '.tag': 'path', path }, format: 'jpeg', size: v === 'thumb' ? 'w640h480' : v === 'preview' ? 'w1024h768' : 'w2048h1536', mode: 'bestfit' }) } });
 }
+// Upload (or replace) one file by path. Files up to 150 MB (floor plans are a few MB).
+export async function dropboxUpload(path: string, bytes: Uint8Array) {
+  const tok = await dropboxToken(); if (!tok) throw new Error('Dropbox is not connected');
+  return fetch('https://content.dropboxapi.com/2/files/upload', { method: 'POST', headers: { Authorization: `Bearer ${tok}`, ...(await pathRoot(tok)),
+    'Content-Type': 'application/octet-stream', 'Dropbox-API-Arg': JSON.stringify({ path, mode: 'overwrite', autorename: false, mute: true }).replace(/[\u007f-\uffff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')) }, body: bytes });
+}
 export const cleanDropboxLink = (u: string) => u.replace(/([?&])dl=[01]&?/, '$1').replace(/[?&]$/, '');
 export const dropboxZip = (u: string) => { const c = cleanDropboxLink(u); return c + (c.includes('?') ? '&' : '?') + 'dl=1'; };
 const IMG = /\.(jpe?g|png|heic|webp|tiff?)$/i, VID = /\.(mp4|mov|m4v)$/i, DOC = /\.(pdf)$/i;

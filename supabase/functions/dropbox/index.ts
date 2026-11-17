@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import { sign, dbxApi, dropboxFolderImages, dropboxConfigured, dropboxToken, forgetDropboxToken, dropboxPathStream, parseVimeo, vimeoConfigured, vimeoInfo, pickPhoneMp4, galleryAddress } from './lib.ts';
+import { sign, dbxApi, dropboxFolderImages, dropboxConfigured, dropboxToken, forgetDropboxToken, dropboxPathStream, parseVimeo, vimeoConfigured, vimeoInfo, pickPhoneMp4, galleryAddress, dropboxUpload } from './lib.ts';
 
 // Dropbox for HQ (super admins only). Orders get a folder structure in Dropbox when they're completed; the
 // "Final Photos" folder is what the client's delivery page shows, in the order set on the order page in HQ.
@@ -16,6 +16,15 @@ import { sign, dbxApi, dropboxFolderImages, dropboxConfigured, dropboxToken, for
 //   cover { bookingId }            -> makes the order's cover (bookings.cover_url) from the first gallery photo
 //   video_dl { bookingId, url }    -> a download link for a Vimeo video's phone-friendly MP4 (for "Save to Camera Roll" in HQ)
 //   preview_path { bookingId }     -> the folder path this order gets (nothing is created)
+// CubiCasa (floor plans). Called by the cubicasa function (order created / cancelled / CubiCasa webhook) or by HQ:
+//   cubicasa_info                  -> the CubiCasa company + its webhook settings
+//   cubicasa_webhook               -> adds HQ's webhook URL to CubiCasa (keeps every URL already there, e.g. Spiro's)
+//   cubicasa_draft { bookingId }   -> makes a CubiCasa draft for an order with photography (not land); skips orders that have one
+//   cubicasa_cancel { orderId }    -> deletes a CubiCasa draft (only while it's still a draft) when an order is cancelled or deleted
+//   cubicasa_event { orderId }     -> re-reads the CubiCasa order; on Ready, imports the measured floor plan (+ 3D floor plan)
+//                                     into <dropbox_path>/<final floor plans> and the Media Library
+//   cubicasa_link { bookingId, orderId } -> ties an existing CubiCasa order to an HQ order (then imports it if it's Ready)
+// Needs secret CUBICASA_API_KEY (CubiCasa → Settings → Company → Developer).
 // Folder name fill-ins: {year} {quarter} {photographer} {date_dots} {day_seq} {address_slug} {client_lower} + more (see HQ settings).
 // Needs secrets DROPBOX_APP_KEY + DROPBOX_APP_SECRET (from the Dropbox app). The lib.ts here is a copy of booking/lib.ts.
 
@@ -121,15 +130,126 @@ async function folderFiles(path: string, re: RegExp): Promise<{ name: string; pa
   return out.sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
 }
 
+// ---- CubiCasa ----
+const CC_BASE = 'https://app.cubi.casa/api/integrate/v3';
+const CC_OWNER = 'chris@knoxview.com';
+async function cc(method: string, path: string, body?: unknown) {
+  const key = env('CUBICASA_API_KEY');
+  if (!key) throw new Bad("CubiCasa isn't connected (CUBICASA_API_KEY is missing).", 409);
+  const r = await fetch(CC_BASE + path, { method, headers: { 'api-key': key, 'Content-Type': 'application/json', Accept: 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const t = await r.text(); let j: any = null; try { j = t ? JSON.parse(t) : null; } catch (_) { j = { raw: t.slice(0, 300) }; }
+  return { ok: r.ok, status: r.status, j };
+}
+// Which orders get a floor plan draft: any package or service whose photo type is photography ("Edit Photos"), except
+// land, drone-only and community photos. New services count automatically when their photo type is photography.
+const isPhotoService = (s: any) => s && s.category !== 'land' && /edit photos/i.test(s.photo_type || '') && !/lot\s*\/\s*land/i.test(s.photo_type || '') && !/drone|community/i.test(s.name || '');
+const wants3D = (items: any[], svcs: any[]) => items.some(i => /3d floor plan/i.test(i.name || '')) ||
+  svcs.some(s => ((s.includes as string[]) ?? []).some(x => /3d floor plan/i.test(x)));
+async function needsFloorPlan(b: any) {
+  const items = ((b.items as any[]) ?? []).filter(i => i?.name);
+  if (!items.length) return { yes: false, plus3d: false };
+  const { data: svcs } = await admin.from('booking_services').select('name, category, photo_type, includes').in('name', items.map(i => i.name));
+  const hit = (svcs ?? []).filter(isPhotoService);
+  return { yes: hit.length > 0, plus3d: wants3D(items, svcs ?? []) };
+}
+const ccStatus = (o: any) => String(o?.status ?? o?.current_status ?? o?.order?.status ?? '') || null;
+// urls from an asset group: arrays of strings or of { url }
+const urls = (x: any): string[] => (Array.isArray(x) ? x : x ? [x] : []).map((u: any) => typeof u === 'string' ? u : u?.url).filter((u: any) => typeof u === 'string' && /^https?:/.test(u));
+async function makeFolders(set: any, b: any, force = false) {
+  const { data: agent } = b.agent_id ? await admin.from('agents').select('full_name, brokerage').eq('id', b.agent_id).maybeSingle() : { data: null };
+  const base = b.dropbox_path && !force ? b.dropbox_path : await folderPath(set, b, agent);
+  const paths = [base, ...((set.dropbox_subfolders as string[]) ?? []).map(s => clean(s)).filter(Boolean).map(s => `${base}/${s}`)];
+  const r = await dbxApi('files/create_folder_batch', { paths, autorename: false, force_async: false });
+  if (!r.ok) throw new Bad('Dropbox could not make the folders: ' + (await r.text()).slice(0, 200), 502);
+  const j = await r.json();
+  const failed = (j.entries ?? []).filter((e: any) => e['.tag'] === 'failure' && !JSON.stringify(e).includes('conflict'));
+  if (failed.length) console.error('create_folder_batch', JSON.stringify(failed).slice(0, 500));
+  await admin.from('bookings').update({ dropbox_path: base, updated_at: new Date().toISOString() }).eq('id', b.id);
+  b.dropbox_path = base;
+  return { path: base, folders: paths.length, failed: failed.length };
+}
+// Ready on CubiCasa -> measured floor plan(s) (+ 3D) into the order's Dropbox floor plan folder and the Media Library
+async function ccImport(set: any, b: any, o: any) {
+  const a = o?.delivery_assets ?? o?.order?.delivery_assets ?? {};
+  const lf = a.listing_floorplans ?? {};
+  let plans = urls(lf.jpg_urls_dim);
+  if (!plans.length) plans = urls(lf.png_urls_dim);
+  if (!plans.length) plans = urls(lf.jpg_urls); // no measured version delivered: take the plain one rather than nothing
+  const plans3d = urls(a.floorplans_3d?.jpg_urls);
+  if (!plans.length && !plans3d.length) return { imported: 0, note: 'CubiCasa says Ready but sent no floor plan images yet.' };
+  if (!b.dropbox_path) await makeFolders(set, b);
+  const dir = `${b.dropbox_path}/${clean(set.dropbox_final_floorplans || '06-Final-FloorPlan')}`;
+  const addr = clean(galleryAddress(b)) || 'Floor Plan';
+  const named = [
+    ...plans.map((u, i) => ({ u, name: `${addr} - Floor Plan${plans.length > 1 ? ' ' + (i + 1) : ''}.jpg` })),
+    ...plans3d.map((u, i) => ({ u, name: `${addr} - 3D Floor Plan${plans3d.length > 1 ? ' ' + (i + 1) : ''}.jpg` })),
+  ];
+  let imported = 0;
+  for (const f of named) {
+    const r = await fetch(f.u);
+    if (!r.ok) { console.error('cubicasa download', r.status, f.name); continue; }
+    const up = await dropboxUpload(`${dir}/${f.name}`, new Uint8Array(await r.arrayBuffer()));
+    if (!up.ok) { console.error('dropbox upload', up.status, (await up.text()).slice(0, 200)); continue; }
+    imported++;
+  }
+  // refresh the Media Library's floor plans from the folder; a re-delivered plan shows again even if it was removed before
+  const lc = (n: any) => String(n ?? '').toLowerCase();
+  const names = new Set(named.map(f => lc(f.name)));
+  const floorplan_hidden = ((b.floorplan_hidden as any[]) ?? []).filter(n => !names.has(lc(n)));
+  const hidden = new Set(floorplan_hidden.map(lc));
+  const floorplan_files = ((await folderFiles(dir, PLAN_RE)) ?? []).filter(f => !hidden.has(lc(f.name)));
+  const now = new Date().toISOString();
+  await admin.from('bookings').update({ floorplan_files, floorplan_hidden, cubicasa_ready_at: now, cubicasa_error: imported ? null : 'Floor plan download failed', updated_at: now }).eq('id', b.id);
+  return { imported, folder: dir, floorplans: floorplan_files.length };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors(req) });
   try {
     const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-    const { data: u } = jwt.split('.').length === 3 ? await admin.auth.getUser(jwt) : { data: null };
-    const { data: me } = u?.user ? await admin.from('team_members').select('id, role, active, permissions').eq('id', u.user.id).maybeSingle() : { data: null };
-    if (!me?.active || !(me.role === 'owner' || me.permissions?.super_admin === true)) throw new Bad('Only HQ super admins can use Dropbox here.', 403);
+    const internal = !!jwt && jwt === env('SUPABASE_SERVICE_ROLE_KEY'); // the cubicasa function
+    if (!internal) {
+      const { data: u } = jwt.split('.').length === 3 ? await admin.auth.getUser(jwt) : { data: null };
+      const { data: me } = u?.user ? await admin.from('team_members').select('id, role, active, permissions').eq('id', u.user.id).maybeSingle() : { data: null };
+      if (!me?.active || !(me.role === 'owner' || me.permissions?.super_admin === true)) throw new Bad('Only HQ super admins can use Dropbox here.', 403);
+    }
     const body = await req.json().catch(() => ({}));
     const { data: set } = await admin.from('booking_settings').select('*').eq('id', 1).single();
+
+    if (body.action === 'cubicasa_info') {
+      const r = await cc('GET', '/companies/info');
+      if (!r.ok) throw new Bad(`CubiCasa said ${r.status}: ${JSON.stringify(r.j).slice(0, 200)}`, 502);
+      return json(req, r.j);
+    }
+    if (body.action === 'cubicasa_webhook') {
+      const mine = `${env('SUPABASE_URL')}/functions/v1/cubicasa`;
+      const info = await cc('GET', '/companies/info');
+      if (!info.ok) throw new Bad(`CubiCasa said ${info.status}: ${JSON.stringify(info.j).slice(0, 200)}`, 502);
+      const w = info.j?.webhook ?? info.j?.webhooks ?? info.j?.company?.webhook ?? info.j ?? {};
+      const have: string[] = w.webhook_urls ?? w.urls ?? [];
+      const trig: string[] = w.webhook_triggers ?? w.triggers ?? [];
+      const webhook_urls = [...new Set([...have, mine])];
+      const webhook_triggers = [...new Set([...trig, 'moved_to_draft', 'moved_to_pending', 'moved_to_ready', 'moved_to_fixing'])];
+      if (body.dry) return json(req, { before: { webhook_urls: have, webhook_triggers: trig }, after: { webhook_urls, webhook_triggers }, raw: info.j });
+      const r = await cc('PATCH', '/companies/webhook', { webhook_urls, webhook_triggers });
+      if (!r.ok) throw new Bad(`CubiCasa said ${r.status}: ${JSON.stringify(r.j).slice(0, 200)}`, 502);
+      return json(req, { ok: true, webhook_urls, webhook_triggers, result: r.j });
+    }
+    if (body.action === 'cubicasa_cancel') {
+      const id = String(body.orderId || '');
+      if (!id) throw new Bad('orderId is required');
+      const o = await cc('GET', `/orders/${id}`);
+      const st = ccStatus(o.j);
+      if (o.ok && st && !/draft|new/i.test(st)) return json(req, { ok: false, kept: true, status: st }); // already scanned: keep it
+      const r = await cc('DELETE', `/orders/draft/${id}`);
+      await admin.from('bookings').update({ cubicasa_status: r.ok ? 'Deleted' : st }).eq('cubicasa_order_id', id);
+      return json(req, { ok: r.ok, status: r.status, result: r.j });
+    }
+    if (body.action === 'cubicasa_event') {
+      const { data: hit } = await admin.from('bookings').select('id').eq('cubicasa_order_id', String(body.orderId || '')).maybeSingle();
+      if (!hit) return json(req, { ok: true, ignored: true }); // not an HQ order (Spiro's orders send these too)
+      body.bookingId = hit.id;
+    }
 
     if (body.action === 'status') {
       let connected = false, account: string | null = null;
@@ -164,16 +284,42 @@ Deno.serve(async (req) => {
     }
     if (body.action === 'create_folders') {
       await needDbx();
-      const { data: agent } = b.agent_id ? await admin.from('agents').select('full_name, brokerage').eq('id', b.agent_id).maybeSingle() : { data: null };
-      const base = b.dropbox_path && !body.force ? b.dropbox_path : await folderPath(set, b, agent);
-      const paths = [base, ...((set.dropbox_subfolders as string[]) ?? []).map(s => clean(s)).filter(Boolean).map(s => `${base}/${s}`)];
-      const r = await dbxApi('files/create_folder_batch', { paths, autorename: false, force_async: false });
-      if (!r.ok) throw new Bad('Dropbox could not make the folders: ' + (await r.text()).slice(0, 200), 502);
-      const j = await r.json();
-      const failed = (j.entries ?? []).filter((e: any) => e['.tag'] === 'failure' && !JSON.stringify(e).includes('conflict'));
-      if (failed.length) console.error('create_folder_batch', JSON.stringify(failed).slice(0, 500));
-      await admin.from('bookings').update({ dropbox_path: base, updated_at: new Date().toISOString() }).eq('id', b.id);
-      return json(req, { ok: true, path: base, folders: paths.length, failed: failed.length });
+      return json(req, { ok: true, ...(await makeFolders(set, b, !!body.force)) });
+    }
+    if (body.action === 'cubicasa_draft') {
+      if (b.cubicasa_order_id && !body.force) return json(req, { ok: true, skipped: 'has a CubiCasa order', id: b.cubicasa_order_id });
+      if (b.status === 'cancelled') return json(req, { ok: true, skipped: 'cancelled' });
+      const need = await needsFloorPlan(b);
+      if (!need.yes) return json(req, { ok: true, skipped: 'no photography on this order' });
+      const draft: Record<string, unknown> = { street: b.address, city: b.city, state: b.state || undefined, postalCode: b.zip || undefined,
+        suite: b.unit || undefined, country: 'United States', owner_email: CC_OWNER, external_id: String(b.order_no || b.number || b.id),
+        package_type: need.plus3d ? 'plus_3d' : 'plus' };
+      if (!b.address || !b.city) throw new Bad('The order needs a street address and city for CubiCasa.');
+      const r = await cc('POST', '/orders/draft', draft);
+      const id = r.j?.id ?? r.j?.order?.id ?? r.j?.data?.id;
+      if (!r.ok || !id) {
+        const msg = `CubiCasa said ${r.status}: ${JSON.stringify(r.j).slice(0, 300)}`;
+        await admin.from('bookings').update({ cubicasa_error: msg }).eq('id', b.id);
+        throw new Bad(msg, 502);
+      }
+      await admin.from('bookings').update({ cubicasa_order_id: String(id), cubicasa_status: 'Draft', cubicasa_package: draft.package_type, cubicasa_error: null }).eq('id', b.id);
+      return json(req, { ok: true, id, package_type: draft.package_type });
+    }
+    if (body.action === 'cubicasa_link') {
+      const id = String(body.orderId || '');
+      if (!id) throw new Bad('orderId is required');
+      await admin.from('bookings').update({ cubicasa_order_id: id }).eq('id', b.id);
+      b.cubicasa_order_id = id;
+      body.action = 'cubicasa_event';
+    }
+    if (body.action === 'cubicasa_event') {
+      const o = await cc('GET', `/orders/${b.cubicasa_order_id}`);
+      if (!o.ok) throw new Bad(`CubiCasa said ${o.status}: ${JSON.stringify(o.j).slice(0, 200)}`, 502);
+      const st = ccStatus(o.j);
+      await admin.from('bookings').update({ cubicasa_status: st }).eq('id', b.id);
+      if (!/ready/i.test(st || '')) return json(req, { ok: true, status: st });
+      await needDbx();
+      return json(req, { ok: true, status: st, ...(await ccImport(set, b, o.j)) });
     }
     if (body.action === 'sync') {
       await needDbx();
