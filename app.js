@@ -839,7 +839,8 @@ const UI = (S.ui = { lview: 'cards', sort: 'new', q: '', itab: 'pending', iq: ''
 const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit', year: 'numeric' }) : '';
 const fmtShort = d => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
 const initials = n => (n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
-const PORTAL_VIEWS = ['listings', 'invoices', 'profile', 'delivery'];
+const PORTAL_VIEWS = ['listings', 'branding', 'invoices', 'profile', 'delivery'];
+const isBrandB = b => b?.kind === 'branding'; // branding sessions (headshots, lifestyle, brand video…) live in Branding, not Listings
 
 function listingsAll() {
   const d = S.pdata; if (!d || !d.agent) return [];
@@ -851,7 +852,7 @@ function listingsAll() {
     if (b.status === 'scheduled') return ['Scheduled', 'y'];
     return ['Pending', 'y'];
   };
-  const out = (d.bookings || []).map(b => ({
+  const out = (d.bookings || []).filter(b => !isBrandB(b)).map(b => ({
     // media title (set in HQ) names the listing; otherwise the address
     key: b.id, line1: (b.media_title || '').trim() || b.address + (b.unit ? ', ' + b.unit : ''),
     line2: [(b.media_title || '').trim() ? b.address + (b.unit ? ', ' + b.unit : '') : '', b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '),
@@ -902,6 +903,27 @@ function vListings() {
       ${l.b && ZS.by[l.b.id]?.last ? vZillowLine(l.b.id) : ''}
       ${l.b?.locked ? `<button class="btn" style="width:100%;margin-top:10px" onclick="kv.payBooking('${l.b.id}')">${ic(I.lock, 15)} Pay to download</button>` : ''}
       <div class="acts">${acts(l)}</div></div></article>`).join('')}</div>`;
+}
+/* ================= branding (#branding) =================
+   Branding sessions delivered from HQ: headshots, lifestyle shoots, brand videos and other media that isn't for a listing.
+   Each one has its own download page (same as a listing's) and its own invoice. */
+function vBranding() {
+  const d = S.pdata; if (!d || !d.agent) return '';
+  const q = UI.bq || '';
+  const all = (d.bookings || []).filter(isBrandB).filter(b => !q || `${b.media_title || b.address} ${b.session_type || ''} ${ono(b)}`.toLowerCase().includes(q.toLowerCase()))
+    .sort((x, y) => Date.parse(y.shoot_start || y.created_at || 0) - Date.parse(x.shoot_start || x.created_at || 0));
+  const tools = `<div class="ptools"><div><h2 style="margin:0;font-size:20px">Branding</h2><p class="hint" style="margin:2px 0 0">Your headshots, lifestyle photos, brand videos and other media that isn't for a listing.</p></div><span class="grow"></span>
+    <div class="srch">${ic(I.search, 16)}<input id="bq" type="search" placeholder="Search" value="${esc(q)}" oninput="kv.search('bq',this.value,'bq')"></div></div>`;
+  if (!all.length) return tools + `<div class="empty-st">${ic(I.user, 64)}<p>${q ? 'Nothing matches your search.' : 'No branding media yet. Headshots, brand videos and other sessions we deliver to you will show up here.'}</p>${q ? '' : `<a class="btn" href="${SMS_LINK}" style="text-decoration:none">Text us to book a session</a>`}</div>`;
+  const stat = b => b.locked || b.hasDelivery ? ['Delivered', 'g'] : b.status === 'completed' ? ['Completed', 'c'] : ['In progress', 'c'];
+  const cov = b => b.cover_url ? `<img src="${esc(b.cover_url)}" alt="" loading="lazy">` : `<div class="ph">${ic(I.user, 34)}<b>Knox View</b><small>Branding</small></div>`;
+  return tools + `<div class="lgrid">${all.map(b => { const st = stat(b), title = (b.media_title || '').trim() || b.address; return `<article class="lcard">
+    <a class="lcov" href="#delivery/${b.id}" aria-label="Media for ${esc(title)}">${cov(b)}<span class="lstat ${st[1]}">${esc(st[0])}</span></a>
+    <div class="lbody"><div class="laddr">${esc(title)}<br><span>${esc([b.session_type, ono(b)].filter(Boolean).join(' · '))}</span></div>
+      <div class="lmeta2"><span>${ic(I.cal)}${esc(fmtDate(b.shoot_start || b.created_at))}</span></div>
+      ${b.locked ? `<button class="btn" style="width:100%;margin-top:10px" onclick="kv.payBooking('${b.id}')">${ic(I.lock, 15)} Pay to download</button>` : ''}
+      <div class="acts">${b.hasDelivery ? `<a class="act" href="#delivery/${b.id}" title="Download your media" aria-label="Download your media">${ic(I.dl)}<span class="al">Download</span></a>` : `<span class="act off" title="Download · not ready yet">${ic(I.dl)}<span class="al">Download</span></span>`}
+        ${b.invoice !== false && Number(b.total) > 0 ? `<button class="act" onclick="kv.invoiceFor(${b.number})" title="Invoice" aria-label="Invoice">${ic(I.inv)}<span class="al">Invoice</span></button>` : ''}</div></div></article>`; }).join('')}</div>`;
 }
 function empty(text, cta) {
   return `<div class="empty-st">${ic(I.none, 64)}<p>${esc(text)}</p>${cta ? '<a class="btn" href="#order" style="text-decoration:none">Order now</a>' : ''}</div>`;
@@ -1337,7 +1359,7 @@ function vPortalBody() {
   if (S.view === 'invoices') return vInvoices(); // has its own data (invoices function)
   if (!p || p.loading) return '<div class="panel loading"><span class="spin"></span> Loading…</div>';
   if (p.error) return `<div class="msg err">${esc(p.error)} <a href="javascript:kv.reloadPortal()">Try again</a></div>`;
-  return S.view === 'invoices' ? vInvoices() : S.view === 'profile' ? vSettings() : vListings();
+  return S.view === 'invoices' ? vInvoices() : S.view === 'profile' ? vSettings() : S.view === 'branding' ? vBranding() : vListings();
 }
 function vPortalOrDelivery() {
   return S.view === 'delivery' ? vDelivery() : vPortal();
@@ -1345,7 +1367,7 @@ function vPortalOrDelivery() {
 
 function vHeader() {
   const v = S.view, signedIn = !!S.session;
-  const nav = signedIn ? [['#order', I.cart, 'Order now', v === 'book' || v === 'done'], ['#listings', I.home, 'Listings', v === 'listings' || v === 'delivery'], ['#profile', I.user, 'Account', v === 'profile']]
+  const nav = signedIn ? [['#order', I.cart, 'Order now', v === 'book' || v === 'done'], ['#listings', I.home, 'Listings', v === 'listings' || (v === 'delivery' && !dlIsBrand())], ['#branding', I.user, 'Branding', v === 'branding' || (v === 'delivery' && dlIsBrand())], ['#profile', I.user, 'Account', v === 'profile']]
     .map(([h, i, t, on]) => `<a href="${h}" class="${on ? 'on' : ''}">${ic(i)}<span>${t}</span></a>`).join('') : '';
   $('pnav').innerHTML = nav;
   const a = S.pdata?.agent || S.agent, name = a?.full_name || S.session?.user?.email || '';
@@ -1353,7 +1375,7 @@ function vHeader() {
     : `<button class="me" onclick="kv.menu(event)" aria-expanded="${UI.menu}" aria-label="Account menu">${avatar(a)}
         <span class="me-t"><b>${esc(name)}</b>${a?.brokerage ? `<small>${esc(a.brokerage)}</small>` : ''}</span>${ic(I.down, 16)}</button>
       ${UI.menu ? `<div class="menu" onclick="event.stopPropagation()"><div class="menu-h">${avatar(a)}<div><b>${esc(name)}</b><small>${esc(a?.email || S.session.user.email || '')}</small></div></div>
-        <a href="#order" onclick="kv.menu()">${ic(I.cart)}Order now</a><a href="#listings" onclick="kv.menu()">${ic(I.home)}Listings</a><a href="#invoices" onclick="kv.menu()">${ic(I.inv)}Invoices</a><a href="#profile" onclick="kv.menu()">${ic(I.user)}Account</a><button onclick="kv.signOut()">${ic(I.out)}Log out</button></div>` : ''}`;
+        <a href="#order" onclick="kv.menu()">${ic(I.cart)}Order now</a><a href="#listings" onclick="kv.menu()">${ic(I.home)}Listings</a><a href="#branding" onclick="kv.menu()">${ic(I.user)}Branding</a><a href="#invoices" onclick="kv.menu()">${ic(I.inv)}Invoices</a><a href="#profile" onclick="kv.menu()">${ic(I.user)}Account</a><button onclick="kv.signOut()">${ic(I.out)}Log out</button></div>` : ''}`;
 }
 
 /* ================= delivery page (#delivery/<listing key>[/<tab>]) ================= */
@@ -1396,7 +1418,9 @@ const onPortal = () => location.origin === PORTAL_ORIGIN || /netlify\.app$|local
 if (!SHARE && !onPortal() && !/^\/pay\//.test(location.pathname)) location.replace(PORTAL_ORIGIN + location.pathname + location.search + location.hash); // download domain: only download pages live here
 const dlShareUrl = () => { const t = SHARE || D.data?.shareToken; return t ? `${DL_ORIGIN}/d/${t}` : null; };
 // "‹ Listings" only for the client who owns this order (a forwarded share link has no listings to go back to)
-const dlBack = () => !SHARE ? '<a class="dl-back" href="#listings">‹ Listings</a>' : D.data?.mine ? `<a class="dl-back" href="${onPortal() ? '' : PORTAL_ORIGIN}/#listings">‹ Listings</a>` : '';
+const dlIsBrand = () => S.dl?.data?.head?.kind === 'branding';
+const dlBack = () => { const [h, l] = dlIsBrand() ? ['branding', 'Branding'] : ['listings', 'Listings'];
+  return !SHARE ? `<a class="dl-back" href="#${h}">‹ ${l}</a>` : D.data?.mine ? `<a class="dl-back" href="${onPortal() ? '' : PORTAL_ORIGIN}/#${h}">‹ ${l}</a>` : ''; };
 const dTabs = d => [
   (d.photos.length || d.folders.length) && ['photos', I.photo, 'Photos'],
   d.videos.length && ['video', I.film, d.videos.length > 1 ? 'Videos' : 'Video'],
@@ -1437,7 +1461,7 @@ function vDelivery() {
   const when = h.date ? fmtDate(h.date) : '', hero = d.photos[0];
   const site = d.websites.find(w => w.preview && w.url);
   const delivered = tabs.length > 0 || d.websites.some(w => !w.soon) || !!d.marketing; // "ready" only once something is delivered
-  const place = [h.title ? h.address : '', h.line2].filter(Boolean).join(' · ');
+  const place = h.kind === 'branding' ? (h.session_type || '') : [h.title ? h.address : '', h.line2].filter(Boolean).join(' · ');
   // 1. hero: the first photo of the gallery behind the address, like the property website
   let out = `<header class="dlx-hero ${hero ? '' : 'plain'}">
     ${hero ? `<img class="dlx-hero-bg" src="${esc(hero.thumb)}" alt="" aria-hidden="true"><img class="dlx-hero-img ${D.heroIn === hero.view ? 'in' : ''}" src="${esc(hero.view || hero.thumb)}" alt="" onload="this.classList.add('in');kv.dHeroIn(this.src)" ${d.locked ? 'oncontextmenu="return false"' : ''}>` : ''}
@@ -2085,7 +2109,7 @@ window.addEventListener('hashchange', route);
       catch (e) { console.warn('session handoff failed', e); }
       const go = hand[2] || '', inv = go.match(/^invoice\/(\d+)(\/paid)?$/);
       if (inv) UI.itab = inv[2] ? 'paid' : 'pending';
-      history.replaceState(null, '', location.pathname + (/^delivery\/[\w-]+$/.test(go) ? '#' + go : inv ? '#invoices/' + inv[1] : '#listings'));
+      history.replaceState(null, '', location.pathname + (/^delivery\/[\w-]+$/.test(go) ? '#' + go : inv ? '#invoices/' + inv[1] : go === 'branding' ? '#branding' : '#listings'));
     }
     const load = () => Promise.all([
       sb.from('booking_services').select('id, kind, name, description, includes, price, duration_min, covers, badge, sort_order, category, large_fee').order('sort_order'),

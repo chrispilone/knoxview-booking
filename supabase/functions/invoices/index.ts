@@ -61,15 +61,17 @@ async function stripe(path: string, live: boolean, body?: Record<string, unknown
 }
 
 /* ---------------- data ---------------- */
-const COLS = 'id, number, order_no, coupon_code, coupon_discount, status, address, unit, city, state, zip, items, subtotal, discount, tax, total, credit_applied, paid, paid_at, paid_method, payment_status, payment_option, stripe_payment_intent_id, stripe_livemode, stripe_customer_id, shoot_start, created_at, invoice_sent_at, invoice_due_at, client_name, client_email, client_phone, cover_url, marketing_url, require_payment, public_token, invoice';
+const COLS = 'id, number, order_no, coupon_code, coupon_discount, status, address, unit, city, state, zip, items, subtotal, discount, tax, total, credit_applied, paid, paid_at, paid_method, payment_status, payment_option, stripe_payment_intent_id, stripe_livemode, stripe_customer_id, shoot_start, created_at, invoice_sent_at, invoice_due_at, client_name, client_email, client_phone, cover_url, marketing_url, require_payment, public_token, invoice, kind, session_type';
 // invoice = false: placed in HQ with "Create an invoice? No", so it isn't listed, payable or shareable as an invoice
 const isInvoice = (b: any) => b.invoice !== false && b.status !== 'cancelled' && !(b.status === 'requested' && b.payment_status === 'unpaid');
 const dueOf = (b: any) => b.paid ? 0 : Math.max(0, r2(+b.total - +(b.credit_applied || 0)));
 function shape(b: any) {
   const invDate = b.invoice_sent_at || b.created_at;
   return {
-    id: b.id, number: b.number, order_no: b.order_no || '#' + b.number, address: b.address + (b.unit ? ', ' + b.unit : ''), place: [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '),
-    items: (b.items || []).map((i: any) => ({ name: i.name, price: +i.price, kind: i.kind })),
+    id: b.id, number: b.number, order_no: b.order_no || '#' + b.number, address: b.address + (b.unit ? ', ' + b.unit : ''), place: b.kind === 'branding' ? ['Branding', b.session_type].filter(Boolean).join(' · ') : [b.city, [b.state, b.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+    kind: b.kind || 'listing',
+    // a quantity shows in the line's name ("Retouched headshots × 3 @ $25.00"), so the portal and the PDF read it the same way
+    items: (b.items || []).map((i: any) => ({ name: +i.qty > 1 ? `${i.name} × ${+i.qty} @ $${(+(i.unit_price ?? i.price / i.qty)).toFixed(2)}` : i.name, price: +i.price, kind: i.kind })),
     subtotal: +(b.subtotal ?? b.total), discount: +(b.discount || 0), coupon_code: b.coupon_code || null, coupon_discount: +(b.coupon_discount || 0), tax: +(b.tax || 0), total: +b.total, credit: +(b.credit_applied || 0), due: dueOf(b),
     paid: !!b.paid, paid_at: b.paid ? b.paid_at : null, paid_method: b.paid_method, payment_status: b.payment_status,
     invoice_date: invDate, due_date: b.invoice_due_at || invDate, shoot_start: b.shoot_start, cover_url: b.cover_url || null, marketing: !!b.marketing_url,
@@ -186,8 +188,8 @@ async function invoicePdf(b: any, client: any) {
   bill.forEach((l, i) => text(l, M, y - 13 - i * 13));
   y -= 13 + bill.length * 13 + 36;
   // listing
-  const listing = [inv.address, inv.place].filter(Boolean).join(', ');
-  let ly = y; wrap(`Listing: ${listing}`, B, 10, RX - M).forEach((l, i) => { if (i === 0) { text('Listing: ', M, ly); text(l.replace(/^Listing: /, ''), M + w('Listing: ', R, 10), ly, { f: B }); } else text(l, M, ly, { f: B }); ly -= 13; });
+  const listing = [inv.address, inv.place].filter(Boolean).join(', '), lab = inv.kind === 'branding' ? 'Session: ' : 'Listing: ';
+  let ly = y; wrap(`${lab}${listing}`, B, 10, RX - M).forEach((l, i) => { if (i === 0) { text(lab, M, ly); text(l.slice(lab.length), M + w(lab, R, 10), ly, { f: B }); } else text(l, M, ly, { f: B }); ly -= 13; });
   text(`Date Ordered: ${fmtLong(b.created_at).replace(', ', ' - ')}${inv.shoot_start ? `     Shoot: ${fmtLong(inv.shoot_start).replace(', ', ' - ')}` : ''}`, M, ly); ly -= 13;
   text('View All Details', M, ly, { c: ACC }); page.drawLine({ start: { x: M, y: ly - 2 }, end: { x: M + w('View All Details', R, 10), y: ly - 2 }, thickness: 0.6, color: ACC });
   link(portalLink, M, ly - 3, M + w('View All Details', R, 10), ly + 10);
