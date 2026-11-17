@@ -1,6 +1,10 @@
 [build]
   publish = "."
 
+# app.js carries the Google Maps browser key (public by design, locked to our sites); don't fail builds on it
+[build.environment]
+  SECRETS_SCAN_OMIT_PATHS = "app.js"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
