@@ -1209,3 +1209,10 @@ button.dlx-btn{font:600 14px/1 var(--bf)}
 @keyframes shUp{from{transform:translateY(100%)}to{transform:none}}
 @media (prefers-reduced-motion:reduce){.sh-modal{animation:none}}
 .o-sec .sec.v2-sec{margin-top:28px;padding-top:22px;border-top:1px solid var(--line,#e3e8ef)}
+/* "Order Form" dropdown at the top of the order form (clients with 2+ order forms) */
+.of-pick{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin:0 0 14px}
+.of-pick label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--slate)}
+.of-sel{position:relative;display:inline-block}
+.of-sel select{appearance:none;-webkit-appearance:none;font:inherit;font-size:14px;font-weight:600;color:var(--primary);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 32px 7px 12px;cursor:pointer;max-width:62vw;text-overflow:ellipsis}
+.of-sel select:focus{outline:2px solid var(--accent);outline-offset:1px}
+.of-sel::after{content:"";position:absolute;right:12px;top:50%;width:7px;height:7px;border-right:1.5px solid var(--slate);border-bottom:1.5px solid var(--slate);transform:translateY(-70%) rotate(45deg);pointer-events:none}

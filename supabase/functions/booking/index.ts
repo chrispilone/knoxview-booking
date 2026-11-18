@@ -98,17 +98,20 @@ async function pageServices(pageId: string) {
   const by = new Map((items ?? []).map(i => [i.service_id, i]));
   return (svcs ?? []).map(s => { const it = by.get(s.id)!; return { ...s, price: it.price ?? s.price, list_price: s.price, sort_order: it.sort_order ?? s.sort_order }; });
 }
-async function myPage(req: Request) { // the signed-in client's custom order page: their own, else their company's (SQL: portal_order_page)
-  const user = await userFrom(req); if (!user) return null;
-  const { data } = await admin.rpc('portal_order_page', { p_user: user.id });
-  return (data as { id: string; title: string; cover_url: string | null; welcome: string | null; show_default: boolean } | null) ?? null;
+type Page = { id: string; title: string; cover_url: string | null; welcome: string | null; layout: string | null; show_default: boolean };
+// Every order page assigned to the signed-in client: their main page, extra pages (agent_order_pages), then their
+// company's page (SQL: portal_order_pages). A client with 2+ forms gets an "Order Form" dropdown in the portal.
+async function myPages(req: Request): Promise<Page[]> {
+  const user = await userFrom(req); if (!user) return [];
+  const { data } = await admin.rpc('portal_order_pages', { p_user: user.id });
+  return Array.isArray(data) ? data as Page[] : [];
 }
-// Catalog for this request: the default one, or the client's custom page (only if it's really assigned to them)
+// Catalog for this request: the default one, or one of the client's order pages (only if it's really assigned to them)
 async function catalogFor(req: Request, body: any) {
   const pageId = body?.pageId ? String(body.pageId) : null;
   if (!pageId) return { cat: await loadCatalog(), pageId: null };
-  const page = await myPage(req);
-  if (!page || page.id !== pageId) throw new UserError('This order page is not available on your account. Please sign in again or call 865-855-5669.', 403);
+  const pages = await myPages(req);
+  if (!pages.some(p => p.id === pageId)) throw new UserError('This order page is not available on your account. Please sign in again or call 865-855-5669.', 403);
   return { cat: await loadCatalog(pageId), pageId };
 }
 const PHOTO_LARGE_FEE = 25; // à la carte Photography: $225 → $250 over 3,500 sq ft
@@ -485,10 +488,11 @@ async function handle(req: Request) {
       const { data: s } = await admin.from('booking_settings').select('payment_options, sqft_options, large_sqft, large_fee, large_label, timezone').eq('id', 1).single();
       const mode = stripeMode(), pk = LIVE ? KEYS.live.pk : KEYS.test.pk;
       const pkOk = LIVE ? pk.startsWith('pk_live_') : pk.startsWith('pk_test_');
-      const page = await myPage(req).catch(() => null);
-      const customPage = page ? { ...page, services: (await pageServices(page.id)).map(x => ({ id: x.id, kind: x.kind, name: x.name, description: x.description, includes: x.includes, price: +x.price, list_price: +x.list_price,
-        duration_min: x.duration_min, covers: x.covers, badge: x.badge, sort_order: x.sort_order, category: x.category, large_fee: x.large_fee })) } : null;
-      return json(req, { stripe: { mode, publishableKey: (mode === 'test' || mode === 'live') && pkOk ? pk : null }, settings: s, customPage });
+      const pages = await myPages(req).catch(() => [] as Page[]);
+      const customPages = await Promise.all(pages.map(async page => ({ ...page, services: (await pageServices(page.id)).map(x => ({ id: x.id, kind: x.kind, name: x.name, description: x.description, includes: x.includes, price: +x.price, list_price: +x.list_price,
+        duration_min: x.duration_min, covers: x.covers, badge: x.badge, sort_order: x.sort_order, category: x.category, large_fee: x.large_fee })) })));
+      const customPage = customPages[0] ?? null; // older portal builds read only this one
+      return json(req, { stripe: { mode, publishableKey: (mode === 'test' || mode === 'live') && pkOk ? pk : null }, settings: s, customPage, customPages });
     }
 
     if (action === 'quote') {

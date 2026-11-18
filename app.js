@@ -49,16 +49,33 @@ const S = {
 const svc = id => S.services.find(s => s.id === id);
 const isLand = () => S.ptype === 'land';
 // Custom order page (built in HQ → Order Pages, assigned to this client): its own services and prices, same booking flow
-const isCustom = () => S.ptype === 'custom' && !!S.config?.customPage;
-const PAGE = () => S.config?.customPage || null;
+// Order pages assigned to the signed-in client (built in HQ → Order Pages). With 2+ forms (Default counts when
+// show_default) an "Order Form" dropdown at the top of the form switches between them; S.form = 'default' or a page id.
+const PAGES = () => S.config?.customPages || (S.config?.customPage ? [S.config.customPage] : []);
+const formOpts = () => { const ps = PAGES(); return [...(!ps.length || ps[0].show_default ? [{ id: 'default', title: 'Default' }] : []), ...ps]; };
+const multiForm = () => formOpts().length > 1;
+const PAGE = () => { const ps = PAGES(); if (!ps.length) return null; if (!multiForm()) return ps[0]; return ps.find(p => p.id === S.form) || null; };
+const isCustom = () => S.ptype === 'custom' && !!PAGE();
 function useServices() { S.services = isCustom() ? PAGE().services : (S.baseServices || S.services); }
+function clearPick() { S.pkg = null; S.items = new Set(); S.addr.sqftLabel = ''; S.adu = false; S.svcTab = 'pkg'; }
 function applyPage() { // after load / sign-in / sign-out
+  const opts = formOpts();
+  if (!opts.some(o => o.id === S.form)) { let saved = null; try { saved = localStorage.getItem('kv.form'); } catch (_) {} S.form = opts.some(o => o.id === saved) ? saved : opts[0].id; }
   const pg = PAGE();
-  if (!pg && S.ptype === 'custom') { S.ptype = ''; S.pkg = null; S.items = new Set(); S.addr.sqftLabel = ''; }
+  if (!pg && S.ptype === 'custom') { S.ptype = ''; clearPick(); }
+  if (multiForm() && pg && S.ptype !== 'custom') { S.ptype = 'custom'; clearPick(); }
   if (pg && !pg.show_default && !S.ptype) S.ptype = 'custom';
-  if (pg && !pg.show_default && ['home', 'land', 'str'].includes(S.ptype)) { S.ptype = 'custom'; S.pkg = null; S.items = new Set(); S.addr.sqftLabel = ''; }
+  if (pg && !pg.show_default && ['home', 'land', 'str'].includes(S.ptype)) { S.ptype = 'custom'; clearPick(); }
   useServices();
 }
+function setForm(id) {
+  if (id === S.form || !formOpts().some(o => o.id === id)) return;
+  S.form = id; try { localStorage.setItem('kv.form', id); } catch (_) {}
+  S.ptype = ''; clearPick(); resetSchedule(); applyPage(); render();
+}
+// "Order Form" dropdown, top of the order form (only for clients with 2+ forms)
+const vFormPick = () => multiForm() ? `<div class="of-pick"><label for="ofSel">Order Form</label>
+    <span class="of-sel"><select id="ofSel" onchange="kv.setForm(this.value)">${formOpts().map(o => `<option value="${esc(o.id)}"${o.id === S.form ? ' selected' : ''}>${esc(o.title)}</option>`).join('')}</select></span></div>` : '';
 const packages = () => S.services.filter(s => s.kind === 'package' && (isCustom() || (s.category === 'land') === isLand())).sort((a, b) => a.sort_order - b.sort_order);
 const LAND_SKIP = /zillow|3d tour|twilight/i; // home-only services hidden for land
 const alacarte = () => S.services.filter(s => s.kind === 'addon' && s.category !== 'addon' && s.category !== 'reels' && !(isLand() && LAND_SKIP.test(s.name))).sort((a, b) => a.sort_order - b.sort_order);
@@ -131,7 +148,7 @@ window.kv = {
   svcTab(t) { S.svcTab = t === 'alc' ? 'alc' : 'pkg'; render(); document.querySelector('.svc-tabs')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); },
   ptype(t) { if (S.ptype === t) return; S.ptype = t; useServices(); S.addr.sqftLabel = ''; S.pkg = null; S.items = new Set(); S.adu = false; S.svcTab = 'pkg'; if (t === 'land') S.addr.occupancy = ''; resetSchedule(); render(); setTimeout(() => document.getElementById('o-size')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
   size(label) { S.addr.sqftLabel = label; resetSchedule(); render(); if (!inCart().size) setTimeout(() => document.getElementById('o-svc')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); },
-  lbPhoto, lbMedia, lbStep, lbClose, showTerms, upFiles, rmFile, startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
+  setForm, lbPhoto, lbMedia, lbStep, lbClose, showTerms, upFiles, rmFile, startCheckout, confirmPay, submitOrder, cancelPay() { S.checkout = null; S.error = ''; render(); }, signIn, signUp, setMode, sendCode, verifyCode, loginBack, setMethod, fmtPhone, signOut, payBooking, ldSend, ldCheck, ltab, lsize, ldPricing, lpAddr, locc, closeModal() { $('modal').innerHTML = ''; },
 };
 
 function go(n) {
@@ -320,7 +337,7 @@ async function verifyCode(ev) {
 }
 function loginBack() { LP().stage = 'enter'; S.error = ''; render(); }
 async function reloadPage() { try { const c = await api('config'); S.config = c; applyPage(); render(); } catch (_) { /* keep what we have */ } }
-async function signOut() { await sb.auth.signOut(); if (S.config) S.config.customPage = null; applyPage(); S.session = null; S.agent = null; S.pdata = null; S.login = null; S.photo = null; INV.data = null; INV.pdf = {}; INV.dmedia = {}; UI.menu = false; location.hash = '#account'; render(); }
+async function signOut() { await sb.auth.signOut(); if (S.config) { S.config.customPage = null; S.config.customPages = []; } applyPage(); S.session = null; S.agent = null; S.pdata = null; S.login = null; S.photo = null; INV.data = null; INV.pdf = {}; INV.dmedia = {}; UI.menu = false; location.hash = '#account'; render(); }
 async function loadPortal() {
   S.pdata = { loading: true }; render();
   try { S.pdata = await api('portal'); if (S.pdata.agent) { S.agent = { ...S.agent, ...S.pdata.agent }; fillContact(); } } catch (e) { S.pdata = { error: e.message }; }
@@ -1850,14 +1867,14 @@ function vOne() {
       <span class="tc-img">${t === 'custom' ? (pg.cover_url ? `<img src="${esc(pg.cover_url)}" alt="" decoding="async">` : `<span class="tc-ph">${esc(pg.title)}</span>`) : `<img src="/img/type-${t === 'home' ? 'listing' : t}.jpg?v=3" alt="" decoding="async">`}<span class="tick">${CHECK}</span></span>
       <span class="tc-n">${name}</span></button>`;
   const type = `<section class="o-sec">${oh('o-type', 1, 'Choose your media')}
-    ${!pg || pg.show_default ? `<div class="tcards">${tRow('home', 'Listing Media', '') + tRow('land', 'Land Media', '')}</div>` : ''}
-    ${pg ? `<div class="mine${pg.show_default ? '' : ' only'}">${pg.show_default ? '<p class="mine-k"><span>Made for you</span></p>' : ''}
+    ${!pg || (pg.show_default && !multiForm()) ? `<div class="tcards">${tRow('home', 'Listing Media', '') + tRow('land', 'Land Media', '')}</div>` : ''}
+    ${pg ? `<div class="mine${pg.show_default && !multiForm() ? '' : ' only'}">${pg.show_default && !multiForm() ? '<p class="mine-k"><span>Made for you</span></p>' : ''}
       <button class="mcard ${S.ptype === 'custom' ? 'sel' : ''}" onclick="kv.ptype('custom')" aria-pressed="${S.ptype === 'custom'}">
         <span class="mc-img">${pg.cover_url ? `<img src="${esc(pg.cover_url)}" alt="" decoding="async">` : `<span class="tc-ph">${esc(pg.title)}</span>`}</span>
         <span class="mc-t"><b>${esc(pg.title)}</b>${pg.welcome ? `<span class="mc-w">${esc(pg.welcome)}</span>` : ''}<span class="mc-go">${S.ptype === 'custom' ? 'Selected' : 'View your packages'} <i aria-hidden="true">→</i></span></span>
         <span class="tick">${CHECK}</span></button></div>` : ''}
     ${S.ptype === 'str' ? `<div class="soon"><b>Short-term rental media is coming soon.</b> Text us at <a href="${SMS_LINK}">865-855-5669</a> and we'll set up your shoot.</div>` : ''}</section>`;
-  if (S.ptype === 'str') return type;
+  if (S.ptype === 'str') return vFormPick() + type;
   const haveSvc = inCart().size > 0, aOk = addrOk();
   const size = !S.ptype ? '' : `<section class="o-sec">${oh('o-size', 2, land ? 'Land size' : 'Home size', land ? 'Total acreage' : 'Heated square feet')}
     <div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
@@ -1884,7 +1901,7 @@ function vOne() {
     </div></div></section>` : '';
   const time = a.sqftLabel && haveSvc && aOk ? `<section class="o-sec">${oh('o-time', nA + 1, 'Pick a time')}${vSchedule(true)}</section>` : '';
   const you = a.sqftLabel && haveSvc && aOk && S.start ? `<section class="o-sec" id="o-you">${vReview(true)}</section>` : '';
-  return type + size + svcs + addons + addr + time + you + (S.error && !S.start ? `<div class="msg err">${esc(S.error)}</div>` : '');
+  return vFormPick() + type + size + svcs + addons + addr + time + you + (S.error && !S.start ? `<div class="msg err">${esc(S.error)}</div>` : '');
 }
 function updBar() { // bottom button: names the next thing to do, then "Submit Order"
   const nb = $('barNext'); if (!nb) return;
