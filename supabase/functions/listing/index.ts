@@ -117,6 +117,36 @@ async function page(b: any, mls: boolean) {
   };
 }
 
+// Social Media Kit: the data the Reels are drawn from, in the browser (kit.js). Address, price/beds/baths/size from the
+// property website editor, the agent, and the first photos of the gallery (cover first). Ready once the order is completed
+// with photos; the client gets the photos only once the order is paid (or doesn't require payment). Knox View always does.
+//   kit      { bookingId } (the order's client or HQ) or { token } (download page share link)
+//   kit-save { bookingId, hidden: [template keys] } (HQ only): Reels hidden from the client
+const KIT_PHOTOS = 10;
+async function kit(b: any, staff: boolean) {
+  const s = siteOf(b), gal = galleryEntries(b);
+  const ready = b.kind !== 'branding' && b.status === 'completed' && gal.length >= 3;
+  const locked = !(b.paid || b.require_payment === false);
+  const settings = { hidden: Array.isArray(b.kit?.hidden) ? b.kit.hidden : [] };
+  const fact = (k: string, icon: string) => s.facts.find((f: any) => f.show !== false && f.value && (f.k === k || f.icon === icon))?.value || '';
+  const price = fact('price', 'price');
+  const base = { ready, locked, staff, kit: settings, bookingId: b.id,
+    address: { line: galleryAddress(b), city: b.city || '', state: b.state || '', zip: b.zip || '' },
+    price: price ? money(price) : '', beds: fact('beds', 'bed'), baths: fact('baths', 'bath'), size: fact('size', 'size'), agent: null as any, photos: [] as any[] };
+  if (!ready || (locked && !staff)) return base;
+  const sizes = new Map(((b.photo_files as any[]) ?? []).map(f => [f?.path || f?.url, f?.size]));
+  base.photos = await Promise.all(gal.slice(0, KIT_PHOTOS).map(async f => f.kind === 'dbx'
+    ? { u: await sign({ src: 'dbxp', path: f.path, v: 'web', name: f.name, pub: 1 }, 0, permExp(sizes.get(f.path))) }
+    : { u: await sign({ src: 'url', url: f.url!, v: 'high', name: f.name, pub: 1 }, 0, permExp(String(f.url).length)) }));
+  if (b.agent_id) {
+    const { data: a } = await admin.from('agents').select('full_name, first_name, last_name, phone, brokerage, team_name, photo_url, company_id').eq('id', b.agent_id).maybeSingle();
+    const { data: co } = a?.company_id ? await admin.from('companies').select('name, brokerage, team_name').eq('id', a.company_id).maybeSingle() : { data: null };
+    if (a) base.agent = { name: a.full_name || [a.first_name, a.last_name].filter(Boolean).join(' '), phone: a.phone || '',
+      brokerage: co?.brokerage || co?.name || a.brokerage || '', photo: a.photo_url || null };
+  }
+  return base;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors(req) });
   try {
@@ -164,9 +194,28 @@ Deno.serve(async (req) => {
       return json(req, { ok: true });
     }
 
+    // Social Media Kit from a download page's share link (/d/<token>): no sign-in, same rules as that page
+    if (action === 'kit' && body.token) {
+      const token = String(body.token);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) throw new Bad('Listing not found', 404);
+      const { data: b } = await admin.from('bookings').select('*').eq('public_token', token).maybeSingle();
+      if (!b) throw new Bad('Listing not found', 404);
+      return json(req, await kit(b, false));
+    }
+
     const { data: b } = await admin.from('bookings').select('*').eq('id', String(body.bookingId || '')).maybeSingle();
     if (!b) throw new Bad('Listing not found', 404);
     const who = await whoCanEdit(req, b);
+
+    if (action === 'kit') return json(req, await kit(b, who.staff));
+    if (action === 'kit-save') {
+      if (!who.staff) throw new Bad('Only Knox View can change the Social Media Kit.', 403);
+      const hidden = (Array.isArray(body.hidden) ? body.hidden : []).map((k: unknown) => clean(k, 40)).filter(Boolean).slice(0, 50);
+      const k = { ...((b.kit && typeof b.kit === 'object') ? b.kit : {}), hidden };
+      const { error } = await admin.from('bookings').update({ kit: k, updated_at: new Date().toISOString() }).eq('id', b.id);
+      if (error) throw new Error(error.message);
+      return json(req, { ok: true, kit: k });
+    }
 
     if (action === 'editor') {
       return json(req, { site: siteOf(b), slug: b.site_slug, icons: FACT_ICONS, templates: TEMPLATES, enabled: b.websites_enabled !== false, live: live(b),

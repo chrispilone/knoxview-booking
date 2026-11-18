@@ -30,6 +30,11 @@
   [headers.values]
     Cache-Control = "no-cache"
 [[headers]]
+  for = "/kit.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+    Access-Control-Allow-Origin = "*"
+[[headers]]
   for = "/styles.css"
   [headers.values]
     Cache-Control = "no-cache"

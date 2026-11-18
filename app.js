@@ -1434,7 +1434,7 @@ Object.defineProperty(D, 'sel', { get() { return (D.sels[D.cur] ||= new Set()); 
 // The delivery page is also its own page: /d/<order share token>. That's the link in delivery emails and texts, so it
 // works when forwarded to anyone (no sign-in). Downloads still unlock only after payment when the order requires it.
 const SHARE = (location.pathname.match(/^\/d\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i) || [])[1] || null;
-const DL_TABS = ['photos', 'video', 'floorplan', 'tour', 'website'];
+const DL_TABS = ['photos', 'kit', 'video', 'floorplan', 'tour', 'website'];
 
 async function loadDelivery(key) {
   Object.assign(D, { key, data: null, loading: true, error: '', sel: new Set() }); render();
@@ -1457,6 +1457,7 @@ const dlBack = () => { const [h, l] = dlIsBrand() ? ['branding', 'Branding'] : [
   return !SHARE ? `<a class="dl-back" href="#${h}">‹ ${l}</a>` : D.data?.mine ? `<a class="dl-back" href="${onPortal() ? '' : PORTAL_ORIGIN}/#${h}">‹ ${l}</a>` : ''; };
 const dTabs = d => [
   (d.photos.length || d.folders.length) && ['photos', I.photo, 'Photos'],
+  d.head?.kind !== 'branding' && d.photos.length >= 3 && ['kit', I.reel, 'Social Media Kit'],
   d.videos.length && ['video', I.film, d.videos.length > 1 ? 'Videos' : 'Video'],
   d.tour && ['tour', I.cube, '3D Tour'],
   d.floorplans.length && ['floorplan', I.plan, d.floorplans.length > 1 ? 'Floor Plans' : 'Floor Plan'],
@@ -1521,7 +1522,7 @@ function vDelivery() {
     ${d.marketing ? (d.marketing.url ? `<a href="${esc(d.marketing.url)}" target="_blank" rel="noopener">${ic(I.ext, 16)}<span>Marketing</span></a>` : `<span class="off">${ic(I.lock, 15)}<span>Marketing</span></span>`) : ''}</div>
     ${dlShareUrl() ? `<button class="dlx-nav-share" onclick="kv.dSharePage()" aria-label="Share this page">${ic(I.share, 17)}<span>Share</span></button>` : ''}</div></nav>`;
   // 3. every section on one page, in order
-  const body = { photos: dPhotos, video: dVideos, tour: dTour, floorplan: dPlans, website: dWebsite };
+  const body = { photos: dPhotos, kit: dKit, video: dVideos, tour: dTour, floorplan: dPlans, website: dWebsite };
   const count = { photos: d.photos.length, video: d.videos.length > 1 ? d.videos.length : 0, floorplan: d.floorplans.length > 1 ? d.floorplans.length : 0 };
   out += tabs.map(([k, , l]) => `<section class="dlx-sec" id="dl-${k}" data-k="${k}">
     <div class="dlx-h"><h2>${l}</h2>${count[k] ? `<span>${count[k]}</span>` : ''}</div>
@@ -1540,6 +1541,26 @@ function dlxWire() {
   document.querySelectorAll('.dlx-sec').forEach(sec => dlxIO.observe(sec));
   if (D.tab && !D.jumped) { D.jumped = true; const el = document.getElementById('dl-' + D.tab); if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth' }), 120); }
   fitSitePreview();
+  kitWire();
+}
+/* Social Media Kit (kit.js, shared with HQ): 15 Reels drawn from the photos and the property website details, saved to the
+   phone's camera roll as a video. One kit per order, kept between page redraws (its canvases keep playing). */
+I.reel = '<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10.5 9.2v5.6l4.6-2.8z"/>';
+const KITS = {};
+let kitScript = null;
+const loadKitJs = () => (kitScript ||= new Promise((res, rej) => { if (window.KVKit) return res(); const s = document.createElement('script'); s.src = '/kit.js?v=1'; s.onload = res; s.onerror = () => { kitScript = null; rej(new Error('The Social Media Kit could not load.')); }; document.head.appendChild(s); }));
+const kitImg = (u, w) => `/.netlify/images?url=${encodeURIComponent(u)}&w=${w}&q=82`;
+function dKit(d) {
+  return `<p class="hint" style="margin:0 2px 14px">15 ready-to-post Reels made from your photos. Pick a status, tap a Reel, and save it straight to your phone.</p><div id="kvKitHost"></div>`;
+}
+async function kitWire() {
+  const host = document.getElementById('kvKitHost'); if (!host || !D.data) return;
+  const k = SHARE || D.data.bookingId;
+  if (KITS[k]) return KITS[k].attach(host);
+  try { await loadKitJs(); } catch (e) { host.innerHTML = `<p class="hint">${esc(e.message)}</p>`; return; }
+  const h = document.getElementById('kvKitHost'); if (!h || KITS[k]) return KITS[k]?.attach(h);
+  KITS[k] = window.KVKit.mount(h, { mode: 'client', key: k, img: kitImg,
+    load: () => api('kit', SHARE ? { token: SHARE } : { bookingId: D.data.bookingId }, 'listing') });
 }
 const cap1 = t => String(t).replace(/\b\w/g, c => c.toUpperCase()); // "floor plans" -> "Floor Plans" (buttons and headings)
 const SET_LABEL = { photos: ['photo', 'photos'], floorplans: ['floor plan', 'floor plans'] };
