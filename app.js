@@ -136,7 +136,8 @@ function cleanup() {
 
 /* ================= actions ================= */
 window.kv = {
-  pickPkg(id) { if (S.pkg && S.pkg !== id) return; S.pkg = S.pkg === id ? null : id; cleanup(); render(); },
+  pickPkg(id) { if (S.pkg && S.pkg !== id) return; S.pkg = S.pkg === id ? null : id; S.pkgPrev = null; cleanup(); render(); },
+  pkgAdd(id, preview) { if (preview) { S.pkgPrev = S.pkgPrev || new Set(); S.pkgPrev.has(id) ? S.pkgPrev.delete(id) : S.pkgPrev.add(id); return render(); } kv.toggle(id); },
   toggle(id) { if (covered().has(id)) return; S.items.has(id) ? S.items.delete(id) : S.items.add(id); cleanup(); render(); },
   toggleAdu() { S.adu = !S.adu; resetSchedule(); render(); },
   go, pickSlot(start, label) { S.start = start; S.startLabel = label; S.checkout = null; render(); },
@@ -379,6 +380,30 @@ const SHOW_UPSELLS = true;
 // Package example strips are archived for now (Chris, Nov 2026): nothing opens under a package when it's picked.
 // The photos, tours and videos below are kept; set true to bring the strips back.
 const SHOW_PKG_EXAMPLES = false;
+// ===== Package add-on drop-down: opens under a package when it's picked (Essentials only for now).
+// Each entry is a service and the price shown. Virtual Staging and 3D Floor Plan are normal add-ons (charged at checkout).
+// Drone Photos is already in Essentials, so it's a look-only preview: it checks on and off but adds nothing to the order.
+const ESSENTIALS_ID = '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5';
+const PKG_ADDONS = {
+  [ESSENTIALS_ID]: [
+    { id: '9550aba6-e6a5-4072-8633-00b538039a4b', price: 75 },               // Virtual Staging
+    { id: 'ccbb8503-18b6-4f76-8193-5c7c056c97f0', price: 85 },               // 3D Floor Plan
+    { id: '4f9fc78e-74dd-45e6-9c6a-78006ecce230', price: 75, preview: true }, // Drone Photos (look only)
+  ],
+};
+const pkgAddonIds = () => new Set((PKG_ADDONS[S.pkg] || []).map(x => x.id));
+function vPkgAddons(pid) {
+  const list = (PKG_ADDONS[pid] || []).filter(x => svc(x.id)); if (!list.length) return '';
+  S.pkgPrev = S.pkgPrev || new Set();
+  const rows = list.map(x => {
+    const s = svc(x.id), on = x.preview ? S.pkgPrev.has(x.id) : S.items.has(x.id);
+    return `<button type="button" class="row ${on ? 'sel' : ''}" onclick="kv.pkgAdd('${x.id}', ${!!x.preview})" aria-pressed="${on}">
+      <span class="box">${CHECK}</span><span class="row-t"><span class="row-n">${esc(s.name)}</span></span>
+      <span class="row-p">+${money(x.price)}</span></button>`;
+  }).join('');
+  return `<div class="pkg-add" role="region" aria-label="Add-ons for ${esc(svc(pid).name)}">
+    <div class="ex-h"><span>Add to your ${esc(svc(pid).name)} package</span></div><div class="list">${rows}</div></div>`;
+}
 // ===== Package examples: a small swipe strip under the selected package. Tapping a photo, the 3D tour or a video
 // opens it in a viewer on this page (dark background, X to close) so nobody leaves the booking flow.
 const TOUR_ZILLOW = 'https://www.zillow.com/view-imx/b55c2ba6-cc6e-47b1-8e2c-6f39e2fa26ef/?utm_source=captureapp';
@@ -447,7 +472,7 @@ function vServices(inline) {
       <div class="pkg-h"><div class="pkg-nm"><h3>${esc(p.name)}</h3>${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}</div>
         <span class="pkg-p">${was(p, sizeAdj(p))}${money(+p.price + sizeAdj(p))}</span></div>
       <ul class="chk two">${(p.includes || []).map(i => `<li>${CHECK}<span>${esc(incLabel(i))}</span></li>`).join('')}</ul>
-    </button>${SHOW_PKG_EXAMPLES && S.pkg === p.id ? vExample(p.id) : ''}`).join('');
+    </button>${S.pkg === p.id ? vPkgAddons(p.id) : ''}${SHOW_PKG_EXAMPLES && S.pkg === p.id ? vExample(p.id) : ''}`).join('');
   const ups = upsells().map(u => `<div class="up"><div style="flex:1"><h3>${esc(u.title)}</h3><p>${esc(u.description)}</p></div>
       <button class="btn lt" onclick="kv.toggle('${u.service_id}')">+ ${money(svc(u.service_id).price)}</button></div>`).join('');
   const row = s => {
@@ -1905,7 +1930,7 @@ function vOne() {
       <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${esc(o.label)}</span></span></button>`).join('')}</div></section>`;
   const svcs = a.sqftLabel ? `<section class="o-sec">${oh('o-svc', 3, 'Services', land ? 'Choose a land package' : 'Check a package, or pick individual services')}${vServices(true)}</section>` : '';
   // Add-ons: listing media only, once a package is picked (services not already in the package)
-  const cov = covered(), adds = !land && S.pkg ? addonList().filter(x => !cov.has(x.id)) : [];
+  const cov = covered(), inDrop = pkgAddonIds(), adds = !land && S.pkg ? addonList().filter(x => !cov.has(x.id) && !inDrop.has(x.id)) : [];
   const addons = adds.length ? `<section class="o-sec">${oh('o-add', 4, 'Add-ons', `Optional extras for your ${esc(svc(S.pkg).name)} package`)}
     <div class="list">${adds.map(x => { const on = S.items.has(x.id); return `<div class="ad-w ${on ? 'on' : ''}"><button class="row ad ${on ? 'sel' : ''}" onclick="kv.toggle('${x.id}')" aria-pressed="${on}">
       <span class="box">${CHECK}</span><span class="row-t"><span class="row-n">${esc(x.name)}</span></span>
