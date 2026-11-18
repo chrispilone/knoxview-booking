@@ -61,7 +61,11 @@ function applyPage() { // after load / sign-in / sign-out
 }
 const packages = () => S.services.filter(s => s.kind === 'package' && (isCustom() || (s.category === 'land') === isLand())).sort((a, b) => a.sort_order - b.sort_order);
 const LAND_SKIP = /zillow|3d tour|twilight/i; // home-only services hidden for land
-const alacarte = () => S.services.filter(s => s.kind === 'addon' && s.category !== 'addon' && !(isLand() && LAND_SKIP.test(s.name))).sort((a, b) => a.sort_order - b.sort_order);
+const alacarte = () => S.services.filter(s => s.kind === 'addon' && s.category !== 'addon' && s.category !== 'reels' && !(isLand() && LAND_SKIP.test(s.name))).sort((a, b) => a.sort_order - b.sort_order);
+// Order page layout "v2" (set per custom page in custom_order_pages.layout): one scrolling page with
+// Packages, then Social Media Reels (category 'reels'), then À La Carte Services. No tabs. Same booking flow.
+const isV2 = () => isCustom() && PAGE()?.layout === 'v2';
+const reelsList = () => S.services.filter(s => s.kind === 'addon' && s.category === 'reels').sort((a, b) => a.sort_order - b.sort_order);
 // Land size tiers (no price change yet; set a price per tier here later if needed)
 // Add-ons: offered only after a listing package is picked (category 'addon'), with an example picture
 const addonList = () => S.services.filter(s => s.kind === 'addon' && s.category === 'addon').sort((a, b) => a.sort_order - b.sort_order);
@@ -446,6 +450,19 @@ function vServices(inline) {
       <p class="d">For larger homes and properties with extra structures.</p><div class="grid">
       <button class="card sq small-card ${S.adu ? 'sel' : ''}" onclick="kv.toggleAdu()" aria-pressed="${S.adu}"><span class="tick">${CHECK}</span>
       <h3>${esc(st.large_label)}</h3><div class="price">${money(largeFeeShown())}</div><div class="meta">Over ${Number(st.large_sqft).toLocaleString()} sq ft, or an ADU / guest house / extra structure</div></button></div></section>` : '';
+  if (isV2()) { // one page: Packages → Social Media Reels → À La Carte Services
+    const rl = reelsList(), alc = alacarte();
+    return `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Listing Media Packages</h2></div>
+      <p class="d">Everything your listing needs. Every package includes a property website and marketing kit.</p>
+      ${S.pkg ? `<p class="pkg-note">${esc(svc(S.pkg).name)} selected. Tap it again to choose a different package.</p>` : ''}<div class="pkgs">${pk}</div></section>
+    ${rl.length ? `<section class="sec v2-sec"><div class="sec-h"><i style="background:#2b5c96"></i><h2>Social Media Reels</h2></div>
+      <p class="d">Vertical videos made for Instagram, Facebook and TikTok. Add one to a package or book it on its own.</p>
+      <div class="list">${rl.map(row).join('')}</div></section>` : ''}
+    ${alc.length ? `<section class="sec v2-sec"><div class="sec-h"><i style="background:#1f3c66"></i><h2>À La Carte Services</h2></div>
+      <p class="d">${S.pkg ? `Add services to your ${esc(svc(S.pkg).name)} package, or book any service on its own.` : 'Need just one thing? Book any service on its own.'} A basic floor plan is included with every photo shoot.</p>
+      <div class="list">${alc.map(row).join('')}</div></section>` : ''}
+    ${inline ? '' : `<div class="nav"><button class="btn o" onclick="kv.go(0)">Back</button><button class="btn" onclick="kv.go(2)" ${inCart().size ? '' : 'disabled'}>Continue to schedule</button></div>`}`;
+  }
   const onlyOne = isCustom() && (!packages().length || !alacarte().length);
   const tab = isLand() ? 'pkg' : onlyOne ? (packages().length ? 'pkg' : 'alc') : (S.svcTab || 'pkg'), nAlc = [...S.items].length;
   const tabs = `<div class="svc-tabs" role="tablist">
