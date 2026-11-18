@@ -376,6 +376,9 @@ function alertModal(text) {
 // Only active upsells are readable by the public, so this stays true; set false to hide them all.
 const SHOW_UPSELLS = true;
 
+// Package example strips are archived for now (Chris, Nov 2026): nothing opens under a package when it's picked.
+// The photos, tours and videos below are kept; set true to bring the strips back.
+const SHOW_PKG_EXAMPLES = false;
 // ===== Package examples: a small swipe strip under the selected package. Tapping a photo, the 3D tour or a video
 // opens it in a viewer on this page (dark background, X to close) so nobody leaves the booking flow.
 const TOUR_ZILLOW = 'https://www.zillow.com/view-imx/b55c2ba6-cc6e-47b1-8e2c-6f39e2fa26ef/?utm_source=captureapp';
@@ -444,7 +447,7 @@ function vServices(inline) {
       <div class="pkg-h"><div class="pkg-nm"><h3>${esc(p.name)}</h3>${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}</div>
         <span class="pkg-p">${was(p, sizeAdj(p))}${money(+p.price + sizeAdj(p))}</span></div>
       <ul class="chk two">${(p.includes || []).map(i => `<li>${CHECK}<span>${esc(incLabel(i))}</span></li>`).join('')}</ul>
-    </button>${S.pkg === p.id ? vExample(p.id) : ''}`).join('');
+    </button>${SHOW_PKG_EXAMPLES && S.pkg === p.id ? vExample(p.id) : ''}`).join('');
   const ups = upsells().map(u => `<div class="up"><div style="flex:1"><h3>${esc(u.title)}</h3><p>${esc(u.description)}</p></div>
       <button class="btn lt" onclick="kv.toggle('${u.service_id}')">+ ${money(svc(u.service_id).price)}</button></div>`).join('');
   const row = s => {
