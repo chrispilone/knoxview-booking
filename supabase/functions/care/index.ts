@@ -290,7 +290,7 @@ Chris's usual questions: ${questions.join(' | ')}
 
 Write a short call guide he can glance at while driving. Return only JSON:
 {"opener": "one natural opening line, specific to this person", "points": ["2-3 short talking points drawn from the facts above"], "questions": ["2-3 questions to ask on this call, specific to them"], "close": "one line on how to wrap up or where to leave the call (a clear next step)"}
-Chris introduces himself as "Chris with Knox View". Keep every item under 20 words, warm and casual, no em dashes. Only use facts given above; do not invent listings, people or events. ${NOTE_RULES}`;
+Chris introduces himself as "Chris with Knox View". Talking points are notes for Chris, not lines to read; never have him mention tiers, rankings or how many shoots they've done. Keep every item under 20 words, warm and casual, no em dashes. Only use facts given above; do not invent listings, people or events. ${NOTE_RULES}`;
   const r = await claude(prompt, 600);
   if (!r.text) throw new Bad('Could not write the call guide: ' + (r.error || 'no reply'), 502);
   const t = r.text, a = t.indexOf('{'), b = t.lastIndexOf('}');
