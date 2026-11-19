@@ -41,6 +41,31 @@ async function spiroAll(path: string) {
   return out;
 }
 
+
+// ---- Quo (read-only here) and Claude ----
+async function quo(path: string): Promise<any> {
+  const key = env('QUO_API_KEY'); if (!key) throw new Bad('QUO_API_KEY is missing.', 409);
+  for (let t = 0; t < 3; t++) {
+    const r = await fetch('https://api.openphone.com/v1' + path, { headers: { Authorization: key, Accept: 'application/json' } });
+    if (r.status === 429) { await new Promise(res => setTimeout(res, 1500 * (t + 1))); continue; }
+    if (r.status === 404) return null;
+    const txt = await r.text();
+    if (!r.ok) throw new Bad(`Quo said ${r.status} for ${path.split('?')[0]}: ${txt.split(key).join('[key]').slice(0, 200)}`, 502);
+    return txt ? JSON.parse(txt) : null;
+  }
+  throw new Bad('Quo is rate-limiting us.', 429);
+}
+const CLAUDE_MODEL = 'claude-haiku-5-5';
+async function claude(prompt: string, maxTokens = 400, system?: string): Promise<{ text?: string; error?: string }> {
+  const key = env('ANTHROPIC_API_KEY'); if (!key) return { error: 'ANTHROPIC_API_KEY is missing' };
+  const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST',
+    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, ...(system ? { system } : {}), messages: [{ role: 'user', content: prompt }] }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return { error: `${r.status} ${j?.error?.message || ''}`.trim() };
+  return { text: (j.content ?? []).map((c: any) => c.text || '').join('').trim() };
+}
+
 const fmtPhone = (p: string) => { const d = String(p || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}` : (p || null); };
 const dayOf = (s: string | null | undefined) => s ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(s)) : null;
 const mediaOf = (m: any) => [m?.photoCount && `${m.photoCount} photos`, m?.videoCount && `${m.videoCount} video${m.videoCount === 1 ? '' : 's'}`, m?.floorPlanCount && 'floor plan', m?.virtualTourCount && '3D tour'].filter(Boolean).join(', ');
@@ -142,6 +167,13 @@ Deno.serve(async (req) => {
     const { data: me } = u?.user ? await admin.from('team_members').select('id, role, active, permissions').eq('id', u.user.id).maybeSingle() : { data: null };
     if (!me?.active || !(me.role === 'owner' || me.permissions?.super_admin === true)) throw new Bad('Only HQ super admins can use Client Care.', 403);
     if (body.action === 'refresh') return json(req, { ok: true, ...(await refresh(set)) });
+    if (body.action === 'status') { // which keys work (no secrets returned)
+      const out: any = { quo: !!env('QUO_API_KEY'), anthropic: !!env('ANTHROPIC_API_KEY') };
+      if (out.anthropic) { const r = await claude('Reply with the single word: ok', 5); out.anthropicOk = /ok/i.test(r.text || ''); out.anthropicErr = r.error || null; }
+      if (out.quo) { const r = await quo('/phone-numbers'); out.quoOk = !!r?.data; out.quoNumbers = (r?.data ?? []).map((n: any) => ({ id: n.id, number: n.number, name: n.name })); }
+      return json(req, out);
+    }
+    if (body.action === 'quo_raw') { const p = String(body.path || ''); if (!/^\/[a-z0-9\-\/?&=%_.\[\]:+,]*$/i.test(p)) throw new Bad('Bad path.'); return json(req, await quo(p)); }
     throw new Bad('Unknown action.');
   } catch (e) {
     const err = e as Bad; console.error('care', err.message);
