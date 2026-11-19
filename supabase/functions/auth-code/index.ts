@@ -15,8 +15,6 @@ const anon = () => createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUP
 const env = (k: string) => (Deno.env.get(k) ?? '').trim();
 const TW_SID = env('TWILIO_ACCOUNT_SID'), TW_TOKEN = env('TWILIO_AUTH_TOKEN'), TW_VERIFY = env('TWILIO_VERIFY_SERVICE_SID');
 const TWILIO = !!(TW_SID && TW_TOKEN && TW_VERIFY); // texts go through Twilio Verify when set; Quo is the fallback
-const QUO_KEY = env('QUO_API_KEY');
-const QUO_FROM = env('QUO_FROM_NUMBER') || '+18658555669';
 const RESEND_KEY = env('RESEND_API_KEY');
 const MAIL_FROM = env('AUTH_MAIL_FROM') || 'Knox View Media <noreply@mail.knoxview.com>';
 const G_ID = env('GOOGLE_CLIENT_ID'), G_SECRET = env('GOOGLE_CLIENT_SECRET');
@@ -93,14 +91,6 @@ async function sessionFor(email: string) { // mint a Supabase session for a clie
 }
 
 /* ---------- senders ---------- */
-async function sendSms(to: string, code: string) {
-  if (!QUO_KEY) throw new Bad('Text codes are not switched on yet. Use your email instead.', 503);
-  const r = await fetch('https://api.openphone.com/v1/messages', {
-    method: 'POST', headers: { Authorization: QUO_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: QUO_FROM, to: [to], content: `${code} is your Knox View sign-in code. It expires in 1 hour. Don't share it with anyone.` }),
-  });
-  if (!r.ok) { console.error('quo send failed', r.status, await r.text()); throw new Bad("We couldn't send a text right now. Use your email instead.", 502); }
-}
 function emailParts(code: string) {
   const subject = `${code} is your Knox View sign-in code`;
   const text = `Your Knox View sign-in code is ${code}\n\nEnter it on the sign-in page. It expires in 1 hour.\nIf you didn't ask for this, you can ignore this email.\n\nKnox View Media · 865-855-5669`;
@@ -200,7 +190,7 @@ Deno.serve(async (req) => {
         const d = await r.json().catch(() => ({}));
         twilio = { configured: true, ok: r.ok, status: r.status, service: r.ok ? d.friendly_name : null, error: r.ok ? null : d.message ?? null };
       }
-      return json(req, { twilio, quo: !!QUO_KEY, resend: !!RESEND_KEY });
+      return json(req, { twilio, resend: !!RESEND_KEY });
     }
 
     if (b.action === 'send') {
@@ -221,11 +211,13 @@ Deno.serve(async (req) => {
         if (!EMAIL_RE.test(email)) throw new Bad('Enter a valid email.');
       }
       await checkLimits(email, channel);
-      const provider = channel === 'email' ? 'supabase' : TWILIO ? 'twilio' : 'quo';
+      // sign-in codes by text only ever go through Twilio Verify, never Quo (Quo is for order texts)
+      if (channel === 'sms' && !TWILIO) throw new Bad('Text codes are not available right now. Use your email instead.', 503);
+      const provider = channel === 'email' ? 'supabase' : 'twilio';
       const { data: row, error: insErr } = await admin.from('auth_code_sends').insert({ email, channel, phone, provider, ip_hash: ipHash, ok: false }).select('id, ref').single();
       if (insErr) throw insErr;
       if (provider === 'twilio') await twilioSend(phone!);
-      else { const code = await makeCode(email); if (channel === 'sms') await sendSms(phone!, code); else await sendEmail(email, code); }
+      else { const code = await makeCode(email); await sendEmail(email, code); }
       await admin.from('auth_code_sends').update({ ok: true }).eq('id', row.id);
       return json(req, { sent: true, channel, ref: row.ref, expiresMin: provider === 'twilio' ? 10 : 60, to: channel === 'sms' ? maskPhone(phone!) : email });
     }
