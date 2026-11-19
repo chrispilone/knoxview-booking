@@ -108,11 +108,11 @@ async function writePrompt(photo: any, batch: any, preset: any, standing: any, r
 
 Room (labeled by the team): ${photo.room_label || photo.room_guess || 'unknown'}
 What Claude saw earlier: ${JSON.stringify({ summary: a.summary, keep: a.keep, focal_point: a.focal_point, clearances: a.clearances, existing_furniture: a.existing_furniture, size: a.size })}
-Style preset: ${preset ? `${preset.name}. ${preset.prompt}` : 'Modern (Knox View default)'}
+Style preset: ${preset ? `${preset.name}. ${preset.prompt}` : 'none chosen: use the default style from the standing instructions'}
 ${batch.notes ? `Notes from the team for this set: ${batch.notes}` : ''}
 ${refsInfo}
 ${issues.length ? `The last render failed review for: ${issues.join('; ')}. Write the prompt so these cannot happen again.` : ''}
-${a.existing_furniture && !/^none/i.test(String(a.existing_furniture)) ? 'The room already has some objects in it: keep every existing object exactly as it is (Knox View SOP) and stage around them, unless the team notes ask to remove something.' : ''}
+${a.existing_furniture && !/^none/i.test(String(a.existing_furniture)) ? 'The room already has some objects in it. Follow the standing instructions on whether to keep or remove them (and any team notes for this set).' : ''}
 Reply with the prompt text only.`;
   const r = await claude(set.claude_model, [img(bytes), { type: 'text', text }], system, 900);
   await logCall({ kind: 'prompt', engine: 'claude', model: set.claude_model, cost_usd: r.cost, photo_id: photo.id, by_member: by });
