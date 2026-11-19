@@ -73,7 +73,7 @@ async function claude(model: string, content: any[], system: string, maxTokens =
 const img = (bytes: Uint8Array) => ({ type: 'image', source: { type: 'base64', media_type: mimeOf(bytes), data: b64(bytes) } });
 function parseJson(t: string) { const m = t.match(/\{[\s\S]*\}/); try { return m ? JSON.parse(m[0]) : null; } catch (_) { return null; } }
 
-export const ROOMS = ['Living Room', 'Family Room', 'Great Room', 'Bedroom', 'Primary Bedroom', 'Kitchen', 'Dining Room', 'Office', 'Bonus Room', 'Loft', 'Game Room', 'Basement', 'Sunroom', 'Nursery', 'Covered Porch', 'Deck', 'Other'];
+export const ROOMS = ['Living Room', 'Family Room', 'Great Room', 'Bedroom', 'Primary Bedroom', 'Kitchen', 'Dining Room', 'Home Office', 'Bathroom', 'Bonus Room', 'Loft', 'Game Room', 'Basement', 'Sunroom', 'Nursery', 'Covered Porch', 'Deck', 'Other'];
 
 async function analyze(photo: any, set: any, by: string) {
   const bytes = await bytesOf(photo.original_path);
@@ -91,7 +91,7 @@ async function analyze(photo: any, set: any, by: string) {
  "clearances": ["doorways/paths/windows that must stay clear"],
  "existing_furniture": "none, or what is already in the room",
  "size": "small | medium | large",
- "stageable": true/false (false for bathrooms, closets, exteriors without a usable porch/deck, or rooms already fully furnished)}
+ "stageable": true/false (false for closets, laundry rooms, garages, exteriors without a usable porch/deck, or rooms already fully furnished)}
 ${lessons.length ? `\nThe team has corrected these guesses before; learn from them:\n${lessons.join('\n')}` : ''}`;
   const r = await claude(set.claude_model, [img(bytes), { type: 'text', text }], system, 700);
   await logCall({ kind: 'analyze', engine: 'claude', model: set.claude_model, cost_usd: r.cost, photo_id: photo.id, by_member: by });
@@ -108,11 +108,11 @@ async function writePrompt(photo: any, batch: any, preset: any, standing: any, r
 
 Room (labeled by the team): ${photo.room_label || photo.room_guess || 'unknown'}
 What Claude saw earlier: ${JSON.stringify({ summary: a.summary, keep: a.keep, focal_point: a.focal_point, clearances: a.clearances, existing_furniture: a.existing_furniture, size: a.size })}
-Style preset: ${preset ? `${preset.name}. ${preset.prompt}` : 'Transitional neutral'}
+Style preset: ${preset ? `${preset.name}. ${preset.prompt}` : 'Modern (Knox View default)'}
 ${batch.notes ? `Notes from the team for this set: ${batch.notes}` : ''}
 ${refsInfo}
 ${issues.length ? `The last render failed review for: ${issues.join('; ')}. Write the prompt so these cannot happen again.` : ''}
-${a.existing_furniture && !/^none/i.test(String(a.existing_furniture)) ? 'The room has existing furniture: remove it completely and stage fresh, unless the notes say otherwise.' : ''}
+${a.existing_furniture && !/^none/i.test(String(a.existing_furniture)) ? 'The room already has some objects in it: keep every existing object exactly as it is (Knox View SOP) and stage around them, unless the team notes ask to remove something.' : ''}
 Reply with the prompt text only.`;
   const r = await claude(set.claude_model, [img(bytes), { type: 'text', text }], system, 900);
   await logCall({ kind: 'prompt', engine: 'claude', model: set.claude_model, cost_usd: r.cost, photo_id: photo.id, by_member: by });
@@ -218,7 +218,7 @@ async function qc(body: any, set: any, by: string) {
   const before = await bytesOf(o.staging_photos.original_path), after = await bytesOf(o.qc_path);
   const keep = o.staging_photos.analysis?.keep;
   const text = `Image 1 is the original listing photo. Image 2 is the virtually staged version. Review image 2 like a strict real estate photo editor.
-FAIL it if any fixed feature changed: walls, windows (count, size, position), doors, openings, flooring, ceiling, fireplace, built-ins, cabinets, light fixtures, the view, the camera angle or crop. Also fail it for: furniture blocking a doorway or walkway, furniture out of scale, warped or melted objects, floating furniture, wrong room type (labeled ${o.staging_photos.room_label || o.staging_photos.room_guess}), text or logos, people or pets, or an obviously fake look.
+FAIL it if any fixed feature or existing object changed: walls, windows (count, size, position), doors, openings, flooring, ceiling, fireplace, built-ins, cabinets, light fixtures, the view, the camera angle or crop. Also fail it for: furniture blocking a doorway or walkway, furniture out of scale, warped or melted objects, floating furniture, wrong room type (labeled ${o.staging_photos.room_label || o.staging_photos.room_guess}), text or logos, people or pets, or an obviously fake look.
 ${keep ? `Features that had to stay: ${JSON.stringify(keep)}` : ''}
 Reply with JSON only: {"pass": true/false, "issues": ["short, specific problems"], "score": 1-10}`;
   const r = await claude(set.claude_model, [img(before), img(after), { type: 'text', text }], 'You review virtual staging for accuracy. Answer with JSON only.', 400);
