@@ -182,7 +182,7 @@ ${NOTE_RULES}`;
 async function quoSync(set: any) {
   const care = set.care || {};
   const started = new Date().toISOString();
-  const since = care.quoSyncedAt || new Date(Date.now() - 45 * 864e5).toISOString();
+  const since = care.quoSyncedAt || new Date(Date.now() - 14 * 864e5).toISOString();
   const { data: clients } = await admin.from('cc_clients').select('*').eq('hidden', false);
   const byPhone = new Map<string, any>();
   for (const c of clients ?? []) for (const p of [c.phone, c.call_phone, ...(c.alt_phones || [])]) { const k = e164(p); if (k && !byPhone.has(k)) byPhone.set(k, c); }
