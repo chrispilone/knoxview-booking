@@ -7,14 +7,14 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 //   verify { ref, code }  -> checks the code and returns a Supabase session for the browser (setSession).
 //                            For a sign-up, the client record (agents) is created or filled in here, once the email is proven.
 // A phone number only works if it matches a client record; the code is texted to that number on file
-// by Twilio Verify (Twilio creates and checks the code), or by Quo if Twilio isn't set up.
+// by Twilio Verify (Twilio creates and checks the code) only (never Quo; without Twilio, codes go by email).
 // The client's email is never sent back to the browser for phone sign-ins.
 
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 const anon = () => createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } });
 const env = (k: string) => (Deno.env.get(k) ?? '').trim();
 const TW_SID = env('TWILIO_ACCOUNT_SID'), TW_TOKEN = env('TWILIO_AUTH_TOKEN'), TW_VERIFY = env('TWILIO_VERIFY_SERVICE_SID');
-const TWILIO = !!(TW_SID && TW_TOKEN && TW_VERIFY); // texts go through Twilio Verify when set; Quo is the fallback
+const TWILIO = !!(TW_SID && TW_TOKEN && TW_VERIFY); // texts go through Twilio Verify when set; codes are never sent through Quo
 const RESEND_KEY = env('RESEND_API_KEY');
 const MAIL_FROM = env('AUTH_MAIL_FROM') || 'Knox View Media <noreply@mail.knoxview.com>';
 const G_ID = env('GOOGLE_CLIENT_ID'), G_SECRET = env('GOOGLE_CLIENT_SECRET');
