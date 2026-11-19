@@ -295,7 +295,7 @@ Keep every item under 20 words, warm and casual, no em dashes. Only use facts gi
   const t = r.text, a = t.indexOf('{'), b = t.lastIndexOf('}');
   try { const j = JSON.parse(t.slice(a, b + 1)); const arr = (x: any) => (Array.isArray(x) ? x : []).map(String).filter(Boolean).slice(0, 3);
     return { opener: String(j.opener || ''), points: arr(j.points), questions: arr(j.questions), close: String(j.close || ''), at: new Date().toISOString() }; }
-  catch (_) { throw new Bad('The call guide came back unreadable. Try again.', 502); }
+  catch (_) { console.error('brief unreadable', t.slice(0, 600)); throw new Bad('The call guide came back unreadable. Try again. (' + t.slice(0, 160) + ')', 502); }
 }
 
 Deno.serve(async (req) => {
