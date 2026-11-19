@@ -268,6 +268,35 @@ Return only the text message.`;
   return { text: r.text.replace(/—/g, ',').replace(/^"|"$/g, ''), fromVoicemail: !!said };
 }
 
+
+// A short call guide for one client on today's list: how to open, 2-3 talking points, questions, and how to wrap up.
+async function brief(clientId: string, section: string, reason: string, questions: string[]) {
+  const { data: c } = await admin.from('cc_clients').select('*').eq('id', clientId).maybeSingle(); if (!c) throw new Bad('Client not found.', 404);
+  const { data: calls } = await admin.from('cc_calls').select('at, kind, outcome, note, scheduling').eq('client_id', c.id).not('note', 'is', null).order('at', { ascending: false }).limit(5);
+  let listing = '';
+  if (c.last_order_hq) { const { data: b } = await admin.from('bookings').select('listing_status, listed_on, listing_dom, listing_notes').eq('id', c.last_order_hq).maybeSingle();
+    if (b?.listing_status) listing = `Last listing status: ${b.listing_status}${b.listed_on ? `, listed ${b.listed_on}` : ''}${b.listing_dom != null ? `, ${b.listing_dom} days on market` : ''}. ${(b.listing_notes?.bullets || []).filter((x: string) => !/\$/.test(x)).join(' ')}`; }
+  const kind = { first: 'a first-time client follow-up (their first shoot with Knox View was just delivered)', feedback: 'a quick feedback call after a recent shoot', follow: 'a follow-up call the client asked for', care: 'a relationship care call (no specific business reason)' }[section] || 'a relationship care call';
+  const prompt = `Chris Pilone owns Knox View Media (real estate photography, video, drone, floor plans, 3D tours, property websites) near Knoxville, TN. He is about to make ${kind} to ${c.call_name || c.name}${c.company ? `, an agent at ${c.company}` : ', a real estate agent'}${c.call_name ? ` (calling for ${c.name})` : ''}.
+Why they're on today's list: ${reason}
+Client: tier ${c.tier} of 4 (1 = best), ${c.shoots_12m} shoots in the last 12 months, ${c.shoots_all} total, client since ${c.first_order || 'unknown'}.
+Last shoot: ${c.last_shoot || 'unknown'} at ${c.last_order_address || 'unknown'}${c.last_order_pkg ? ` (${c.last_order_pkg})` : ''}. ${listing}
+${section === 'first' ? `First order: ${c.first_media || ''}${c.first_photographer ? `, shot by ${c.first_photographer}` : ''}.` : ''}
+Recent call notes (newest first):
+${(calls ?? []).map(k => `- ${String(k.at).slice(0, 10)}${k.scheduling ? ' (logistics)' : ''}: ${k.note}`).join('\n') || '- none'}
+Chris's usual questions: ${questions.join(' | ')}
+
+Write a short call guide he can glance at while driving. Return only JSON:
+{"opener": "one natural opening line, specific to this person", "points": ["2-3 short talking points drawn from the facts above"], "questions": ["2-3 questions to ask on this call, specific to them"], "close": "one line on how to wrap up or where to leave the call (a clear next step)"}
+Keep every item under 20 words, warm and casual, no em dashes. Only use facts given above; do not invent listings, people or events. ${NOTE_RULES}`;
+  const r = await claude(prompt, 600);
+  if (!r.text) throw new Bad('Could not write the call guide: ' + (r.error || 'no reply'), 502);
+  const t = r.text, a = t.indexOf('{'), b = t.lastIndexOf('}');
+  try { const j = JSON.parse(t.slice(a, b + 1)); const arr = (x: any) => (Array.isArray(x) ? x : []).map(String).filter(Boolean).slice(0, 3);
+    return { opener: String(j.opener || ''), points: arr(j.points), questions: arr(j.questions), close: String(j.close || ''), at: new Date().toISOString() }; }
+  catch (_) { throw new Bad('The call guide came back unreadable. Try again.', 502); }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors(req) });
   try {
@@ -288,6 +317,8 @@ Deno.serve(async (req) => {
     if (body.action === 'refresh') return json(req, { ok: true, ...(await refresh(set)) });
     if (body.action === 'quo_sync') return json(req, { ok: true, ...(await quoSync(set)) });
     if (body.action === 'vmtext') return json(req, await vmText(String(body.clientId || '')));
+    if (body.action === 'brief') { const { data: st } = await admin.from('booking_settings').select('care').eq('id', 1).single();
+      return json(req, await brief(String(body.clientId || ''), String(body.section || 'care'), String(body.reason || '').slice(0, 300), (st?.care?.questions || []).slice(0, 6))); }
     if (body.action === 'status') { // which keys work (no secrets returned)
       const out: any = { quo: !!env('QUO_API_KEY'), anthropic: !!env('ANTHROPIC_API_KEY') };
       if (out.anthropic) { const r = await claude('Reply with the single word: ok', 5); out.anthropicOk = /ok/i.test(r.text || ''); out.anthropicErr = r.error || null; }
