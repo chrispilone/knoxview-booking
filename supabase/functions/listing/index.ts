@@ -35,7 +35,7 @@ function defaults(b: any) {
   return {
     title: line, subtitle: sub, description: '', template: 'cooper',
     facts: [
-      { k: 'price', icon: 'price', label: 'Price', value: '', show: true },
+      { k: 'price', icon: 'price', label: 'Price', value: b.list_price ? String(Math.round(+b.list_price)) : '', show: true },
       { k: 'beds', icon: 'bed', label: 'Beds', value: '', show: true },
       { k: 'baths', icon: 'bath', label: 'Baths', value: '', show: true },
       { k: 'size', icon: 'size', label: 'Size', value: b.sqft ? `${Number(b.sqft).toLocaleString('en-US')} sq ft` : '', show: true },
@@ -44,7 +44,9 @@ function defaults(b: any) {
   };
 }
 const siteOf = (b: any) => { const d = defaults(b), s = (b.site && typeof b.site === 'object') ? b.site : {};
-  return { ...d, ...s, template: Object.hasOwn(TEMPLATES, String(s.template)) ? s.template : 'cooper', facts: Array.isArray(s.facts) && s.facts.length ? s.facts : d.facts }; };
+  // an empty price on a saved site shows the order's list price (from RentCast or HQ) until the agent types one
+  const facts = Array.isArray(s.facts) && s.facts.length ? s.facts.map((f: any) => (f.k === 'price' || f.icon === 'price') && !String(f.value || '').trim() && b.list_price ? { ...f, value: String(Math.round(+b.list_price)) } : f) : d.facts;
+  return { ...d, ...s, template: Object.hasOwn(TEMPLATES, String(s.template)) ? s.template : 'cooper', facts }; };
 function sanitize(input: any, b: any) {
   const d = defaults(b);
   const facts = (Array.isArray(input?.facts) ? input.facts : d.facts).slice(0, 12).map((f: any, i: number) => ({
