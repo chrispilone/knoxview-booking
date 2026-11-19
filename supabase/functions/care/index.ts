@@ -63,7 +63,8 @@ async function claude(prompt: string, maxTokens = 400, system?: string): Promise
     body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, ...(system ? { system } : {}), messages: [{ role: 'user', content: prompt }] }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) return { error: `${r.status} ${j?.error?.message || ''}`.trim() };
-  return { text: (j.content ?? []).map((c: any) => c.text || '').join('').trim() };
+  const text = (j.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text || '').join('').trim();
+  return text ? { text } : { error: `empty reply (stop: ${j.stop_reason}, blocks: ${(j.content ?? []).map((c: any) => c.type).join(',') || 'none'})` };
 }
 
 const fmtPhone = (p: string) => { const d = String(p || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}` : (p || null); };
