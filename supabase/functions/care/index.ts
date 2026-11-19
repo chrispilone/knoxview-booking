@@ -172,12 +172,15 @@ Transcript:
 ${lines || '(none)'}
 
 Return only JSON, no other text:
-{"note": "1-2 short sentences: what you talked about and any follow-up, written plainly for Chris", "scheduling_only": true if the call was only about logistics (arrival time, directions, access, rescheduling) with no relationship conversation, "test": true if it is a test call, "followup": null, or {"date": "YYYY-MM-DD", "about": "a few words", "quote": "the client's or Chris's exact words that set the timing"} only when the client asked to be contacted again later or Chris promised to call back at a set time. Turn timing into a date: "after Thanksgiving" = the Monday after Thanksgiving, "after the holidays" = the first Monday in January, weekends move to Monday. Do not set a follow-up for booking a shoot, sending photos, or "talk soon".}
+{"note": "1-2 short sentences for Chris, calling him 'you': what you talked about and any follow-up", "scheduling_only": true if the call was only about logistics (arrival time, directions, access, rescheduling) with no relationship conversation, "test": true if it is a test call, "followup": null, or {"date": "YYYY-MM-DD", "about": "a few words", "quote": "the client's or Chris's exact words that set the timing"} only when the client asked to be contacted again later or Chris promised to call back at a set time. Turn timing into a date: "after Thanksgiving" = the Monday after Thanksgiving, "after the holidays" = the first Monday in January, weekends move to Monday. Do not set a follow-up for booking a shoot, sending photos, or "talk soon".}
 ${NOTE_RULES}`;
-  const r = await claude(prompt, 400);
+  const r = await claude(prompt, 800);
   if (!r.text) return { error: r.error };
-  try { const j = JSON.parse(r.text.replace(/^```(json)?|```$/g, '').trim()); return { note: String(j.note || '').slice(0, 500), scheduling: !!j.scheduling_only, test: !!j.test, followup: j.followup && /^\d{4}-\d\d-\d\d$/.test(j.followup.date || '') ? j.followup : null }; }
-  catch (_) { return { note: r.text.slice(0, 400), scheduling: false, test: false, followup: null }; }
+  const t = r.text, a = t.indexOf('{'), b = t.lastIndexOf('}');
+  try { const j = JSON.parse(t.slice(a, b + 1)); return { note: String(j.note || '').slice(0, 500), scheduling: !!j.scheduling_only, test: !!j.test, followup: j.followup && /^\d{4}-\d\d-\d\d$/.test(j.followup.date || '') ? j.followup : null }; }
+  catch (_) { // cut-off or loose JSON: keep just the note text
+    const m = t.match(/"note"\s*:\s*"((?:[^"\\]|\\.)*)/); const note = m ? m[1].replace(/\\"/g, '"') : t.replace(/[{}]/g, '').slice(0, 400);
+    return { note: note.slice(0, 500), scheduling: /"scheduling_only"\s*:\s*true/.test(t), test: /"test"\s*:\s*true/.test(t), followup: null }; }
 }
 async function quoSync(set: any) {
   const care = set.care || {};
