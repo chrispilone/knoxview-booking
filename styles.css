@@ -1216,6 +1216,6 @@ button.dlx-btn{font:600 14px/1 var(--bf)}
 .of-sel select{appearance:none;-webkit-appearance:none;font:inherit;font-size:14px;font-weight:600;color:var(--primary);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 32px 7px 12px;cursor:pointer;max-width:62vw;text-overflow:ellipsis}
 .of-sel select:focus{outline:2px solid var(--accent);outline-offset:1px}
 .of-sel::after{content:"";position:absolute;right:12px;top:50%;width:7px;height:7px;border-right:1.5px solid var(--slate);border-bottom:1.5px solid var(--slate);transform:translateY(-70%) rotate(45deg);pointer-events:none}
-/* Package add-on drop-down: opens under the picked package (Essentials) */
+/* Package add-on drop-down: opens under the picked package (Base) */
 .pkg-add{grid-column:1/-1;margin:-2px 0 6px;padding:10px 0 2px;animation:exIn .28s ease-out}
 .pkg-add .row{padding:12px 16px}

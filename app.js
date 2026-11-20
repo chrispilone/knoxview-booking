@@ -380,15 +380,15 @@ const SHOW_UPSELLS = true;
 // Package example strips are archived for now (Chris, Nov 2026): nothing opens under a package when it's picked.
 // The photos, tours and videos below are kept; set true to bring the strips back.
 const SHOW_PKG_EXAMPLES = false;
-// ===== Package add-on drop-down: opens under a package when it's picked (Essentials only for now).
-// Each entry is a service and the price shown. Virtual Staging and 3D Floor Plan are normal add-ons (charged at checkout).
-// Drone Photos is already in Essentials, so it's a look-only preview: it checks on and off but adds nothing to the order.
-const ESSENTIALS_ID = '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5';
+// ===== Package add-on drop-down: opens under a package when it's picked (Base only for now).
+// Each entry is a normal add-on, charged at checkout at its live price from booking_services.
+// Drone Photos is no longer part of Base (Nov 2026), so it's offered here as a paid add-on.
+const BASE_ID = '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5';
 const PKG_ADDONS = {
-  [ESSENTIALS_ID]: [
-    { id: '9550aba6-e6a5-4072-8633-00b538039a4b', price: 75 },               // Virtual Staging
-    { id: 'ccbb8503-18b6-4f76-8193-5c7c056c97f0', price: 85 },               // 3D Floor Plan
-    { id: '4f9fc78e-74dd-45e6-9c6a-78006ecce230', price: 75, preview: true }, // Drone Photos (look only)
+  [BASE_ID]: [
+    { id: '4f9fc78e-74dd-45e6-9c6a-78006ecce230' }, // Drone Photos
+    { id: '9550aba6-e6a5-4072-8633-00b538039a4b' }, // Virtual Staging
+    { id: 'ccbb8503-18b6-4f76-8193-5c7c056c97f0' }, // 3D Floor Plan
   ],
 };
 const pkgAddonIds = () => new Set((PKG_ADDONS[S.pkg] || []).map(x => x.id));
@@ -399,7 +399,7 @@ function vPkgAddons(pid) {
     const s = svc(x.id), on = x.preview ? S.pkgPrev.has(x.id) : S.items.has(x.id);
     return `<button type="button" class="row ${on ? 'sel' : ''}" onclick="kv.pkgAdd('${x.id}', ${!!x.preview})" aria-pressed="${on}">
       <span class="box">${CHECK}</span><span class="row-t"><span class="row-n">${esc(s.name)}</span></span>
-      <span class="row-p">+${money(x.price)}</span></button>`;
+      <span class="row-p">+${money(svcPrice(s))}</span></button>`;
   }).join('');
   return `<div class="pkg-add" role="region" aria-label="Add-ons for ${esc(svc(pid).name)}">
     <div class="ex-h"><span>Add to your ${esc(svc(pid).name)} package</span></div><div class="list">${rows}</div></div>`;
@@ -410,7 +410,7 @@ const TOUR_ZILLOW = 'https://www.zillow.com/view-imx/b55c2ba6-cc6e-47b1-8e2c-6f3
 const TOUR_PREMIUM = 'https://www.zillow.com/view-imx/387714a0-c187-4298-bad5-51082b18bd8f?setAttribution=mls&wl=true&initialViewType=pano';
 const VIMEO = id => `https://player.vimeo.com/video/${id}?autoplay=1&muted=1&playsinline=1&loop=1&title=0&byline=0&portrait=0&dnt=1`;
 const EX = {
-  '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5': { dir: 'essentials', imgs: [['front','Photos'],['kitchen','Photos'],['living','Photos'],['primary','Photos'],['aerial-house','Drone Photos'],['aerial-wide','Drone Photos'],['twilight','Virtual Twilight'],['floorplan','2D Floor Plan']] },
+  '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5': { dir: 'essentials', imgs: [['front','Photos'],['kitchen','Photos'],['living','Photos'],['primary','Photos'],['twilight','Virtual Twilight'],['floorplan','2D Floor Plan']] },
   '2af4fccb-2e5e-40e0-9413-5a5f2a711e9d': { dir: 'zillow', leads: [['living', 'Zillow 3D Tour', 'tour', TOUR_ZILLOW]], imgs: [['front-angle','Photos'],['kitchen-living','Photos'],['primary','Photos'],['aerial-pin','Drone Photos'],['aerial-street','Drone Photos'],['twilight','Virtual Twilight'],['floorplan','2D Floor Plan']] },
   '5d0329ed-225f-4ccf-aed9-8307780de1b4': { dir: 'social', leads: [['aerial-wide', 'Social Media Video', 'video', '1229552456']], imgs: [['front-yard','Photos'],['kitchen','Photos'],['living','Photos'],['bedroom','Photos'],['aerial-pin','Drone Photos'],['twilight','Virtual Twilight'],['floorplan','2D Floor Plan']] },
   '271ce816-6215-4ead-b063-d4ae920276bc': { dir: 'premium', leads: [['aerial-yard', 'Premium Video', 'video', '1216825550'], ['living', 'Zillow 3D Tour', 'tour', TOUR_PREMIUM]], imgs: [['front','Photos'],['kitchen-island','Photos'],['primary','Photos'],['aerial-pin','Drone Photos'],['twilight','Virtual Twilight'],['floorplan','2D Floor Plan']] },
