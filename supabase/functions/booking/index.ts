@@ -114,7 +114,17 @@ async function catalogFor(req: Request, body: any) {
   if (!pages.some(p => p.id === pageId)) throw new UserError('This order page is not available on your account. Please sign in again or call 865-855-5669.', 403);
   return { cat: await loadCatalog(pageId), pageId };
 }
-const PHOTO_LARGE_FEE = 25; // à la carte Photography: $225 → $250 over 3,500 sq ft
+/* Size tiers (HQ → Settings → Order form): home sq ft (sqft_options) and land acreage (acre_options), smallest first.
+   A tier adds its fee to the package (a "Home size" / "Land size" line), or its photo_fee to à la carte Photography on a
+   photos-only order. An ADU / extra structure counts as at least the second home tier. */
+type Tier = { label: string; max?: number | null; fee?: number; photo_fee?: number; minutes?: number; photo_minutes?: number; photos?: string; alc_photos?: string };
+function sizeTier(settings: any, label?: string, adu?: boolean) {
+  const home: Tier[] = settings.sqft_options ?? [], land: Tier[] = settings.acre_options ?? [];
+  let i = home.findIndex(o => o.label === label);
+  if (i >= 0 || (adu && home.length > 1)) { i = Math.max(i, adu ? 1 : 0); return { kind: 'home' as const, idx: i, t: home[i], tiers: home }; }
+  i = land.findIndex(o => o.label === label);
+  return i >= 0 ? { kind: 'land' as const, idx: i, t: land[i], tiers: land } : null;
+}
 type Sel = { packageId?: string | null; serviceIds?: string[]; sqftLabel?: string; adu?: boolean };
 function price(cat: Awaited<ReturnType<typeof loadCatalog>>, sel: Sel) {
   const byId = new Map<string, any>(cat.services.map(s => [s.id, s]));
@@ -130,16 +140,21 @@ function price(cat: Awaited<ReturnType<typeof loadCatalog>>, sel: Sel) {
     items.push({ id: s.id, name: s.name, kind: 'service', price: +s.price, minutes: s.duration_min });
   }
   if (!items.length) throw new UserError('Choose a package or at least one service.');
-  const opt = (cat.settings.sqft_options as { label: string; max: number | null }[]).find(o => o.label === sel.sqftLabel);
-  const large = !!sel.adu || (opt ? (opt.max === null || opt.max >= cat.settings.large_sqft) : false);
-  // Homes over 3,500 sq ft: packages add the large-home fee ($75); photos-only orders (à la carte Photography, no package) add $25.
-  const largeFee = pkg && pkg.large_fee != null ? +pkg.large_fee : +cat.settings.large_fee; // a package can have its own large-property fee
-  if (large && pkg && largeFee > 0) items.push({ id: 'large', name: cat.settings.large_label, kind: 'fee', price: largeFee, minutes: cat.settings.large_minutes });
-  else if (large && !pkg) { const ph = items.find(i => i.kind === 'service' && /^photography$/i.test(i.name)); if (ph) { ph.price += PHOTO_LARGE_FEE; ph.minutes += 15; } }
+  const tier = sizeTier(cat.settings, sel.sqftLabel, sel.adu), t = tier?.t;
+  const large = tier?.kind === 'home' && tier.idx > 0;
+  if (pkg && t && +(t.fee || 0) > 0) {
+    // a package can have its own large-property fee: it replaces the first step up; bigger homes add the difference on top
+    let fee = +t.fee!;
+    if (tier!.kind === 'home' && pkg.large_fee != null) { const first = +(tier!.tiers.find(o => +(o.fee || 0) > 0)?.fee || fee); fee = Math.max(0, +pkg.large_fee + fee - first); }
+    if (fee > 0) items.push({ id: 'large', name: `${tier!.kind === 'land' ? 'Land' : 'Home'} size: ${t.label}`, kind: 'fee', price: fee, minutes: +(t.minutes || 0) });
+  } else if (!pkg && t && +(t.photo_fee || 0) > 0) {
+    const ph = items.find(i => i.kind === 'service' && /^photography$/i.test(i.name));
+    if (ph) { ph.price += +t.photo_fee!; ph.minutes += +(t.photo_minutes ?? 15); }
+  }
   const subtotal = items.reduce((a, i) => a + i.price, 0);
   const minutes = items.reduce((a, i) => a + (i.minutes || 0), 0);
   const twilight = items.some(i => /twilight photos/i.test(i.name)) || (pkg && (pkg.covers ?? []).some((c: string) => /twilight photos/i.test(byId.get(c)?.name ?? '')));
-  return { items, subtotal, tax: 0, total: subtotal, minutes: Math.max(minutes, 30), large, sqft: opt?.max ?? null, twilight: !!twilight };
+  return { items, subtotal, tax: 0, total: subtotal, minutes: Math.max(minutes, 30), large, sqft: tier?.kind === 'home' ? t?.max ?? null : null, twilight: !!twilight };
 }
 
 /* ----- coupon codes (managed in HQ → Orders → Coupon Codes). The client types one at checkout; the server checks it
@@ -485,7 +500,7 @@ async function handle(req: Request) {
     const action = String(body.action || '');
 
     if (action === 'config') {
-      const { data: s } = await admin.from('booking_settings').select('payment_options, sqft_options, large_sqft, large_fee, large_label, timezone').eq('id', 1).single();
+      const { data: s } = await admin.from('booking_settings').select('payment_options, sqft_options, acre_options, large_sqft, large_fee, large_label, timezone').eq('id', 1).single();
       const mode = stripeMode(), pk = LIVE ? KEYS.live.pk : KEYS.test.pk;
       const pkOk = LIVE ? pk.startsWith('pk_live_') : pk.startsWith('pk_test_');
       const pages = await myPages(req).catch(() => [] as Page[]);

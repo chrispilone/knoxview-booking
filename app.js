@@ -88,34 +88,40 @@ const reelsList = () => S.services.filter(s => s.kind === 'addon' && s.category 
 const addonList = () => S.services.filter(s => s.kind === 'addon' && s.category === 'addon').sort((a, b) => a.sort_order - b.sort_order);
 const ADDON_IMG = { 'e8cab6b1-3742-49a3-9f85-e888d886fd0d': 'interactive-floor-plan', 'ccbb8503-18b6-4f76-8193-5c7c056c97f0': '3d-floor-plan', 'd7f8797f-5243-4de0-b4d0-28d0ce3c6403': 'community-photos',
   '9550aba6-e6a5-4072-8633-00b538039a4b': 'virtual-staging', '66929c67-8107-4fb0-b422-d956d261058b': 'location-graphics' };
-const ACRE_OPTIONS = [{ label: 'Up to 50 acres' }, { label: 'Over 50 acres' }];
-// Photo count shown in packages: 30+ photos, or 40+ for homes over 3,500 sq ft
-const photoCount = () => largeOn() ? '40+' : '30+';
+// Size tiers (HQ → Settings → Order form): home sq ft and land acreage, smallest first. Same rules as the server's sizeTier.
+const homeTiers = () => S.config?.settings?.sqft_options || [], landTiers = () => S.config?.settings?.acre_options || [];
+const tierNow = () => {
+  const lb = S.addr.sqftLabel, home = homeTiers(); let i = home.findIndex(o => o.label === lb);
+  if (i >= 0 || (S.adu && home.length > 1)) { i = Math.max(i, S.adu ? 1 : 0); return { kind: 'home', idx: i, t: home[i], tiers: home }; }
+  i = landTiers().findIndex(o => o.label === lb);
+  return i >= 0 ? { kind: 'land', idx: i, t: landTiers()[i], tiers: landTiers() } : null;
+};
+// Photo count shown in packages (30+, 40+, 50+ by home size)
+const photoCount = () => { const z = tierNow(); return z?.kind === 'home' && z.t.photos ? z.t.photos : '30+'; };
 const incLabel = i => /^photography$/i.test(i) ? `${photoCount()} photos` : i; // Luxury's "Premium photography" shows no count
-// À la carte Photography: 25+ photos, or 30+ for homes over 3,500 sq ft
-const alcPhotoCount = () => largeOn() ? '30+' : '25+';
+// À la carte Photography (25+, 30+, 35+ by home size)
+const alcPhotoCount = () => { const z = tierNow(); return z?.kind === 'home' && z.t.alc_photos ? z.t.alc_photos : '25+'; };
 const covered = () => new Set(S.pkg ? svc(S.pkg)?.covers ?? [] : []);
 const inCart = () => { const c = new Set(S.items); if (S.pkg) c.add(S.pkg); return c; };
 const anyOf = (list, set) => (list || []).some(x => set.has(x));
-const largeEnabled = () => +(S.config?.settings?.large_fee || 0) > 0;
-const largeOn = () => {
-  if (!largeEnabled()) return false;
-  const o = (S.config?.settings?.sqft_options || []).find(x => x.label === S.addr.sqftLabel);
-  return S.adu || (o ? (o.max === null || o.max >= S.config.settings.large_sqft) : false);
-};
+const largeEnabled = () => homeTiers().some(o => +(o.fee || 0) > 0);
+const largeOn = () => { const z = tierNow(); return z?.kind === 'home' && z.idx > 0; };
 const largeVisible = () => largeEnabled() && inCart().size > 0;
-// À la carte price shown to the client: Photography is $250 (not $225) for homes over 3,500 sq ft on a photos-only order
-const svcPrice = s => +s.price + (!S.pkg && largeOn() && /^photography$/i.test(s.name) ? 25 : 0);
+// À la carte price shown to the client: Photography adds the size tier's photo fee on a photos-only order
+const svcPrice = s => +s.price + (!S.pkg && /^photography$/i.test(s.name) ? +(tierNow()?.t?.photo_fee || 0) : 0);
 // shown inside package prices: the package's own large-property fee, or the normal one
-const pkgLargeFee = p => p && p.large_fee != null ? +p.large_fee : +S.config.settings.large_fee;
-const sizeAdj = p => largeOn() ? pkgLargeFee(p) : 0;
+const firstStep = () => +(homeTiers().find(o => +(o.fee || 0) > 0)?.fee || 0);
+const pkgLargeFee = p => p && p.large_fee != null ? +p.large_fee : firstStep();
+// added to a package's price for the chosen size (a package's own large-property fee replaces the first step up; bigger homes add the difference)
+const sizeAdj = p => { const z = tierNow(), fee = +(z?.t?.fee || 0); if (!fee) return 0;
+  return z.kind === 'home' && p && p.large_fee != null ? Math.max(0, +p.large_fee + fee - firstStep()) : fee; };
 // the fee to quote before a package is picked: the selected package's, or the one all shown packages share, else the normal fee
-const largeFeeShown = () => { if (S.pkg) return pkgLargeFee(svc(S.pkg)); const fs = [...new Set(packages().map(pkgLargeFee))]; return fs.length === 1 ? fs[0] : +S.config.settings.large_fee; };
+const largeFeeShown = () => { if (S.pkg) return pkgLargeFee(svc(S.pkg)); const fs = [...new Set(packages().map(pkgLargeFee))]; return fs.length === 1 ? fs[0] : firstStep(); };
 function lines() {
   const out = [];
   if (S.pkg) { const p = svc(S.pkg); out.push({ name: p.name + ' Package', price: +p.price + sizeAdj(p) }); }
   for (const id of S.items) { const s = svc(id); if (s) out.push({ name: s.name, price: svcPrice(s) }); }
-  // photos-only orders over 3,500 sq ft: Photography is $250 instead of $225 (no separate large-home fee)
+  // photos-only orders on a bigger home: Photography carries the size fee (no separate size line)
   return out;
 }
 const subTotal = () => lines().reduce((a, l) => a + l.price, 0);
@@ -568,8 +574,7 @@ function field(key, label, obj, opt = {}) {
 }
 function vProperty() {
   const st = S.config.settings;
-  const bySize = (st.sqft_options || []).find(o => o.label === S.addr.sqftLabel);
-  const big = largeEnabled() && bySize && (bySize.max === null || bySize.max >= st.large_sqft);
+  const big = largeOn() && !S.adu;
   return `<section class="sec"><div class="sec-h"><i style="background:#1d3250"></i><h2>Property</h2></div>
     <p class="d">Where are we shooting?</p>
     <div class="panel"><div class="fg pairs">
@@ -1910,7 +1915,7 @@ function checkAll() { // before submitting: flag what's missing and jump to it
 }
 const oh = (id, n, title, sub = '') => `<div class="o-h" id="${id}"><span class="o-n">${n}</span><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div></div>`;
 function vOne() {
-  const a = S.addr, st = S.config.settings, land = isLand(), opts = land ? ACRE_OPTIONS : (st.sqft_options || []);
+  const a = S.addr, st = S.config.settings, land = isLand(), opts = land ? landTiers() : homeTiers();
   const pg = PAGE();
   const tRow = (t, name, sub) => `<button class="tcard ${S.ptype === t ? 'sel' : ''}" onclick="kv.ptype('${t}')" aria-pressed="${S.ptype === t}">
       <span class="tc-img">${t === 'custom' ? (pg.cover_url ? `<img src="${esc(pg.cover_url)}" alt="" decoding="async">` : `<span class="tc-ph">${esc(pg.title)}</span>`) : `<img src="/img/type-${t === 'home' ? 'listing' : t}.jpg?v=3" alt="" decoding="async">`}<span class="tick">${CHECK}</span></span>
@@ -1925,7 +1930,7 @@ function vOne() {
     ${S.ptype === 'str' ? `<div class="soon"><b>Short-term rental media is coming soon.</b> Text us at <a href="${SMS_LINK}">865-855-5669</a> and we'll set up your shoot.</div>` : ''}</section>`;
   if (S.ptype === 'str') return vFormPick() + type;
   const haveSvc = inCart().size > 0, aOk = addrOk();
-  const size = !S.ptype ? '' : `<section class="o-sec">${oh('o-size', 2, land ? 'Land size' : 'Home size', land ? 'Total acreage' : 'Heated square feet')}
+  const size = !S.ptype ? '' : `<section class="o-sec">${oh('o-size', 2, land ? 'Land size' : 'Home size', land ? 'Total acreage' : 'Finished square feet, including any finished basement')}
     <div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
       <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${esc(o.label)}</span></span></button>`).join('')}</div></section>`;
   const svcs = a.sqftLabel ? `<section class="o-sec">${oh('o-svc', 3, 'Services', land ? 'Choose a land package' : 'Check a package, or pick individual services')}${vServices(true)}</section>` : '';
