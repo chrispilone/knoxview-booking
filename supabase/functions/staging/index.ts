@@ -64,7 +64,7 @@ async function claude(model: string, content: any[], system: string, maxTokens =
   const key = env('ANTHROPIC_API_KEY'); if (!key) throw new Bad('ANTHROPIC_API_KEY is missing.', 409);
   const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST',
     headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model, max_tokens: maxTokens, thinking: { type: 'disabled' }, system, messages: [{ role: 'user', content }] }) });
+    body: JSON.stringify({ model, max_tokens: maxTokens, thinking: { type: 'between_tools' }, system, messages: [{ role: 'user', content }] }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Bad(`Claude said ${r.status}: ${j?.error?.message || ''}`.trim(), 502);
   const text = (j.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text || '').join('').trim();
