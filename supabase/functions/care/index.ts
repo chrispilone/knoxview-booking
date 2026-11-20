@@ -61,7 +61,7 @@ async function claude(prompt: string, maxTokens = 400, system?: string): Promise
   const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST',
     headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
     // short, structured answers: thinking off (it would use up the token budget before any text)
-    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens + 400, thinking: { type: 'disabled' }, ...(system ? { system } : {}), messages: [{ role: 'user', content: prompt }] }) });
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens + 400, thinking: { type: 'between_tools' }, ...(system ? { system } : {}), messages: [{ role: 'user', content: prompt }] }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) return { error: `${r.status} ${j?.error?.message || ''}`.trim() };
   const text = (j.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text || '').join('').trim();
