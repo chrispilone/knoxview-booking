@@ -111,9 +111,13 @@ const largeVisible = () => largeEnabled() && inCart().size > 0;
 const svcPrice = s => +s.price + (!S.pkg && /^photography$/i.test(s.name) ? +(tierNow()?.t?.photo_fee || 0) : 0);
 // shown inside package prices: the package's own large-property fee, or the normal one
 const firstStep = () => +(homeTiers().find(o => +(o.fee || 0) > 0)?.fee || 0);
-const pkgLargeFee = p => p && p.large_fee != null ? +p.large_fee : firstStep();
+// Fixed home-size fees for one package, one per home tier (smallest first). Must match PKG_SIZE_FEES in booking/index.ts.
+// Base (Nov 25, 2026): $295 under 3,000 · $325 3,000–5,000 · $350 5,000+.
+const PKG_SIZE_FEES = { '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5': [0, 30, 55] };
+const pkgLargeFee = p => p && PKG_SIZE_FEES[p.id] ? PKG_SIZE_FEES[p.id][1] : p && p.large_fee != null ? +p.large_fee : firstStep();
 // added to a package's price for the chosen size (a package's own large-property fee replaces the first step up; bigger homes add the difference)
 const sizeAdj = p => { const z = tierNow(), fee = +(z?.t?.fee || 0); if (!fee) return 0;
+  if (z.kind === 'home' && p && PKG_SIZE_FEES[p.id]) { const f = PKG_SIZE_FEES[p.id]; return +(f[z.idx] ?? f[f.length - 1]); }
   return z.kind === 'home' && p && p.large_fee != null ? Math.max(0, +p.large_fee + fee - firstStep()) : fee; };
 // the fee to quote before a package is picked: the selected package's, or the one all shown packages share, else the normal fee
 const largeFeeShown = () => { if (S.pkg) return pkgLargeFee(svc(S.pkg)); const fs = [...new Set(packages().map(pkgLargeFee))]; return fs.length === 1 ? fs[0] : firstStep(); };
@@ -388,15 +392,11 @@ const SHOW_UPSELLS = true;
 const SHOW_PKG_EXAMPLES = false;
 // ===== Package add-on drop-down: opens under a package when it's picked (Base only for now).
 // Each entry is a normal add-on, charged at checkout at its live price from booking_services.
-// Drone Photos is no longer part of Base (Nov 2026), so it's offered here as a paid add-on.
+// Turned off Nov 25, 2026: Drone Photos is back in Base, so Base has no drop-down. Virtual Staging and 3D Floor Plan
+// show in the normal Add-ons list instead. To bring the drop-down back, add entries like:
+//   [BASE_ID]: [{ id: '9550aba6-e6a5-4072-8633-00b538039a4b' } /* Virtual Staging */, { id: 'ccbb8503-18b6-4f76-8193-5c7c056c97f0' } /* 3D Floor Plan */],
 const BASE_ID = '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5';
-const PKG_ADDONS = {
-  [BASE_ID]: [
-    { id: '4f9fc78e-74dd-45e6-9c6a-78006ecce230' }, // Drone Photos
-    { id: '9550aba6-e6a5-4072-8633-00b538039a4b' }, // Virtual Staging
-    { id: 'ccbb8503-18b6-4f76-8193-5c7c056c97f0' }, // 3D Floor Plan
-  ],
-};
+const PKG_ADDONS = {};
 const pkgAddonIds = () => new Set((PKG_ADDONS[S.pkg] || []).map(x => x.id));
 function vPkgAddons(pid) {
   const list = (PKG_ADDONS[pid] || []).filter(x => svc(x.id)); if (!list.length) return '';

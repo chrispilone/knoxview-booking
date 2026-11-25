@@ -125,6 +125,9 @@ function sizeTier(settings: any, label?: string, adu?: boolean) {
   i = land.findIndex(o => o.label === label);
   return i >= 0 ? { kind: 'land' as const, idx: i, t: land[i], tiers: land } : null;
 }
+// Fixed home-size fees for one package, one per home tier (smallest first). Must match PKG_SIZE_FEES in app.js.
+// Base (Nov 25, 2026): $295 under 3,000 · $325 3,000–5,000 · $350 5,000+.
+const PKG_SIZE_FEES: Record<string, number[]> = { '97876a6f-31bf-4b2e-b3c5-111d9dfc6ee5': [0, 30, 55] };
 type Sel = { packageId?: string | null; serviceIds?: string[]; sqftLabel?: string; adu?: boolean };
 function price(cat: Awaited<ReturnType<typeof loadCatalog>>, sel: Sel) {
   const byId = new Map<string, any>(cat.services.map(s => [s.id, s]));
@@ -145,7 +148,9 @@ function price(cat: Awaited<ReturnType<typeof loadCatalog>>, sel: Sel) {
   if (pkg && t && +(t.fee || 0) > 0) {
     // a package can have its own large-property fee: it replaces the first step up; bigger homes add the difference on top
     let fee = +t.fee!;
-    if (tier!.kind === 'home' && pkg.large_fee != null) { const first = +(tier!.tiers.find(o => +(o.fee || 0) > 0)?.fee || fee); fee = Math.max(0, +pkg.large_fee + fee - first); }
+    const fixed = tier!.kind === 'home' ? PKG_SIZE_FEES[pkg.id] : null;
+    if (fixed) fee = +(fixed[tier!.idx] ?? fixed[fixed.length - 1]);
+    else if (tier!.kind === 'home' && pkg.large_fee != null) { const first = +(tier!.tiers.find(o => +(o.fee || 0) > 0)?.fee || fee); fee = Math.max(0, +pkg.large_fee + fee - first); }
     if (fee > 0) items.push({ id: 'large', name: `${tier!.kind === 'land' ? 'Land' : 'Home'} size: ${t.label}`, kind: 'fee', price: fee, minutes: +(t.minutes || 0) });
   } else if (!pkg && t && +(t.photo_fee || 0) > 0) {
     const ph = items.find(i => i.kind === 'service' && /^photography$/i.test(i.name));
