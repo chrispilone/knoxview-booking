@@ -1931,10 +1931,8 @@ function vOne() {
   if (S.ptype === 'str') return vFormPick() + type;
   const haveSvc = inCart().size > 0, aOk = addrOk();
   const size = !S.ptype ? '' : `<section class="o-sec">${oh('o-size', 2, land ? 'Land size' : 'Home size', land ? 'Total acreage' : 'Finished square feet, including any finished basement')}
-    ${land ? `<div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
-      <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${esc(o.label)}</span></span></button>`).join('')}</div>`
-    : `<div class="lp-sel"><select id="o-size-sel" onchange="kv.size(this.value)" aria-label="Select square footage">
-      <option value="" ${a.sqftLabel ? '' : 'selected'} disabled>Select square footage</option>${opts.map(o => `<option value="${esc(o.label)}" ${a.sqftLabel === o.label ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>`}</section>`;
+    <div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
+      <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${esc(o.label)}</span></span></button>`).join('')}</div></section>`;
   const svcs = a.sqftLabel ? `<section class="o-sec">${oh('o-svc', 3, 'Services', land ? 'Choose a land package' : 'Check a package, or pick individual services')}${vServices(true)}</section>` : '';
   // Add-ons: listing media only, once a package is picked (services not already in the package)
   const cov = covered(), inDrop = pkgAddonIds(), adds = !land && S.pkg ? addonList().filter(x => !cov.has(x.id) && !inDrop.has(x.id)) : [];
