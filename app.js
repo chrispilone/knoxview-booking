@@ -1930,7 +1930,7 @@ function vOne() {
     ${S.ptype === 'str' ? `<div class="soon"><b>Short-term rental media is coming soon.</b> Text us at <a href="${SMS_LINK}">865-855-5669</a> and we'll set up your shoot.</div>` : ''}</section>`;
   if (S.ptype === 'str') return vFormPick() + type;
   const haveSvc = inCart().size > 0, aOk = addrOk();
-  const size = !S.ptype ? '' : `<section class="o-sec">${oh('o-size', 2, land ? 'Land size' : 'Home size', land ? 'Total acreage' : 'Finished square feet, including any finished basement')}
+  const size = !S.ptype ? '' : `<section class="o-sec">${oh('o-size', 2, land ? 'Land size' : 'Home size', land ? 'Total acreage' : 'Select a square footage range.')}
     <div class="list">${opts.map(o => `<button class="row ${a.sqftLabel === o.label ? 'sel' : ''}" onclick="kv.size(${esc(JSON.stringify(o.label))})" aria-pressed="${a.sqftLabel === o.label}">
       <span class="box rad">${CHECK}</span><span class="row-t"><span class="row-n">${esc(o.label)}</span></span></button>`).join('')}</div></section>`;
   const svcs = a.sqftLabel ? `<section class="o-sec">${oh('o-svc', 3, 'Services', land ? 'Choose a land package' : 'Check a package, or pick individual services')}${vServices(true)}</section>` : '';
