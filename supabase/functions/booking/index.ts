@@ -1,3 +1,4 @@
+import { r2Delivery, zipSig } from '../library/delivery.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sign, dropboxFiles, dropboxZip, dropboxConfigured, parseVimeo, vimeoEmbed, vimeoInfo, vimeoConfigured, cleanDropboxLink, galleryEntries, galleryName, galleryAddress, MEDIA_BASE } from './lib.ts';
@@ -386,14 +387,20 @@ async function deliveryFor(agent: any, key: string) {
     const locked = !!b && !b.paid && b.require_payment !== false; // pay before download (switch per order in HQ; HQ deliveries outside the portal are paid elsewhere)
     const done = projects.filter(p => p.status === 'delivered');
     // The order's photo gallery: Dropbox + uploaded photos, in the order set in HQ's Media Library (locked into the file names)
-    const gallery = b ? galleryEntries(b) : [];
-    const photoLinks = [gallery.length ? null : b?.photos_url, ...done.filter(p => p.media === 'photo').map(p => p.dropbox_url)].filter(Boolean).map(cleanDropboxLink);
+    // Orders on the R2 Media Library (bookings.media_store = 'r2'): photos, floor plans, files and Download All zips come from R2
+    const r2 = b?.media_store === 'r2' ? await (async () => {
+      const { data: items } = await admin.from('media_items').select('*').eq('booking_id', b.id);
+      const { data: zips } = await admin.from('media_zips').select('*').eq('booking_id', b.id);
+      return r2Delivery(b, items ?? [], zips ?? [], locked, v => zipSig(b, items ?? [], v));
+    })() : null;
+    const gallery = b && !r2 ? galleryEntries(b) : [];
+    const photoLinks = [gallery.length || r2 ? null : b?.photos_url, ...done.filter(p => p.media === 'photo').map(p => p.dropbox_url)].filter(Boolean).map(cleanDropboxLink);
     const videoLinks: { url: string; label?: string }[] = [...((b?.videos as any[]) ?? []).filter(v => v?.url), ...done.filter(p => p.media === 'video').flatMap(p => [p.vimeo_url && { url: p.vimeo_url, label: p.name }, p.dropbox_url && { url: p.dropbox_url, label: p.name }]).filter(Boolean)];
     // Clients never see Dropbox links: everything goes through our signed `media` links. Before payment they get previews only.
     const pretty = (n: string) => n.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     const direct = ((b?.media_files as any[]) ?? []).filter(f => f?.url && /^https:\/\//.test(f.url));
     // photos: the order's gallery (numbered names = the Media Library order), then any Dropbox shared links from projects
-    const photos: any[] = [], folders: any[] = [];
+    const photos: any[] = r2 ? r2.photos : [], folders: any[] = r2 ? r2.folders : [];
     if (gallery.length) {
       const wm = locked ? { wm: 1 as const } : {}, addr = galleryAddress(b);
       if (!locked) folders.push({ zip: await sign({ src: 'zipb', bid: b.id, name: `${addr || 'Photos'} photos.zip`, dl: 1 }) });
@@ -439,14 +446,14 @@ async function deliveryFor(agent: any, key: string) {
       } else videos.push({ title: v.label || 'Video', share: locked ? null : v.url, embed: null, poster: null, open: locked ? null : v.url, download: null });
     }
     // floor plans: directly hosted files, or a Dropbox file/folder
-    const floorplans: any[] = [];
-    for (const f of direct.filter(f => f.kind === 'floorplan')) {
+    const floorplans: any[] = r2 ? [...r2.floorplans, ...r2.files] : []; // PDFs show with the floor plans, as before
+    for (const f of r2 ? [] : direct.filter(f => f.kind === 'floorplan')) {
       const name = f.name || `Floor plan - ${head.address}.${(f.url.split('.').pop() || 'jpg').slice(0, 4)}`;
       const wm = locked ? { wm: 1 as const } : {};
       floorplans.push({ name, thumb: await sign({ src: 'url', url: f.preview || f.url, v: 'thumb', name, ...wm }), view: await sign({ src: 'url', url: f.preview && locked ? f.preview : f.url, v: 'preview', name, ...wm }),
         web: null, high: locked ? null : await sign({ src: 'url', url: f.url, name, dl: 1 }) });
     }
-    if (b?.floorplan_url && /dropbox\.com/.test(b.floorplan_url)) {
+    if (r2) { /* floor plans come from R2 */ } else if (b?.floorplan_url && /dropbox\.com/.test(b.floorplan_url)) {
       const link = cleanDropboxLink(b.floorplan_url);
       const wm = locked ? { wm: 1 as const } : {};
       for (const f of ((await dropboxFiles(link).catch(() => null)) ?? []).filter(f => f.kind !== 'other')) floorplans.push({ name: f.name,
@@ -455,7 +462,7 @@ async function deliveryFor(agent: any, key: string) {
         web: null, high: locked ? null : await sign({ src: 'dbx', link, path: f.path, v: 'high', name: f.name, dl: 1 }) });
     } else if (b?.floorplan_url) floorplans.push({ name: 'Floor plan', open: locked ? null : b.floorplan_url });
     // floor plans synced from the order's Dropbox final floor plans folder
-    for (const f of ((b?.floorplan_files as any[]) ?? []).filter(f => f?.path)) {
+    for (const f of r2 ? [] : ((b?.floorplan_files as any[]) ?? []).filter(f => f?.path)) {
       const wm = locked ? { wm: 1 as const } : {}, img = !/\.pdf$/i.test(f.name);
       floorplans.push({ name: f.name,
         thumb: img ? await sign({ src: 'dbxp', path: f.path, v: 'thumb', name: f.name, ...wm }) : null,
