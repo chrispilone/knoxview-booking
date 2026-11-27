@@ -512,6 +512,28 @@ Deno.serve(async (req) => {
       const r = await dbxApi('files/copy_batch_v2', { entries, autorename: false });
       return json(req, await r.json());
     }
+    if (a === 'spiro_clients') { // every delivered Spiro order, grouped by client, with how many are already in HQ (for planning the import)
+      const rows: any[] = [];
+      for (let page = 1; page < 80; page++) {
+        const j = await spiro(`/orders?filter[status][eq]=delivered&filter[dateSubmitted][gte]=2015-01-01&page=${page}&pageSize=100`);
+        rows.push(...(j?.data ?? [])); if (!j?.meta?.hasNextPage) break;
+      }
+      const ids = rows.map(r => r.orderId), have = new Map<string, any>();
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data } = await admin.from('bookings').select('spiro_order_id, number, media_store').in('spiro_order_id', ids.slice(i, i + 200));
+        (data ?? []).forEach(x => have.set(x.spiro_order_id, x));
+      }
+      const by = new Map<string, any>();
+      for (const r of rows) {
+        const k = r.client?.agentId || r.client?.agentName || '?';
+        const c = by.get(k) ?? { agentId: r.client?.agentId, agent: r.client?.agentName, company: r.client?.companyName, orders: 0, inHq: 0, onR2: 0, total: 0, first: null, last: null };
+        c.orders++; c.total += +(r.totalSalePrice || 0);
+        const h = have.get(r.orderId); if (h) { c.inHq++; if (h.media_store === 'r2') c.onR2++; }
+        const d = String(r.dateSubmitted || '').slice(0, 10); if (d) { if (!c.first || d < c.first) c.first = d; if (!c.last || d > c.last) c.last = d; }
+        by.set(k, c);
+      }
+      return json(req, { delivered: rows.length, clients: [...by.values()].sort((x, y) => y.orders - x.orders) });
+    }
     if (a === 'cors') { if (!me.owner) throw new Bad('Owner only.', 403); return json(req, { set: await R2.setCors(ORIGINS.filter(o => o.startsWith('https'))), now: await R2.getCors() }); }
     if (a === 'job') {
       const { data } = await admin.from('media_jobs').select('id, booking_id, kind, status, total, done, error, report, created_at, updated_at').eq('id', String(body.jobId || '')).maybeSingle();
