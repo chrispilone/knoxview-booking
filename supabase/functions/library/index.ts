@@ -79,7 +79,7 @@ async function caller(req: Request) {
 }
 
 /* ---------- data ---------- */
-const BCOLS = 'id, number, status, address, unit, city, state, paid, require_payment, invoice, dropbox_path, dropbox_photos_dir, dropbox_plans_dir, spiro_order_id, media_store, videos, tour_url, public_token, agent_id';
+const BCOLS = 'id, number, status, source, imported_at, spiro_links, address, unit, city, state, paid, require_payment, invoice, dropbox_path, dropbox_photos_dir, dropbox_plans_dir, spiro_order_id, media_store, videos, tour_url, public_token, agent_id';
 async function booking(id: string) {
   if (!/^[0-9a-f-]{36}$/i.test(String(id || ''))) throw new Bad('Which order?');
   const { data } = await admin.from('bookings').select(BCOLS).eq('id', id).maybeSingle();
@@ -92,6 +92,7 @@ async function itemsOf(bid: string) {
   return data ?? [];
 }
 const needR2 = (b: any) => { if (b.media_store !== 'r2') throw new Bad('This order is not on the new Media Library yet.', 409); };
+const imported = (b: any) => !!b.spiro_order_id || b.source === 'spiro';
 const locked = (b: any) => !b.paid && b.require_payment !== false;
 
 /* ---------- jobs (run in the background, one slice per invocation, handing over to the next) ---------- */
@@ -225,7 +226,8 @@ async function stepArchive(job: any, b: any, more: () => boolean) {
       patch.size_full = full.length; patch.crc_full = R2.crc32(full);
       const px = pixelSize(full); if (px) { patch.width = px.w; patch.height = px.h; }
       if (it.key_web) { const web = await fetchBytes(await R2.get(it.key_web), 'R2 read web'); patch.size_web = web.length; patch.crc_web = R2.crc32(web); }
-      if (!b.dropbox_path) { patch.archive_status = 'failed'; patch.archive_error = "The order has no Dropbox folder yet."; }
+      if (imported(b)) { patch.archive_status = 'n/a'; patch.archive_error = null; } // imported Spiro orders: R2 only, never written to Dropbox
+      else if (!b.dropbox_path) { patch.archive_status = 'failed'; patch.archive_error = "The order has no Dropbox folder yet."; }
       else {
         const sub = it.edit_type === 'Virtual Staging' ? 'Virtual Staging' : it.edit_type === 'Virtual Twilight' ? 'Virtual Twilight' : it.edit_type ? 'Other Edits' : 'Added in HQ';
         const path = `${b.dropbox_path}/${sub}/${clean(it.name)}`;
@@ -282,7 +284,28 @@ async function planSpiro(b: any, spiroId: string) {
     floorplans: plans.filter((p: any) => p.displayPageActive !== false).length, files: files.filter((p: any) => p.displayPageActive !== false).length,
     videos: vids.length, tours: tourUrls.length, fullResolutionLinks: photos.filter((p: any) => p.image?.highResolutionUrl).length,
   };
-  return { work, spiroCounts, vids, tourUrls, code: o.identity?.trackingCode || null };
+  // links back to the original: Spiro's property page (branded / unbranded) and the original Dropbox folder (found, never created)
+  const folder = b.dropbox_path || await findSpiroFolder(o).catch(e => { console.error('spiro folder', String(e)); return null; });
+  const links = { spiroOrderId: spiroId, spiroOrderNo: o.identity?.trackingCode || null,
+    spiroPage: o.website?.brandedAssetUrl || null, spiroPageUnbranded: o.website?.unbrandedAssetUrl || null,
+    dropboxFolder: folder, dropboxUrl: folder ? 'https://www.dropbox.com/home' + folder.split('/').map(encodeURIComponent).join('/') : null };
+  return { work, spiroCounts, vids, tourUrls, code: o.identity?.trackingCode || null, links };
+}
+// The Spiro-era Dropbox folder: "<MM.DD.YYYY> <nn> <address-slug>  (<client>)" somewhere under the Spiro uploads root. Search only.
+const SPIRO_ROOT = '/Chris Pilone/CCREP (Spiro Uploads)';
+const slugify = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+async function findSpiroFolder(o: any) {
+  const street = o.property?.address?.streetAddress || '';
+  const sl = slugify(street); if (!sl) return null;
+  const r = await dbxApi('files/search_v2', { query: street, options: { path: SPIRO_ROOT, file_status: 'active', filename_only: true, max_results: 50, file_categories: ['folder'] } });
+  if (!r.ok) { await r.body?.cancel(); return null; }
+  const j = await r.json();
+  const hits = (j.matches ?? []).map((m: any) => m.metadata?.metadata).filter((e: any) => e?.['.tag'] === 'folder' && `-${slugify(e.name)}-`.includes(`-${sl}-`));
+  if (!hits.length) return null;
+  const day = (n: string) => { const m = n.match(/^(\d\d)\.(\d\d)\.(\d{4})/); return m ? Date.parse(`${m[3]}-${m[1]}-${m[2]}T12:00:00Z`) : 0; };
+  const want = Date.parse(o.identity?.dateSubmitted || '') || Date.now();
+  hits.sort((a: any, b2: any) => Math.abs(day(a.name) - want) - Math.abs(day(b2.name) - want));
+  return hits[0].path_display as string;
 }
 async function stepSpiro(job: any, b: any, more: () => boolean) {
   const st = job.state; st.i ??= 0; st.px ??= [];
@@ -441,7 +464,7 @@ async function listFor(b: any) {
   const { data: jobs } = await admin.from('media_jobs').select('id, kind, status, total, done, error, report, created_at, updated_at').eq('booking_id', b.id).order('created_at', { ascending: false }).limit(10);
   const { data: zips } = await admin.from('media_zips').select('variant, size, count, built_at, sig').eq('booking_id', b.id);
   const cur = { full: await zipSig(b, items, 'full'), web: await zipSig(b, items, 'web') };
-  return { items: out, jobs, zips: (zips ?? []).map(z => ({ ...z, current: z.sig === (cur as any)[z.variant] })), media_store: b.media_store, dropbox_path: b.dropbox_path, locked: locked(b) };
+  return { links: b.spiro_links ?? null, imported: imported(b), items: out, jobs, zips: (zips ?? []).map(z => ({ ...z, current: z.sig === (cur as any)[z.variant] })), media_store: b.media_store, dropbox_path: b.dropbox_path, locked: locked(b) };
 }
 
 Deno.serve(async (req) => {
@@ -514,8 +537,9 @@ Deno.serve(async (req) => {
       const sid = String(body.spiroOrderId || b.spiro_order_id || '');
       if (!/^[0-9a-f-]{36}$/i.test(sid)) throw new Bad('This order did not come from Spiro.');
       const p = await planSpiro(b, sid);
+      await admin.from('bookings').update({ spiro_links: { ...(b.spiro_links ?? {}), ...p.links }, updated_at: now() }).eq('id', b.id);
       const jobId = await newJob(b.id, 'spiro_import', { work: p.work, spiroCounts: p.spiroCounts, vids: p.vids, tourUrls: p.tourUrls, code: p.code }, p.work.length, me.id);
-      return json(req, { jobId, toCopy: p.work.length, spiro: p.spiroCounts });
+      return json(req, { jobId, toCopy: p.work.length, spiro: p.spiroCounts, links: p.links });
     }
     if (a === 'upload_urls') {
       const files = ((body.files as any[]) ?? []).slice(0, 200);
@@ -528,7 +552,7 @@ Deno.serve(async (req) => {
         const kind = /\.pdf$/i.test(name) ? 'file' : f.kind === 'floorplan' ? 'floorplan' : 'photo';
         const id = crypto.randomUUID(), ext = fullExt({ name });
         const row: any = { id, booking_id: b.id, kind, name, source: f.edit_type ? 'hq_edit' : 'hq_upload', edit_type: f.edit_type || null, edit_label: f.edit_label || null,
-          parent_id: f.parent_id || null, position: kind === 'photo' ? ++pos : 0, key_full: keyFor(b.id, id, 'full', ext), type_full: typeOf(name), hidden: true, archive_status: 'pending' };
+          parent_id: f.parent_id || null, position: kind === 'photo' ? ++pos : 0, key_full: keyFor(b.id, id, 'full', ext), type_full: typeOf(name), hidden: true, archive_status: imported(b) ? 'n/a' : 'pending' };
         if (kind !== 'file') { row.key_web = keyFor(b.id, id, 'web'); row.key_thumb = keyFor(b.id, id, 'thumb'); }
         const { error } = await admin.from('media_items').insert(row); if (error) throw new Error(error.message);
         out.push({ id, name, put: { full: await R2.presign('PUT', row.key_full, 3600), web: row.key_web ? await R2.presign('PUT', row.key_web, 3600) : null, thumb: row.key_thumb ? await R2.presign('PUT', row.key_thumb, 3600) : null }, type: row.type_full });
