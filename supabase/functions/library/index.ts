@@ -466,6 +466,16 @@ Deno.serve(async (req) => {
       return json(req, { writeRead: back === txt, signedGet: signed.ok && signedText === txt, unsignedBlocked: !unsigned.ok, unsignedStatus: unsigned.status,
         downloadName: dl.headers.get('content-disposition'), multipartSize: mh?.size, deleted: !gone, cors: await R2.getCors() });
     }
+    if (a === 'dbx_list' || a === 'dbx_copy') { // internal test helpers: list a Dropbox folder / copy files into a test order's folders
+      if (!me.internal) throw new Bad('Internal only.', 403);
+      if (a === 'dbx_list') return json(req, { files: await dbxList(String(body.path || '')) });
+      const dirs = ((body.dirs as string[]) ?? []).map(String);
+      if (dirs.length) { const r = await dbxApi('files/create_folder_batch', { paths: dirs, autorename: false, force_async: false }); await r.body?.cancel(); }
+      const entries = ((body.copies as any[]) ?? []).map(c => ({ from_path: String(c.from), to_path: String(c.to) }));
+      if (!entries.length) return json(req, { ok: true });
+      const r = await dbxApi('files/copy_batch_v2', { entries, autorename: false });
+      return json(req, await r.json());
+    }
     if (a === 'cors') { if (!me.owner) throw new Bad('Owner only.', 403); return json(req, { set: await R2.setCors(ORIGINS.filter(o => o.startsWith('https'))), now: await R2.getCors() }); }
     if (a === 'job') {
       const { data } = await admin.from('media_jobs').select('id, booking_id, kind, status, total, done, error, report, created_at, updated_at').eq('id', String(body.jobId || '')).maybeSingle();
