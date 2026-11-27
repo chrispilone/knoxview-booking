@@ -185,28 +185,28 @@ async function stepDropbox(job: any, b: any, more: () => boolean) {
   const have = await itemsOf(b.id);
   const maxPos: Record<string, number> = {};
   for (const i of have) maxPos[i.kind] = Math.max(maxPos[i.kind] ?? -1, i.position);
-  while (st.i < st.work.length && more()) {
-    const w = st.work[st.i];
+  const one = async (w: any, pos: number | null) => {
     const id = w.id || crypto.randomUUID(), ext = fullExt(w);
     const full = await fetchBytes(await dropboxPathStream(w.path, 'high'), 'Dropbox download ' + w.name);
     const row: any = { id, booking_id: b.id, kind: w.kind, name: w.name, source: 'dropbox', dropbox_path: w.path, dropbox_rev: w.hash,
       key_full: keyFor(b.id, id, 'full', ext), size_full: full.length, crc_full: R2.crc32(full), type_full: typeOf(w.name), updated_at: now() };
+    // Dropbox makes the web size and the preview (free, no resizing here); fetched while the original uploads
+    const webP = w.kind === 'photo' ? dropboxPathStream(w.path, 'web').then(r => fetchBytes(r, 'Dropbox web size ' + w.name)) : null;
+    const thP = w.kind !== 'file' ? dropboxPathStream(w.path, 'thumb').then(r => fetchBytes(r, 'Dropbox preview ' + w.name)) : null;
+    const px = w.kind !== 'file' ? pixelSize(full) : null; if (px) { row.width = px.w; row.height = px.h; }
     await R2.put(row.key_full, full, row.type_full);
-    if (w.kind !== 'file') { // images: Dropbox makes the web size and the preview (free, no resizing here)
-      const px = pixelSize(full); if (px) { row.width = px.w; row.height = px.h; }
-      if (w.kind === 'photo') {
-        const web = await fetchBytes(await dropboxPathStream(w.path, 'web'), 'Dropbox web size ' + w.name);
-        row.key_web = keyFor(b.id, id, 'web'); row.size_web = web.length; row.crc_web = R2.crc32(web);
-        await R2.put(row.key_web, web, 'image/jpeg');
-      }
-      const th = await fetchBytes(await dropboxPathStream(w.path, 'thumb'), 'Dropbox preview ' + w.name);
-      row.key_thumb = keyFor(b.id, id, 'thumb'); row.size_thumb = th.length;
-      await R2.put(row.key_thumb, th, 'image/jpeg');
-    }
-    if (!w.id) row.position = (maxPos[w.kind] = (maxPos[w.kind] ?? -1) + 1);
+    if (webP) { const web = await webP; row.key_web = keyFor(b.id, id, 'web'); row.size_web = web.length; row.crc_web = R2.crc32(web); await R2.put(row.key_web, web, 'image/jpeg'); }
+    if (thP) { const th = await thP; row.key_thumb = keyFor(b.id, id, 'thumb'); row.size_thumb = th.length; await R2.put(row.key_thumb, th, 'image/jpeg'); }
+    if (pos !== null) row.position = pos;
     const { error } = await admin.from('media_items').upsert(row);
     if (error) throw new Error(error.message);
-    st.i++; job.done = st.i;
+  };
+  const PAR = 4; // photos at a time
+  while (st.i < st.work.length && more()) {
+    const batch = st.work.slice(st.i, st.i + PAR);
+    await Promise.all(batch.map((w: any) => one(w, w.id ? null : (maxPos[w.kind] = (maxPos[w.kind] ?? -1) + 1))));
+    st.i += batch.length; job.done = st.i;
+    await saveJob(job.id, { done: st.i }); // progress for HQ
   }
   return st.i >= st.work.length;
 }
@@ -545,6 +545,24 @@ Deno.serve(async (req) => {
       for (const [i, id] of ids.entries()) await admin.from('media_items').update({ position: i, updated_at: now() }).eq('booking_id', b.id).eq('id', id);
       await queueZips(b.id, me.id);
       return json(req, { ok: true });
+    }
+    if (a === 'zip_check') { // reads each Download All zip back and checks every file's checksum
+      const { data: zs } = await admin.from('media_zips').select('*').eq('booking_id', b.id);
+      const out: any[] = [];
+      for (const z of zs ?? []) {
+        const bytes = await fetchBytes(await R2.get(z.key), 'zip'), v = new DataView(bytes.buffer, bytes.byteOffset);
+        const eo = bytes.length - 22; if (v.getUint32(eo, true) !== 0x06054b50) { out.push({ variant: z.variant, ok: false, why: 'no end record' }); continue; }
+        const n = v.getUint16(eo + 10, true); let p = v.getUint32(eo + 16, true); const names: string[] = []; let bad = 0;
+        for (let k = 0; k < n; k++) {
+          const crc = v.getUint32(p + 16, true), size = v.getUint32(p + 20, true), nl = v.getUint16(p + 28, true), off = v.getUint32(p + 42, true);
+          const name = new TextDecoder().decode(bytes.subarray(p + 46, p + 46 + nl)); names.push(name);
+          const lnl = v.getUint16(off + 26, true), data = bytes.subarray(off + 30 + lnl, off + 30 + lnl + size);
+          if (v.getUint32(off, true) !== 0x04034b50 || R2.crc32(data) !== crc) bad++;
+          p += 46 + nl;
+        }
+        out.push({ variant: z.variant, ok: bad === 0, files: n, bad, bytes: bytes.length, first: names[0], last: names[names.length - 1] });
+      }
+      return json(req, { zips: out });
     }
     if (a === 'build_zips') return json(req, { jobId: await queueZips(b.id, me.id) });
     if (a === 'delivery_preview') {
