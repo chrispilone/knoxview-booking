@@ -20,7 +20,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { dbxApi, dropboxPathStream, dropboxUpload, dropboxConfigured } from './lib.ts';
 import * as R2 from './r2.ts';
-import { r2Delivery, visible, photoName, fullExt, addrSlug } from './delivery.ts';
+import { r2Delivery, visible, photoName, fullExt, zipSig } from './delivery.ts';
 
 const env = (k: string) => (Deno.env.get(k) ?? '').trim();
 const SB_URL = env('SUPABASE_URL').replace(/\/$/, '');
@@ -134,6 +134,7 @@ async function runJob(jobId: string) {
       await saveJob(jobId, { status: 'done', done: job.total || job.done, state: job.state, report: job.report ?? null });
       if (job.kind !== 'zip') await queueZips(b.id);
       else if (job.state?.again) await queueZips(b.id);
+      await setCover(b).catch(e => console.error('cover', String(e)));
     } else { await saveJob(jobId, { done: job.done, state: { ...job.state, handover: true }, report: job.report ?? null }); await kick(jobId); } // kick returns as soon as the next slice has started
   } catch (e) {
     console.error('job', job.kind, jobId, String((e as Error)?.stack || e));
@@ -281,7 +282,7 @@ async function planSpiro(b: any, spiroId: string) {
     floorplans: plans.filter((p: any) => p.displayPageActive !== false).length, files: files.filter((p: any) => p.displayPageActive !== false).length,
     videos: vids.length, tours: tourUrls.length, fullResolutionLinks: photos.filter((p: any) => p.image?.highResolutionUrl).length,
   };
-  return { work, spiroCounts, vids, tourUrls, code: o.trackingCode || null };
+  return { work, spiroCounts, vids, tourUrls, code: o.identity?.trackingCode || null };
 }
 async function stepSpiro(job: any, b: any, more: () => boolean) {
   const st = job.state; st.i ??= 0; st.px ??= [];
@@ -333,15 +334,6 @@ async function stepSpiro(job: any, b: any, more: () => boolean) {
 }
 
 /* ---------- Download All zips (prebuilt in R2; stored, not compressed: photos don't shrink) ---------- */
-async function zipSig(b: any, items: any[], v: 'full' | 'web') {
-  const ph = visible(items, 'photo');
-  if (!ph.length) return null;
-  const k = (it: any) => v === 'full' ? it.key_full : it.key_web;
-  if (v === 'full' && !ph.some(it => it.key_full)) return null; // e.g. Spiro mirror: Web Size only
-  const parts = ph.map(it => `${it.id}:${k(it) || it.key_web}:${v === 'full' && it.key_full ? it.crc_full : it.crc_web}`);
-  const s = JSON.stringify([v, addrSlug(b), parts]);
-  return [...new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s)))].slice(0, 10).map(x => x.toString(16).padStart(2, '0')).join('');
-}
 function zipEntries(b: any, items: any[], v: 'full' | 'web') {
   const ph = visible(items, 'photo');
   return ph.map((it, i) => { const full = v === 'full' && it.key_full;
@@ -416,6 +408,23 @@ async function stepZip(job: any, b: any, more: () => boolean) {
   if (old?.key && old.key !== st.key) await R2.del(old.key);
   st.v = null; st.entries = null; st.central = null; st.etags = null; st.uploadId = null;
   return false; // next variant (or done) on the next slice
+}
+
+/* ---------- order cover (portal lists, link previews): the first photo's preview, in the public covers bucket ---------- */
+async function setCover(b: any) {
+  const first = visible(await itemsOf(b.id), 'photo')[0];
+  const src = first ? `r2:${first.id}:${first.crc_web ?? first.size_thumb}` : null;
+  const { data: cur } = await admin.from('bookings').select('cover_src, cover_url').eq('id', b.id).single();
+  if (src === (cur?.cover_src ?? null) && (!src || cur?.cover_url)) return;
+  if (!first) { await admin.from('bookings').update({ cover_url: null, cover_src: null }).eq('id', b.id); return; }
+  const bytes = await fetchBytes(await R2.get(first.key_thumb || first.key_web), 'cover');
+  const path = `${b.id}/${Date.now()}.jpg`;
+  const up = await admin.storage.from('covers').upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
+  if (up.error) throw new Error('cover upload: ' + up.error.message);
+  const { data: old } = await admin.storage.from('covers').list(b.id);
+  const stale = (old ?? []).map(o => `${b.id}/${o.name}`).filter(p => p !== path);
+  if (stale.length) await admin.storage.from('covers').remove(stale);
+  await admin.from('bookings').update({ cover_url: admin.storage.from('covers').getPublicUrl(path).data.publicUrl, cover_src: src }).eq('id', b.id);
 }
 
 /* ---------- HQ view ---------- */

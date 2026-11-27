@@ -25,6 +25,17 @@ export const fullExt = (it: any) => extOf(it.name);
 
 export const visible = (items: any[], kind: string) => items.filter(i => i.kind === kind && !i.hidden && (i.key_web || i.key_full)).sort((a, b) => a.position - b.position || String(a.created_at).localeCompare(String(b.created_at)));
 
+// Fingerprint of the photos in a Download All zip (null = no zip of that kind, e.g. Full Resolution for Spiro mirrors)
+export async function zipSig(b: any, items: any[], v: 'full' | 'web') {
+  const ph = visible(items, 'photo');
+  if (!ph.length) return null;
+  const k = (it: any) => v === 'full' ? it.key_full : it.key_web;
+  if (v === 'full' && !ph.some(it => it.key_full)) return null; // e.g. Spiro mirror: Web Size only
+  const parts = ph.map(it => `${it.id}:${k(it) || it.key_web}:${v === 'full' && it.key_full ? it.crc_full : it.crc_web}`);
+  const s = JSON.stringify([v, addrSlug(b), parts]);
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s)))].slice(0, 10).map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
 export async function r2Delivery(b: any, items: any[], zips: any[], locked: boolean, currentSig: (variant: 'full' | 'web') => Promise<string | null>) {
   const s = LINK_HOURS * 3600, wm = { wm: 1 as const };
   const photos: any[] = [], floorplans: any[] = [], files: any[] = [], folders: any[] = [];
