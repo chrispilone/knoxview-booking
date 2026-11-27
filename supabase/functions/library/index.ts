@@ -471,6 +471,10 @@ Deno.serve(async (req) => {
       if (a === 'dbx_list') return json(req, { files: await dbxList(String(body.path || '')) });
       const dirs = ((body.dirs as string[]) ?? []).map(String);
       if (dirs.length) { const r = await dbxApi('files/create_folder_batch', { paths: dirs, autorename: false, force_async: false }); await r.body?.cancel(); }
+      for (const c of ((body.overwrite as any[]) ?? [])) { // replace a file in place (simulates an editor's fix)
+        const bytes = await fetchBytes(await dropboxPathStream(String(c.from), 'high'), 'Dropbox download');
+        const up = await dropboxUpload(String(c.to), bytes); await up.body?.cancel();
+      }
       const entries = ((body.copies as any[]) ?? []).map(c => ({ from_path: String(c.from), to_path: String(c.to) }));
       if (!entries.length) return json(req, { ok: true });
       const r = await dbxApi('files/copy_batch_v2', { entries, autorename: false });
@@ -545,6 +549,16 @@ Deno.serve(async (req) => {
       for (const [i, id] of ids.entries()) await admin.from('media_items').update({ position: i, updated_at: now() }).eq('booking_id', b.id).eq('id', id);
       await queueZips(b.id, me.id);
       return json(req, { ok: true });
+    }
+    if (a === 'test_upload') { // internal: does exactly what HQ's browser does (presigned PUTs), with a photo from Dropbox
+      if (!me.internal) throw new Bad('Internal only.', 403);
+      const src = String(body.from || ''), name = String(body.name || src.split('/').pop());
+      const r = await (await fetch(SELF, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-hq-hook': await hookSecret() }, body: JSON.stringify({ action: 'upload_urls', bookingId: b.id, files: [{ name, edit_type: body.edit_type }] }) })).json();
+      const f = r.files[0];
+      const full = await fetchBytes(await dropboxPathStream(src, 'high'), 'src'), web = await fetchBytes(await dropboxPathStream(src, 'web'), 'web'), th = await fetchBytes(await dropboxPathStream(src, 'thumb'), 'thumb');
+      const puts = await Promise.all([[f.put.full, full, f.type], [f.put.web, web, 'image/jpeg'], [f.put.thumb, th, 'image/jpeg']].map(async ([u, d, t]: any) => { const x = await fetch(u, { method: 'PUT', body: d, headers: { 'Content-Type': t } }); await x.body?.cancel(); return x.status; }));
+      const done = await (await fetch(SELF, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-hq-hook': await hookSecret() }, body: JSON.stringify({ action: 'upload_done', bookingId: b.id, ids: [f.id] }) })).json();
+      return json(req, { id: f.id, puts, done });
     }
     if (a === 'zip_check') { // reads each Download All zip back and checks every file's checksum
       const { data: zs } = await admin.from('media_zips').select('*').eq('booking_id', b.id);
