@@ -23,7 +23,10 @@ const money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractio
 const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 const STEPS = ['Property', 'Services', 'Schedule', 'Review & Pay']; // address first; to revert, swap back here + in isValid/validate/navs/render
 
-async function api(action, body = {}, fn = 'booking') {
+// Preview builds of the media-library-r2 branch (Netlify deploy previews) talk to the test copy of the booking function,
+// so the R2 Media Library can be checked on real pages without changing the live one. Production always uses `booking`.
+const BOOKING_FN = /^(deploy-preview-\d+|media-library-r2)--knoxview-booking\.netlify\.app$/.test(location.hostname) ? 'booking-r2test' : 'booking';
+async function api(action, body = {}, fn = BOOKING_FN) {
   const { data, error } = await sb.functions.invoke(fn, { body: { action, ...body } });
   if (error) {
     let msg = 'Something went wrong. Please try again.';
